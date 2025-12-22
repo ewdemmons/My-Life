@@ -1,7 +1,7 @@
 import React, { useState } from "react";
-import { View, Pressable, StyleSheet, Modal } from "react-native";
+import { View, Pressable, StyleSheet, Modal, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Animated, {
   useAnimatedStyle,
   withSpring,
@@ -9,7 +9,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { useTheme } from "@/hooks/useTheme";
-import { Colors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
+import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -19,11 +19,15 @@ interface FABProps {
   onAddTask: () => void;
 }
 
+const TAB_BAR_HEIGHT = Platform.select({ ios: 49, android: 56, default: 50 });
+
 export function FAB({ onAddCategory, onAddTask }: FABProps) {
   const { theme, isDark } = useTheme();
-  const tabBarHeight = useBottomTabBarHeight();
+  const insets = useSafeAreaInsets();
   const [isOpen, setIsOpen] = useState(false);
   const scale = useSharedValue(1);
+
+  const bottomOffset = insets.bottom + TAB_BAR_HEIGHT + Spacing.lg;
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -59,7 +63,7 @@ export function FAB({ onAddCategory, onAddTask }: FABProps) {
           animatedStyle,
           {
             backgroundColor: theme.primary,
-            bottom: tabBarHeight + Spacing.lg,
+            bottom: bottomOffset,
             ...Shadows.fab,
           },
         ]}
