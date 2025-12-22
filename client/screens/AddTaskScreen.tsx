@@ -1,8 +1,8 @@
-import React, { useState, useLayoutEffect } from "react";
-import { View, StyleSheet, Pressable, TextInput, Platform } from "react-native";
+import React, { useState, useLayoutEffect, useCallback } from "react";
+import { View, StyleSheet, Pressable, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
-import { HeaderButton } from "@react-navigation/elements";
+import { HeaderButton, useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -18,6 +18,7 @@ const PRIORITIES = ["low", "medium", "high"] as const;
 
 export default function AddTaskScreen() {
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<RouteParams>();
@@ -32,6 +33,20 @@ export default function AddTaskScreen() {
   const [dueDate, setDueDate] = useState(new Date().toISOString().split("T")[0]);
 
   const isValid = title.trim().length > 0 && categoryId;
+
+  const handleSave = useCallback(async () => {
+    if (!title.trim() || !categoryId) return;
+    await addTask({
+      title: title.trim(),
+      description: description.trim(),
+      categoryId,
+      parentId: route.params?.parentTaskId || null,
+      dueDate,
+      priority,
+      status: "pending",
+    });
+    navigation.goBack();
+  }, [title, description, categoryId, priority, dueDate, route.params?.parentTaskId, addTask, navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -48,21 +63,7 @@ export default function AddTaskScreen() {
         </HeaderButton>
       ),
     });
-  }, [navigation, title, isValid, theme]);
-
-  const handleSave = async () => {
-    if (!isValid) return;
-    await addTask({
-      title: title.trim(),
-      description: description.trim(),
-      categoryId,
-      parentId: route.params?.parentTaskId || null,
-      dueDate,
-      priority,
-      status: "pending",
-    });
-    navigation.goBack();
-  };
+  }, [navigation, isValid, theme, handleSave]);
 
   const selectedCategory = categories.find((c) => c.id === categoryId);
 
@@ -70,7 +71,7 @@ export default function AddTaskScreen() {
     <KeyboardAwareScrollViewCompat
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
-        paddingTop: Spacing.xl,
+        paddingTop: headerHeight + Spacing.lg,
         paddingBottom: insets.bottom + Spacing.xl,
         paddingHorizontal: Spacing.lg,
       }}

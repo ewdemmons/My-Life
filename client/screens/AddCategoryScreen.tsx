@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useLayoutEffect } from "react";
-import { View, StyleSheet, Pressable, ScrollView, TextInput } from "react-native";
+import React, { useState, useLayoutEffect, useCallback } from "react";
+import { View, StyleSheet, Pressable, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
-import { HeaderButton } from "@react-navigation/elements";
+import { HeaderButton, useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -22,6 +22,7 @@ type RouteParams = RouteProp<RootStackParamList, "AddCategory">;
 
 export default function AddCategoryScreen() {
   const insets = useSafeAreaInsets();
+  const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
   const navigation = useNavigation();
   const route = useRoute<RouteParams>();
@@ -36,6 +37,27 @@ export default function AddCategoryScreen() {
   const [icon, setIcon] = useState(editingCategory?.icon || ICONS[0]);
 
   const isValid = name.trim().length > 0;
+
+  const handleSave = useCallback(async () => {
+    if (!name.trim()) return;
+    
+    if (isEditing && editingCategory) {
+      await updateCategory(editingCategory.id, {
+        name: name.trim(),
+        description: description.trim(),
+        color,
+        icon,
+      });
+    } else {
+      await addCategory({
+        name: name.trim(),
+        description: description.trim(),
+        color,
+        icon,
+      });
+    }
+    navigation.goBack();
+  }, [name, description, color, icon, isEditing, editingCategory, addCategory, updateCategory, navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -56,34 +78,13 @@ export default function AddCategoryScreen() {
         </HeaderButton>
       ),
     });
-  }, [navigation, name, isValid, theme]);
-
-  const handleSave = async () => {
-    if (!isValid) return;
-    
-    if (isEditing && editingCategory) {
-      await updateCategory(editingCategory.id, {
-        name: name.trim(),
-        description: description.trim(),
-        color,
-        icon,
-      });
-    } else {
-      await addCategory({
-        name: name.trim(),
-        description: description.trim(),
-        color,
-        icon,
-      });
-    }
-    navigation.goBack();
-  };
+  }, [navigation, isEditing, isValid, theme, handleSave]);
 
   return (
     <KeyboardAwareScrollViewCompat
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
-        paddingTop: Spacing.xl,
+        paddingTop: headerHeight + Spacing.lg,
         paddingBottom: insets.bottom + Spacing.xl,
         paddingHorizontal: Spacing.lg,
       }}
