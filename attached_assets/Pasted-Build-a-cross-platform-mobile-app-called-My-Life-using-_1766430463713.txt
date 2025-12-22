@@ -1,0 +1,24 @@
+Build a cross-platform mobile app called "My Life" using Expo and React Native. This is a productivity app for life organization with these core features:
+
+1. **Homepage**: A visual "Life Wheel" dashboard with customizable circular bubbles (use TouchableOpacity, react-native-svg or similar for circles). Each bubble represents a life category (e.g., Family, Health, Work, Hobbies). Users can add, edit, delete custom bubbles with names, colors, icons. Tapping a bubble navigates to a filtered view of tasks and calendar for that category. Use React Navigation for screens.
+
+2. **Task Management**: Hierarchical tasks with parent-child relationships (e.g., Goal > Objective > Project > Task > Sub-task). Use Redux or Context API for state. Store tasks locally with AsyncStorage or Realm. Tasks have fields: title, description, task category, Life Category (linked to life bubble), due date, priority, status. Support infinite nesting with collapsible lists (FlatList/SectionList).
+
+3. **Calendar Integration**: Use react-native-calendars library to show a calendar view. Tasks appear as events (due dates as dots, appointments). Allow scheduling tasks directly. Basic conflict detection.
+
+4. **Basic Setup**: Include navigation stack (Home > Bubble Detail > Task List > Task Edit). Add dark mode toggle. Use Expo's built-in components where possible. Set up offline support with local storage. Prepare for future Firebase integration (auth, sharing, sync) but don't add it yet.
+
+Start with the home screen Life Wheel and sample bubbles - leverage the design from the Life Organizer app we worked on here for reference. Make it look modern with animations (react-native-reanimated if needed). Use best practices for performance and clean code. After setup, show me the app in Expo preview. Bubbles should be interactive (tap to navigate to a filtered view later). Make it look modern with subtle animations (react-native-reanimated).
+
+- Add/Edit Life Category Tool: Modal or screen with fields:
+  - Name (e.g., "Family", "Health", "Work")
+  - Description (text input)
+  - Color code (color picker component, e.g., using react-native-color-picker or simple buttons)
+
+- Display: Added categories appear as bubbles on the wheel spokes. Store locally with AsyncStorage or Realm for persistence. Allow editing/deleting.
+
+- Hierarchy Prep: Life Categories are top-level; future tasks will follow: Goals/Objectives > Projects > Tasks > Sub-tasks, all filtered by category.
+
+- Setup: Use React Navigation for screens (Home > Add Category > Edit). Include dark mode toggle. Offline-first. Prepare for future features (task trackers, calendar, AI assistant) but focus only on homepage wheel and add tool.
+
+Please plan step-by-step, create necessary files, install dependencies, and confirm each major part works before proceeding.
