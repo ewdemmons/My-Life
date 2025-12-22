@@ -1,12 +1,17 @@
 import React from "react";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
-import ModalScreen from "@/screens/ModalScreen";
+import CategoryDetailScreen from "@/screens/CategoryDetailScreen";
+import AddCategoryScreen from "@/screens/AddCategoryScreen";
+import AddTaskScreen from "@/screens/AddTaskScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { LifeCategory } from "@/types";
 
 export type RootStackParamList = {
   Main: undefined;
-  Modal: undefined;
+  CategoryDetail: { category: LifeCategory };
+  AddCategory: { category?: LifeCategory };
+  AddTask: { categoryId?: string; parentTaskId?: string };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -22,11 +27,24 @@ export default function RootStackNavigator() {
         options={{ headerShown: false }}
       />
       <Stack.Screen
-        name="Modal"
-        component={ModalScreen}
+        name="CategoryDetail"
+        component={CategoryDetailScreen}
+        options={{ headerTitle: "Category" }}
+      />
+      <Stack.Screen
+        name="AddCategory"
+        component={AddCategoryScreen}
         options={{
           presentation: "modal",
-          headerTitle: "Modal",
+          headerTitle: "Add Category",
+        }}
+      />
+      <Stack.Screen
+        name="AddTask"
+        component={AddTaskScreen}
+        options={{
+          presentation: "modal",
+          headerTitle: "Add Task",
         }}
       />
     </Stack.Navigator>

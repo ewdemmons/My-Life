@@ -1,0 +1,188 @@
+import React, { useState } from "react";
+import { View, Pressable, StyleSheet, Modal } from "react-native";
+import { Feather } from "@expo/vector-icons";
+import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import Animated, {
+  useAnimatedStyle,
+  withSpring,
+  useSharedValue,
+} from "react-native-reanimated";
+import { BlurView } from "expo-blur";
+import { useTheme } from "@/hooks/useTheme";
+import { Colors, Spacing, BorderRadius, Shadows } from "@/constants/theme";
+import { ThemedText } from "@/components/ThemedText";
+
+const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
+
+interface FABProps {
+  onAddCategory: () => void;
+  onAddTask: () => void;
+}
+
+export function FAB({ onAddCategory, onAddTask }: FABProps) {
+  const { theme, isDark } = useTheme();
+  const tabBarHeight = useBottomTabBarHeight();
+  const [isOpen, setIsOpen] = useState(false);
+  const scale = useSharedValue(1);
+
+  const animatedStyle = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  const handlePressIn = () => {
+    scale.value = withSpring(0.95);
+  };
+
+  const handlePressOut = () => {
+    scale.value = withSpring(1);
+  };
+
+  const handlePress = () => {
+    setIsOpen(true);
+  };
+
+  const handleAddCategory = () => {
+    setIsOpen(false);
+    onAddCategory();
+  };
+
+  const handleAddTask = () => {
+    setIsOpen(false);
+    onAddTask();
+  };
+
+  return (
+    <>
+      <AnimatedPressable
+        style={[
+          styles.fab,
+          animatedStyle,
+          {
+            backgroundColor: theme.primary,
+            bottom: tabBarHeight + Spacing.lg,
+            ...Shadows.fab,
+          },
+        ]}
+        onPressIn={handlePressIn}
+        onPressOut={handlePressOut}
+        onPress={handlePress}
+      >
+        <Feather name="plus" size={28} color="#FFFFFF" />
+      </AnimatedPressable>
+
+      <Modal
+        visible={isOpen}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setIsOpen(false)}
+      >
+        <Pressable
+          style={styles.overlay}
+          onPress={() => setIsOpen(false)}
+        >
+          <View style={styles.menuContainer}>
+            <BlurView
+              intensity={80}
+              tint={isDark ? "dark" : "light"}
+              style={[
+                styles.menu,
+                { backgroundColor: isDark ? "rgba(26,26,26,0.9)" : "rgba(255,255,255,0.9)" },
+              ]}
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={handleAddCategory}
+              >
+                <View style={[styles.menuIcon, { backgroundColor: theme.primary + "20" }]}>
+                  <Feather name="circle" size={20} color={theme.primary} />
+                </View>
+                <View style={styles.menuTextContainer}>
+                  <ThemedText style={styles.menuTitle}>Add Life Category</ThemedText>
+                  <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
+                    Create a new life area
+                  </ThemedText>
+                </View>
+              </Pressable>
+              <View style={[styles.separator, { backgroundColor: theme.border }]} />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.menuItem,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={handleAddTask}
+              >
+                <View style={[styles.menuIcon, { backgroundColor: theme.secondary + "20" }]}>
+                  <Feather name="check-square" size={20} color={theme.secondary} />
+                </View>
+                <View style={styles.menuTextContainer}>
+                  <ThemedText style={styles.menuTitle}>Add Task</ThemedText>
+                  <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
+                    Create a new task
+                  </ThemedText>
+                </View>
+              </Pressable>
+            </BlurView>
+          </View>
+        </Pressable>
+      </Modal>
+    </>
+  );
+}
+
+const styles = StyleSheet.create({
+  fab: {
+    position: "absolute",
+    right: Spacing.lg,
+    width: Spacing.fabSize,
+    height: Spacing.fabSize,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100,
+  },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  menuContainer: {
+    width: "80%",
+    maxWidth: 320,
+  },
+  menu: {
+    borderRadius: BorderRadius.md,
+    overflow: "hidden",
+  },
+  menuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+  },
+  menuIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+  menuTextContainer: {
+    flex: 1,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  menuSubtitle: {
+    fontSize: 13,
+  },
+  separator: {
+    height: 1,
+    marginHorizontal: Spacing.lg,
+  },
+});
