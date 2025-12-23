@@ -1,16 +1,18 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent } from "@/types";
 import { CategoryColors } from "@/constants/theme";
 
 const CATEGORIES_KEY = "@mylife_categories";
 const TASKS_KEY = "@mylife_tasks";
+const EVENTS_KEY = "@mylife_events";
 const RECYCLE_BIN_KEY = "@mylife_recycle_bin";
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
 interface AppContextType {
   categories: LifeCategory[];
   tasks: Task[];
+  events: CalendarEvent[];
   recycleBin: DeletedItem[];
   isLoading: boolean;
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<void>;
@@ -23,6 +25,11 @@ interface AppContextType {
   moveTaskToParent: (taskId: string, newParentId: string | null, newCategoryId?: string) => Promise<void>;
   getTasksByCategory: (categoryId: string) => Task[];
   getTasksByDate: (date: string) => Task[];
+  addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => Promise<void>;
+  updateEvent: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
+  deleteEvent: (id: string) => Promise<void>;
+  getEventsByDate: (date: string) => CalendarEvent[];
+  getEventsByTask: (taskId: string) => CalendarEvent[];
   restoreFromRecycleBin: (id: string) => Promise<void>;
   permanentlyDelete: (id: string) => Promise<void>;
   emptyRecycleBin: () => Promise<void>;
@@ -58,6 +65,7 @@ const defaultTasks: Task[] = [
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -73,9 +81,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loadData = async () => {
     try {
-      const [categoriesData, tasksData, recycleBinData] = await Promise.all([
+      const [categoriesData, tasksData, eventsData, recycleBinData] = await Promise.all([
         AsyncStorage.getItem(CATEGORIES_KEY),
         AsyncStorage.getItem(TASKS_KEY),
+        AsyncStorage.getItem(EVENTS_KEY),
         AsyncStorage.getItem(RECYCLE_BIN_KEY),
       ]);
       
@@ -99,6 +108,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       } else {
         setTasks(defaultTasks);
         await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(defaultTasks));
+      }
+
+      if (eventsData) {
+        setEvents(JSON.parse(eventsData));
       }
 
       if (recycleBinData) {
@@ -128,6 +141,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const saveRecycleBin = async (items: DeletedItem[]) => {
     await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(items));
+  };
+
+  const saveEvents = async (newEvents: CalendarEvent[]) => {
+    await AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(newEvents));
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
@@ -326,11 +343,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [tasks]
   );
 
+  const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
+    const newEvent: CalendarEvent = {
+      ...event,
+      id: Date.now().toString(),
+      createdAt: Date.now(),
+    };
+    const updated = [...events, newEvent];
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
+
+  const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
+    const updated = events.map((event) =>
+      event.id === id ? { ...event, ...updates } : event
+    );
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
+
+  const deleteEvent = useCallback(async (id: string) => {
+    const updated = events.filter((event) => event.id !== id);
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
+
+  const getEventsByDate = useCallback(
+    (date: string) => events.filter((event) => event.startDate === date),
+    [events]
+  );
+
+  const getEventsByTask = useCallback(
+    (taskId: string) => events.filter((event) => event.linkedTaskId === taskId),
+    [events]
+  );
+
   return (
     <AppContext.Provider
       value={{
         categories,
         tasks,
+        events,
         recycleBin,
         isLoading,
         addCategory,
@@ -343,6 +396,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         moveTaskToParent,
         getTasksByCategory,
         getTasksByDate,
+        addEvent,
+        updateEvent,
+        deleteEvent,
+        getEventsByDate,
+        getEventsByTask,
         restoreFromRecycleBin,
         permanentlyDelete,
         emptyRecycleBin,
