@@ -16,7 +16,8 @@ export type TaskType =
   | "idea"
   | "list"
   | "item"
-  | "resource";
+  | "resource"
+  | "appointment";
 
 export interface Task {
   id: string;
@@ -31,6 +32,14 @@ export interface Task {
   createdAt: number;
 }
 
+export interface DeletedItem {
+  id: string;
+  type: "task" | "category";
+  data: Task | LifeCategory;
+  relatedTasks?: Task[];
+  deletedAt: number;
+}
+
 export type TaskHierarchy = Task & {
   children: TaskHierarchy[];
 };
@@ -41,6 +50,7 @@ export const TASK_TYPES: { value: TaskType; label: string; icon: string }[] = [
   { value: "project", label: "Project", icon: "folder" },
   { value: "task", label: "Task", icon: "check-square" },
   { value: "subtask", label: "Sub-task", icon: "corner-down-right" },
+  { value: "appointment", label: "Appointment", icon: "calendar" },
   { value: "idea", label: "Idea", icon: "zap" },
   { value: "list", label: "List", icon: "list" },
   { value: "item", label: "Item", icon: "circle" },

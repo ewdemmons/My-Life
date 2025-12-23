@@ -32,16 +32,6 @@ export default function CategoryDetailScreen() {
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const categoryTasks = getTasksByCategory(category.id);
 
-  const filteredTasks = useMemo(() => {
-    let filtered = categoryTasks;
-    if (selectedType) {
-      filtered = filtered.filter((t) => t.type === selectedType);
-    }
-    if (selectedDate) {
-      filtered = filtered.filter((t) => t.dueDate === selectedDate);
-    }
-    return filtered;
-  }, [categoryTasks, selectedType, selectedDate]);
 
   const markedDates = useMemo(() => {
     const marks: Record<string, { marked: boolean; dotColor: string }> = {};
@@ -170,7 +160,7 @@ export default function CategoryDetailScreen() {
               paddingBottom: insets.bottom + Spacing.xxl + 60,
             }}
           >
-            <HierarchicalTaskList tasks={filteredTasks} />
+            <HierarchicalTaskList tasks={categoryTasks} filterType={selectedType} />
           </ScrollView>
         </>
       ) : (
@@ -199,7 +189,7 @@ export default function CategoryDetailScreen() {
           {selectedDate ? (
             <View style={styles.selectedDateSection}>
               <ThemedText style={styles.selectedDateTitle}>Tasks for {selectedDate}</ThemedText>
-              <HierarchicalTaskList tasks={filteredTasks} />
+              <HierarchicalTaskList tasks={categoryTasks.filter((t) => t.dueDate === selectedDate)} />
             </View>
           ) : null}
         </ScrollView>

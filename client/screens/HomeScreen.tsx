@@ -42,9 +42,14 @@ export default function HomeScreen() {
 
   const handleDeleteCategory = () => {
     if (selectedCategory) {
+      const taskCount = tasks.filter((t) => t.categoryId === selectedCategory.id).length;
+      const message = taskCount > 0
+        ? `Delete "${selectedCategory.name}" and ${taskCount} ${taskCount === 1 ? 'entry' : 'entries'}? They will be moved to Recycle Bin.`
+        : `Delete "${selectedCategory.name}"? It will be moved to Recycle Bin.`;
+      
       Alert.alert(
         "Delete Category",
-        `Are you sure you want to delete "${selectedCategory.name}"? All tasks in this category will also be deleted.`,
+        message,
         [
           { text: "Cancel", style: "cancel" },
           {

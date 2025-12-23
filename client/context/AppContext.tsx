@@ -1,14 +1,17 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task } from "@/types";
+import { LifeCategory, Task, DeletedItem } from "@/types";
 import { CategoryColors } from "@/constants/theme";
 
 const CATEGORIES_KEY = "@mylife_categories";
 const TASKS_KEY = "@mylife_tasks";
+const RECYCLE_BIN_KEY = "@mylife_recycle_bin";
+const RECYCLE_BIN_RETENTION_DAYS = 30;
 
 interface AppContextType {
   categories: LifeCategory[];
   tasks: Task[];
+  recycleBin: DeletedItem[];
   isLoading: boolean;
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<void>;
   updateCategory: (id: string, updates: Partial<LifeCategory>) => Promise<void>;
@@ -18,6 +21,9 @@ interface AppContextType {
   deleteTask: (id: string) => Promise<void>;
   getTasksByCategory: (categoryId: string) => Task[];
   getTasksByDate: (date: string) => Task[];
+  restoreFromRecycleBin: (id: string) => Promise<void>;
+  permanentlyDelete: (id: string) => Promise<void>;
+  emptyRecycleBin: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -44,22 +50,31 @@ const defaultTasks: Task[] = [
   { id: "t4", title: "New App Feature Ideas", description: "Brainstorm ideas for the mobile app", type: "list", categoryId: "3", parentId: null, dueDate: null, priority: "low", status: "pending", createdAt: Date.now() },
   { id: "t4a", title: "Dark mode improvements", description: "Better contrast ratios", type: "idea", categoryId: "3", parentId: "t4", dueDate: null, priority: "low", status: "pending", createdAt: Date.now() + 1 },
   { id: "t4b", title: "Push notifications", description: "Task reminders", type: "idea", categoryId: "3", parentId: "t4", dueDate: null, priority: "medium", status: "pending", createdAt: Date.now() + 2 },
+  { id: "t5", title: "Doctor Appointment", description: "Annual checkup", type: "appointment", categoryId: "2", parentId: null, dueDate: new Date(Date.now() + 86400000 * 14).toISOString().split("T")[0], priority: "high", status: "pending", createdAt: Date.now() },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     loadData();
   }, []);
 
+  const cleanupExpiredItems = (items: DeletedItem[]): DeletedItem[] => {
+    const retentionMs = RECYCLE_BIN_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+    const cutoff = Date.now() - retentionMs;
+    return items.filter((item) => item.deletedAt > cutoff);
+  };
+
   const loadData = async () => {
     try {
-      const [categoriesData, tasksData] = await Promise.all([
+      const [categoriesData, tasksData, recycleBinData] = await Promise.all([
         AsyncStorage.getItem(CATEGORIES_KEY),
         AsyncStorage.getItem(TASKS_KEY),
+        AsyncStorage.getItem(RECYCLE_BIN_KEY),
       ]);
       
       if (categoriesData) {
@@ -83,6 +98,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setTasks(defaultTasks);
         await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(defaultTasks));
       }
+
+      if (recycleBinData) {
+        const parsed = JSON.parse(recycleBinData);
+        const cleaned = cleanupExpiredItems(parsed);
+        setRecycleBin(cleaned);
+        if (cleaned.length !== parsed.length) {
+          await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(cleaned));
+        }
+      }
     } catch (error) {
       console.error("Error loading data:", error);
       setCategories(defaultCategories);
@@ -98,6 +122,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const saveTasks = async (newTasks: Task[]) => {
     await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(newTasks));
+  };
+
+  const saveRecycleBin = async (items: DeletedItem[]) => {
+    await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(items));
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
@@ -120,13 +148,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [categories]);
 
   const deleteCategory = useCallback(async (id: string) => {
-    const updated = categories.filter((cat) => cat.id !== id);
-    setCategories(updated);
-    await saveCategories(updated);
+    const categoryToDelete = categories.find((cat) => cat.id === id);
+    if (!categoryToDelete) return;
+
+    const relatedTasks = tasks.filter((task) => task.categoryId === id);
+    
+    const deletedItem: DeletedItem = {
+      id: Date.now().toString(),
+      type: "category",
+      data: categoryToDelete,
+      relatedTasks,
+      deletedAt: Date.now(),
+    };
+
+    const updatedCategories = categories.filter((cat) => cat.id !== id);
     const updatedTasks = tasks.filter((task) => task.categoryId !== id);
+    const updatedRecycleBin = [...recycleBin, deletedItem];
+
+    setCategories(updatedCategories);
     setTasks(updatedTasks);
-    await saveTasks(updatedTasks);
-  }, [categories, tasks]);
+    setRecycleBin(updatedRecycleBin);
+
+    await Promise.all([
+      saveCategories(updatedCategories),
+      saveTasks(updatedTasks),
+      saveRecycleBin(updatedRecycleBin),
+    ]);
+  }, [categories, tasks, recycleBin]);
 
   const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">) => {
     const newTask: Task = {
@@ -148,17 +196,86 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [tasks]);
 
   const deleteTask = useCallback(async (id: string) => {
-    const deleteRecursive = (taskId: string): string[] => {
-      const childIds = tasks
-        .filter((t) => t.parentId === taskId)
-        .flatMap((t) => deleteRecursive(t.id));
-      return [taskId, ...childIds];
+    const taskToDelete = tasks.find((t) => t.id === id);
+    if (!taskToDelete) return;
+
+    const getDescendants = (taskId: string): Task[] => {
+      const children = tasks.filter((t) => t.parentId === taskId);
+      return children.flatMap((child) => [child, ...getDescendants(child.id)]);
     };
-    const idsToDelete = deleteRecursive(id);
-    const updated = tasks.filter((task) => !idsToDelete.includes(task.id));
-    setTasks(updated);
-    await saveTasks(updated);
-  }, [tasks]);
+
+    const descendants = getDescendants(id);
+    const allDeletedTasks = [taskToDelete, ...descendants];
+    const idsToDelete = allDeletedTasks.map((t) => t.id);
+
+    const deletedItem: DeletedItem = {
+      id: Date.now().toString(),
+      type: "task",
+      data: taskToDelete,
+      relatedTasks: descendants,
+      deletedAt: Date.now(),
+    };
+
+    const updatedTasks = tasks.filter((task) => !idsToDelete.includes(task.id));
+    const updatedRecycleBin = [...recycleBin, deletedItem];
+
+    setTasks(updatedTasks);
+    setRecycleBin(updatedRecycleBin);
+
+    await Promise.all([
+      saveTasks(updatedTasks),
+      saveRecycleBin(updatedRecycleBin),
+    ]);
+  }, [tasks, recycleBin]);
+
+  const restoreFromRecycleBin = useCallback(async (id: string) => {
+    const item = recycleBin.find((i) => i.id === id);
+    if (!item) return;
+
+    if (item.type === "category") {
+      const category = item.data as LifeCategory;
+      const relatedTasks = item.relatedTasks || [];
+      
+      const updatedCategories = [...categories, category];
+      const updatedTasks = [...tasks, ...relatedTasks];
+      const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
+
+      setCategories(updatedCategories);
+      setTasks(updatedTasks);
+      setRecycleBin(updatedRecycleBin);
+
+      await Promise.all([
+        saveCategories(updatedCategories),
+        saveTasks(updatedTasks),
+        saveRecycleBin(updatedRecycleBin),
+      ]);
+    } else {
+      const task = item.data as Task;
+      const relatedTasks = item.relatedTasks || [];
+      
+      const updatedTasks = [...tasks, task, ...relatedTasks];
+      const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
+
+      setTasks(updatedTasks);
+      setRecycleBin(updatedRecycleBin);
+
+      await Promise.all([
+        saveTasks(updatedTasks),
+        saveRecycleBin(updatedRecycleBin),
+      ]);
+    }
+  }, [categories, tasks, recycleBin]);
+
+  const permanentlyDelete = useCallback(async (id: string) => {
+    const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
+    setRecycleBin(updatedRecycleBin);
+    await saveRecycleBin(updatedRecycleBin);
+  }, [recycleBin]);
+
+  const emptyRecycleBin = useCallback(async () => {
+    setRecycleBin([]);
+    await saveRecycleBin([]);
+  }, []);
 
   const getTasksByCategory = useCallback(
     (categoryId: string) => tasks.filter((task) => task.categoryId === categoryId),
@@ -175,6 +292,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       value={{
         categories,
         tasks,
+        recycleBin,
         isLoading,
         addCategory,
         updateCategory,
@@ -184,6 +302,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteTask,
         getTasksByCategory,
         getTasksByDate,
+        restoreFromRecycleBin,
+        permanentlyDelete,
+        emptyRecycleBin,
       }}
     >
       {children}

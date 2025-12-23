@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { View, StyleSheet, Pressable } from "react-native";
+import { View, StyleSheet, Pressable, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -9,21 +9,46 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
-import { Task, TaskHierarchy, TASK_TYPES, getTaskTypeInfo } from "@/types";
+import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
 interface HierarchicalTaskListProps {
   tasks: Task[];
   showCategory?: boolean;
+  filterType?: TaskType | null;
 }
 
-export function HierarchicalTaskList({ tasks, showCategory = false }: HierarchicalTaskListProps) {
+export function HierarchicalTaskList({ tasks, showCategory = false, filterType = null }: HierarchicalTaskListProps) {
   const { categories } = useApp();
 
   const hierarchy = useMemo(() => {
+    const getDescendantIds = (taskId: string): Set<string> => {
+      const descendants = new Set<string>();
+      const addDescendants = (id: string) => {
+        tasks.filter((t) => t.parentId === id).forEach((child) => {
+          descendants.add(child.id);
+          addDescendants(child.id);
+        });
+      };
+      addDescendants(taskId);
+      return descendants;
+    };
+
+    const filteredTaskIds = new Set<string>();
+    if (filterType) {
+      tasks.filter((t) => t.type === filterType).forEach((t) => {
+        filteredTaskIds.add(t.id);
+        getDescendantIds(t.id).forEach((id) => filteredTaskIds.add(id));
+      });
+    }
+
     const buildHierarchy = (parentId: string | null): TaskHierarchy[] => {
       return tasks
-        .filter((t) => t.parentId === parentId)
+        .filter((t) => {
+          if (t.parentId !== parentId) return false;
+          if (filterType && !filteredTaskIds.has(t.id)) return false;
+          return true;
+        })
         .map((task) => ({
           ...task,
           children: buildHierarchy(task.id),
@@ -35,8 +60,22 @@ export function HierarchicalTaskList({ tasks, showCategory = false }: Hierarchic
           return a.createdAt - b.createdAt;
         });
     };
+
+    if (filterType) {
+      const matchingTasks = tasks.filter((t) => t.type === filterType);
+      return matchingTasks.map((task) => ({
+        ...task,
+        children: buildHierarchy(task.id),
+      })).sort((a, b) => {
+        const typeOrder = TASK_TYPES.findIndex((t) => t.value === a.type) - 
+                         TASK_TYPES.findIndex((t) => t.value === b.type);
+        if (typeOrder !== 0) return typeOrder;
+        return a.createdAt - b.createdAt;
+      });
+    }
+
     return buildHierarchy(null);
-  }, [tasks]);
+  }, [tasks, filterType]);
 
   if (hierarchy.length === 0) {
     return (
@@ -101,9 +140,28 @@ function TaskItem({ task, depth, showCategory, categories }: TaskItemProps) {
     setShowDetails(false);
   }, [navigation, task]);
 
-  const handleDelete = useCallback(async () => {
-    await deleteTask(task.id);
-  }, [task.id, deleteTask]);
+  const handleDelete = useCallback(() => {
+    const childCount = task.children.length;
+    const message = childCount > 0 
+      ? `This will delete "${task.title}" and ${childCount} sub-${childCount === 1 ? 'entry' : 'entries'}. Items will be moved to Recycle Bin.`
+      : `Delete "${task.title}"? It will be moved to Recycle Bin.`;
+
+    Alert.alert(
+      "Delete Entry",
+      message,
+      [
+        { text: "Cancel", style: "cancel" },
+        { 
+          text: "Delete", 
+          style: "destructive", 
+          onPress: async () => {
+            await deleteTask(task.id);
+            setShowDetails(false);
+          }
+        },
+      ]
+    );
+  }, [task, deleteTask]);
 
   const handleAddSubtask = useCallback(() => {
     navigation.navigate("AddTask", { categoryId: task.categoryId, parentTaskId: task.id });

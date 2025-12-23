@@ -165,7 +165,7 @@ export default function TasksScreen() {
         }}
         scrollIndicatorInsets={{ bottom: insets.bottom }}
       >
-        <HierarchicalTaskList tasks={filteredTasks} showCategory />
+        <HierarchicalTaskList tasks={filteredTasks} showCategory filterType={selectedType} />
       </ScrollView>
     </View>
   );
