@@ -81,6 +81,18 @@ client/
   - Colored hierarchy lines for nested children
   - Card elevation with subtle shadows
 
+### Drag-and-Drop Interactions
+- **Long-press to drag**: Hold an entry for 400ms to enter drag mode
+- **Hierarchy changes**: Tap another entry while dragging to move as sub-entry
+- **Confirmation modal**: Shows "Move '[title]' as a sub-entry under '[new parent]'?"
+- **Haptic feedback**: Touch feedback on iOS/Android devices
+- **Category inheritance**: Moving to new parent inherits category of target
+
+### Clickable URLs
+- URLs in descriptions are automatically detected (http/https)
+- Displayed as blue underlined links
+- Tapping opens in device browser via Linking.openURL
+
 ### Recycle Bin
 - Deleted items stored for 30 days
 - Restore or permanently delete from Profile screen

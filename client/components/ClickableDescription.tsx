@@ -1,10 +1,10 @@
 import React, { useMemo, useCallback } from "react";
-import { Text, Linking, Alert, StyleSheet, TextStyle } from "react-native";
+import { Text, Linking, Alert, StyleSheet, TextStyle, StyleProp } from "react-native";
 import { useTheme } from "@/hooks/useTheme";
 
 interface ClickableDescriptionProps {
   text: string;
-  style?: TextStyle;
+  style?: StyleProp<TextStyle>;
   numberOfLines?: number;
 }
 

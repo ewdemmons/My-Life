@@ -40,18 +40,18 @@ const TYPE_COLORS: Record<TaskType, string> = {
 
 interface DragContextType {
   draggedTaskId: string | null;
-  draggedOverTaskId: string | null;
+  targetTaskId: string | null;
   setDraggedTaskId: (id: string | null) => void;
-  setDraggedOverTaskId: (id: string | null) => void;
-  onDropOnTask: (targetTaskId: string) => void;
+  handleTaskTap: (taskId: string, toggleDetails: () => void) => void;
+  cancelDrag: () => void;
 }
 
 const DragContext = createContext<DragContextType>({
   draggedTaskId: null,
-  draggedOverTaskId: null,
+  targetTaskId: null,
   setDraggedTaskId: () => {},
-  setDraggedOverTaskId: () => {},
-  onDropOnTask: () => {},
+  handleTaskTap: () => {},
+  cancelDrag: () => {},
 });
 
 interface HierarchicalTaskListProps {
@@ -61,12 +61,14 @@ interface HierarchicalTaskListProps {
 }
 
 export function HierarchicalTaskList({ tasks, showCategory = false, filterType = null }: HierarchicalTaskListProps) {
-  const { categories, moveTaskToParent } = useApp();
+  const { categories, moveTaskToParent, reorderTasks } = useApp();
   const { theme } = useTheme();
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
-  const [draggedOverTaskId, setDraggedOverTaskId] = useState<string | null>(null);
+  const [targetTaskId, setTargetTaskId] = useState<string | null>(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
+  const [showReorderModal, setShowReorderModal] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ taskId: string; targetId: string } | null>(null);
+  const [pendingReorder, setPendingReorder] = useState<{ taskId: string; targetId: string } | null>(null);
 
   const hierarchy = useMemo(() => {
     const getDescendantIds = (taskId: string): Set<string> => {
@@ -148,41 +150,54 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
     return descendants;
   }, [tasks]);
 
-  const handleDropOnTask = useCallback((targetTaskId: string) => {
-    if (!draggedTaskId || draggedTaskId === targetTaskId) {
-      setDraggedTaskId(null);
-      setDraggedOverTaskId(null);
+  const cancelDrag = useCallback(() => {
+    setDraggedTaskId(null);
+    setTargetTaskId(null);
+  }, []);
+
+  const handleTaskTap = useCallback((taskId: string, toggleDetails: () => void) => {
+    if (!draggedTaskId) {
+      toggleDetails();
+      return;
+    }
+
+    if (draggedTaskId === taskId) {
+      cancelDrag();
       return;
     }
 
     const draggedTask = tasksMap.get(draggedTaskId);
-    const targetTask = tasksMap.get(targetTaskId);
+    const targetTask = tasksMap.get(taskId);
 
     if (!draggedTask || !targetTask) {
-      setDraggedTaskId(null);
-      setDraggedOverTaskId(null);
+      cancelDrag();
       return;
     }
 
     const descendants = getDescendantIds(draggedTaskId);
-    if (descendants.has(targetTaskId)) {
+    if (descendants.has(taskId)) {
       Alert.alert("Invalid Move", "Cannot move an entry under its own sub-entry.");
-      setDraggedTaskId(null);
-      setDraggedOverTaskId(null);
+      cancelDrag();
       return;
     }
 
-    if (draggedTask.parentId === targetTaskId) {
-      setDraggedTaskId(null);
-      setDraggedOverTaskId(null);
+    if (draggedTask.parentId === taskId) {
+      Alert.alert("Already There", "This entry is already under the selected parent.");
+      cancelDrag();
       return;
     }
 
-    setPendingMove({ taskId: draggedTaskId, targetId: targetTaskId });
+    if (draggedTask.parentId === targetTask.parentId) {
+      setTargetTaskId(taskId);
+      setPendingReorder({ taskId: draggedTaskId, targetId: taskId });
+      setShowReorderModal(true);
+      return;
+    }
+
+    setTargetTaskId(taskId);
+    setPendingMove({ taskId: draggedTaskId, targetId: taskId });
     setShowMoveModal(true);
-    setDraggedTaskId(null);
-    setDraggedOverTaskId(null);
-  }, [draggedTaskId, tasksMap, getDescendantIds]);
+  }, [draggedTaskId, tasksMap, getDescendantIds, cancelDrag]);
 
   const confirmMove = useCallback(async () => {
     if (!pendingMove) return;
@@ -192,16 +207,58 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
     
     setShowMoveModal(false);
     setPendingMove(null);
+    setDraggedTaskId(null);
+    setTargetTaskId(null);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   }, [pendingMove, tasksMap, moveTaskToParent]);
 
   const cancelMove = useCallback(() => {
     setShowMoveModal(false);
     setPendingMove(null);
+    setDraggedTaskId(null);
+    setTargetTaskId(null);
+  }, []);
+
+  const confirmReorder = useCallback(async (position: "before" | "after") => {
+    if (!pendingReorder) return;
+    
+    const draggedTask = tasksMap.get(pendingReorder.taskId);
+    const targetTask = tasksMap.get(pendingReorder.targetId);
+    
+    if (!draggedTask || !targetTask) return;
+    
+    const parentId = draggedTask.parentId || null;
+    const siblings = tasks.filter(t => t.parentId === parentId && !t.deletedAt)
+      .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+    
+    const siblingIds = siblings.map(t => t.id);
+    const filteredIds = siblingIds.filter(id => id !== pendingReorder.taskId);
+    
+    const targetIndex = filteredIds.indexOf(pendingReorder.targetId);
+    const insertIndex = position === "before" ? targetIndex : targetIndex + 1;
+    
+    filteredIds.splice(insertIndex, 0, pendingReorder.taskId);
+    
+    await reorderTasks(filteredIds, parentId);
+    
+    setShowReorderModal(false);
+    setPendingReorder(null);
+    setDraggedTaskId(null);
+    setTargetTaskId(null);
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+  }, [pendingReorder, tasksMap, tasks, reorderTasks]);
+
+  const cancelReorder = useCallback(() => {
+    setShowReorderModal(false);
+    setPendingReorder(null);
+    setDraggedTaskId(null);
+    setTargetTaskId(null);
   }, []);
 
   const draggedTaskTitle = pendingMove ? tasksMap.get(pendingMove.taskId)?.title : "";
   const targetTaskTitle = pendingMove ? tasksMap.get(pendingMove.targetId)?.title : "";
+  const reorderDraggedTitle = pendingReorder ? tasksMap.get(pendingReorder.taskId)?.title : "";
+  const reorderTargetTitle = pendingReorder ? tasksMap.get(pendingReorder.targetId)?.title : "";
 
   if (hierarchy.length === 0) {
     return (
@@ -217,10 +274,10 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
     <DragContext.Provider
       value={{
         draggedTaskId,
-        draggedOverTaskId,
+        targetTaskId,
         setDraggedTaskId,
-        setDraggedOverTaskId,
-        onDropOnTask: handleDropOnTask,
+        handleTaskTap,
+        cancelDrag,
       }}
     >
       <GestureHandlerRootView style={styles.gestureRoot}>
@@ -266,6 +323,44 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
             </View>
           </View>
         </Modal>
+
+        <Modal
+          visible={showReorderModal}
+          transparent
+          animationType="fade"
+          onRequestClose={cancelReorder}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { backgroundColor: theme.backgroundDefault }]}>
+              <ThemedText style={styles.modalTitle}>Reorder Entry</ThemedText>
+              <ThemedText style={[styles.modalText, { color: theme.textSecondary }]}>
+                Place "{reorderDraggedTitle}" relative to "{reorderTargetTitle}"?
+              </ThemedText>
+              <View style={styles.reorderButtons}>
+                <Pressable
+                  style={[styles.reorderButton, { backgroundColor: theme.primary + "15" }]}
+                  onPress={() => confirmReorder("before")}
+                >
+                  <Feather name="arrow-up" size={18} color={theme.primary} />
+                  <ThemedText style={[styles.reorderButtonText, { color: theme.primary }]}>Place Before</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.reorderButton, { backgroundColor: theme.primary + "15" }]}
+                  onPress={() => confirmReorder("after")}
+                >
+                  <Feather name="arrow-down" size={18} color={theme.primary} />
+                  <ThemedText style={[styles.reorderButtonText, { color: theme.primary }]}>Place After</ThemedText>
+                </Pressable>
+              </View>
+              <Pressable
+                style={[styles.modalButton, { backgroundColor: theme.border, marginTop: Spacing.md }]}
+                onPress={cancelReorder}
+              >
+                <ThemedText style={styles.modalButtonText}>Cancel</ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </Modal>
       </GestureHandlerRootView>
     </DragContext.Provider>
   );
@@ -283,13 +378,14 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateTask, deleteTask } = useApp();
-  const { draggedTaskId, draggedOverTaskId, setDraggedTaskId, setDraggedOverTaskId, onDropOnTask } = useContext(DragContext);
+  const { draggedTaskId, targetTaskId, setDraggedTaskId, handleTaskTap, cancelDrag } = useContext(DragContext);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const rotation = useSharedValue(0);
   const scale = useSharedValue(1);
   const isDragging = draggedTaskId === task.id;
-  const isDropTarget = draggedOverTaskId === task.id && draggedTaskId !== task.id;
+  const isValidDropTarget = draggedTaskId !== null && draggedTaskId !== task.id;
+  const isSelectedTarget = targetTaskId === task.id;
 
   const typeInfo = getTaskTypeInfo(task.type);
   const category = categories.find((c) => c.id === task.categoryId);
@@ -388,39 +484,29 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   }, [task.id, setDraggedTaskId]);
 
-  const handleDragEnter = useCallback(() => {
-    if (draggedTaskId && draggedTaskId !== task.id) {
-      setDraggedOverTaskId(task.id);
-    }
-  }, [draggedTaskId, task.id, setDraggedOverTaskId]);
+  const toggleDetails = useCallback(() => {
+    setShowDetails(!showDetails);
+  }, [showDetails]);
 
-  const handleDragEnd = useCallback(() => {
-    if (draggedOverTaskId === task.id && draggedTaskId) {
-      onDropOnTask(task.id);
-    }
-  }, [draggedOverTaskId, draggedTaskId, task.id, onDropOnTask]);
+  const onTapHandler = useCallback(() => {
+    handleTaskTap(task.id, toggleDetails);
+  }, [task.id, handleTaskTap, toggleDetails]);
 
   const longPressGesture = Gesture.LongPress()
     .minDuration(400)
-    .onStart(() => {
-      scale.value = withSpring(1.02);
-      runOnJS(startDrag)();
+    .onEnd((_event, success) => {
+      if (success) {
+        scale.value = withSpring(1.02);
+        runOnJS(startDrag)();
+      }
     });
 
   const tapGesture = Gesture.Tap()
-    .onStart(() => {
-      if (draggedTaskId) {
-        runOnJS(handleDragEnter)();
-        runOnJS(handleDragEnd)();
-      }
-    })
     .onEnd(() => {
-      if (!draggedTaskId) {
-        runOnJS(setShowDetails)(!showDetails);
-      }
+      runOnJS(onTapHandler)();
     });
 
-  const composed = Gesture.Exclusive(longPressGesture, tapGesture);
+  const composed = Gesture.Race(longPressGesture, tapGesture);
 
   return (
     <View style={styles.itemWrapper}>
@@ -444,8 +530,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
               itemAnimatedStyle,
               { 
                 backgroundColor: isDark ? theme.backgroundDefault : "#FFFFFF",
-                borderColor: isDropTarget ? theme.primary : (isDark ? theme.border : "transparent"),
-                borderWidth: isDropTarget ? 2 : 1,
+                borderColor: isSelectedTarget 
+                  ? theme.primary 
+                  : isValidDropTarget 
+                    ? theme.primary + "50" 
+                    : (isDark ? theme.border : "transparent"),
+                borderWidth: isSelectedTarget ? 2 : isValidDropTarget ? 1.5 : 1,
               },
               task.status === "completed" && styles.itemCompleted,
             ]}
@@ -818,6 +908,22 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   modalButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  reorderButtons: {
+    flexDirection: "column",
+    gap: Spacing.sm,
+  },
+  reorderButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    gap: Spacing.sm,
+  },
+  reorderButtonText: {
     fontSize: 16,
     fontWeight: "600",
   },
