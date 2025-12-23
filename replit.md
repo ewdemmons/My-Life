@@ -66,11 +66,14 @@ client/
 - Long press for edit/delete menu
 - Animated interactions
 
-### Task Management
-- Create tasks with title, description, category, priority, due date
-- Toggle task completion
-- Filter by category or search
-- Group tasks by life category
+### Hierarchical Task Management
+- **9 Entry Types**: Goal, Objective, Project, Task, Sub-task, Idea, List, Item, Resource
+- **Parent-child relationships**: Create nested hierarchies (e.g., Goal > Objective > Project > Task > Sub-task)
+- **Expand/collapse**: View child entries inline with visual indentation
+- **Type filtering**: Filter entries by type (Goal, Task, etc.)
+- **Category filtering**: Filter by life category
+- **Cascading delete**: Deleting a parent removes all child entries
+- **Type icons**: Visual indicators for each entry type
 
 ### Calendar
 - Monthly calendar view
@@ -101,5 +104,4 @@ npm run dev
 - User authentication
 - Push notifications
 - AI assistant for task suggestions
-- Hierarchical sub-tasks
 - Drag-and-drop task reordering
