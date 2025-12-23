@@ -187,7 +187,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   }, [navigation, task.categoryId, task.id]);
 
   const getDueDateStatus = useCallback(() => {
-    if (!task.dueDate) return { color: theme.success, label: null };
+    if (!task.dueDate) return { color: theme.success, label: "No due date", showIndicator: true };
     
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -196,10 +196,10 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
     
     const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
     
-    if (diffDays < 0) return { color: theme.error, label: "Overdue" };
-    if (diffDays === 0) return { color: theme.warning, label: "Today" };
-    if (diffDays <= 3) return { color: theme.warning, label: `${diffDays}d` };
-    return { color: theme.success, label: task.dueDate };
+    if (diffDays < 0) return { color: theme.error, label: "Overdue", showIndicator: true };
+    if (diffDays === 0) return { color: theme.warning, label: "Today", showIndicator: true };
+    if (diffDays <= 3) return { color: theme.warning, label: `${diffDays}d left`, showIndicator: true };
+    return { color: theme.success, label: task.dueDate, showIndicator: true };
   }, [task.dueDate, theme]);
 
   const dueDateInfo = getDueDateStatus();
@@ -272,7 +272,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
               <View style={[styles.typeIconContainer, { backgroundColor: typeColor + "20" }]}>
                 <Feather
                   name={typeInfo.icon as any}
-                  size={20}
+                  size={24}
                   color={typeColor}
                 />
               </View>
@@ -305,14 +305,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                   </View>
                 ) : null}
 
-                {task.dueDate ? (
-                  <View style={styles.dueDateBadge}>
-                    <View style={[styles.dueDateDot, { backgroundColor: dueDateInfo.color }]} />
-                    <ThemedText style={[styles.metaText, { color: dueDateInfo.color }]}>
-                      {dueDateInfo.label}
-                    </ThemedText>
-                  </View>
-                ) : null}
+                <View style={styles.dueDateBadge}>
+                  <View style={[styles.dueDateDot, { backgroundColor: dueDateInfo.color }]} />
+                  <ThemedText style={[styles.metaText, { color: dueDateInfo.color }]}>
+                    {dueDateInfo.label}
+                  </ThemedText>
+                </View>
 
                 {hasChildren ? (
                   <View style={styles.childCountBadge}>
@@ -451,9 +449,9 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   typeIconContainer: {
-    width: 40,
-    height: 40,
-    borderRadius: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -462,9 +460,9 @@ const styles = StyleSheet.create({
     paddingTop: 2,
   },
   title: {
-    fontSize: 17,
-    fontWeight: "600",
-    lineHeight: 22,
+    fontSize: 18,
+    fontWeight: "700",
+    lineHeight: 24,
     marginBottom: Spacing.xs,
   },
   titleCompleted: {
@@ -492,9 +490,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   categoryDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
   dueDateBadge: {
     flexDirection: "row",
@@ -502,9 +500,9 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   dueDateDot: {
-    width: 6,
-    height: 6,
-    borderRadius: 3,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
   },
   childCountBadge: {
     flexDirection: "row",
@@ -518,7 +516,7 @@ const styles = StyleSheet.create({
     marginLeft: "auto",
   },
   metaText: {
-    fontSize: 13,
+    fontSize: 14,
   },
   details: {
     padding: Spacing.md,
