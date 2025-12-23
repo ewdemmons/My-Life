@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, FlatList, Pressable } from "react-native";
+import { View, StyleSheet, FlatList, Pressable, SectionList } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -9,28 +9,34 @@ import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
+import { SchedulingModal } from "@/components/SchedulingModal";
 import { useApp } from "@/context/AppContext";
-import { Task } from "@/types";
+import { Task, CalendarEvent, EVENT_TYPES, getEventTypeInfo } from "@/types";
+
+type ListItem = { type: "task"; data: Task } | { type: "event"; data: CalendarEvent };
 
 export default function CalendarScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
-  const { tasks, categories, updateTask } = useApp();
+  const { tasks, categories, events, updateTask, deleteEvent } = useApp();
 
   const today = new Date().toISOString().split("T")[0];
   const [selectedDate, setSelectedDate] = useState(today);
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
 
   const markedDates = useMemo(() => {
     const marks: { [key: string]: any } = {};
+    
     tasks.forEach((task) => {
       if (task.dueDate) {
         const category = categories.find((c) => c.id === task.categoryId);
         if (!marks[task.dueDate]) {
           marks[task.dueDate] = { dots: [] };
         }
-        if (marks[task.dueDate].dots.length < 3) {
+        if (marks[task.dueDate].dots.length < 4) {
           marks[task.dueDate].dots.push({
             key: task.id,
             color: category?.color || theme.primary,
@@ -38,34 +44,118 @@ export default function CalendarScreen() {
         }
       }
     });
+
+    events.forEach((event) => {
+      const eventTypeInfo = getEventTypeInfo(event.eventType);
+      if (!marks[event.startDate]) {
+        marks[event.startDate] = { dots: [] };
+      }
+      if (marks[event.startDate].dots.length < 4) {
+        marks[event.startDate].dots.push({
+          key: event.id,
+          color: eventTypeInfo.color,
+        });
+      }
+    });
+
     marks[selectedDate] = {
       ...marks[selectedDate],
       selected: true,
       selectedColor: theme.primary,
     };
     return marks;
-  }, [tasks, categories, selectedDate, theme]);
+  }, [tasks, categories, events, selectedDate, theme]);
 
-  const selectedTasks = tasks.filter((t) => t.dueDate === selectedDate);
+  const selectedTasks = useMemo(() => 
+    tasks.filter((t) => t.dueDate === selectedDate),
+    [tasks, selectedDate]
+  );
+
+  const selectedEvents = useMemo(() =>
+    events.filter((e) => e.startDate === selectedDate)
+      .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    [events, selectedDate]
+  );
+
+  const listItems: ListItem[] = useMemo(() => {
+    const items: ListItem[] = [];
+    selectedEvents.forEach(e => items.push({ type: "event", data: e }));
+    selectedTasks.forEach(t => items.push({ type: "task", data: t }));
+    return items;
+  }, [selectedEvents, selectedTasks]);
 
   const toggleTaskStatus = (task: Task) => {
     const newStatus = task.status === "completed" ? "pending" : "completed";
     updateTask(task.id, { status: newStatus });
   };
 
-  const renderTask = ({ item }: { item: Task }) => {
-    const category = categories.find((c) => c.id === item.categoryId);
+  const handleEventPress = (event: CalendarEvent) => {
+    setEditingEvent(event);
+    setShowSchedulingModal(true);
+  };
+
+  const handleAddEvent = () => {
+    setEditingEvent(null);
+    setShowSchedulingModal(true);
+  };
+
+  const renderItem = ({ item }: { item: ListItem }) => {
+    if (item.type === "event") {
+      const event = item.data;
+      const eventTypeInfo = getEventTypeInfo(event.eventType);
+      const linkedTask = event.linkedTaskId 
+        ? tasks.find(t => t.id === event.linkedTaskId) 
+        : null;
+      const category = linkedTask 
+        ? categories.find(c => c.id === linkedTask.categoryId) 
+        : null;
+
+      return (
+        <Pressable 
+          style={[styles.eventItem, { backgroundColor: theme.backgroundDefault }]}
+          onPress={() => handleEventPress(event)}
+        >
+          <View style={[styles.eventTimeBar, { backgroundColor: eventTypeInfo.color }]} />
+          <View style={styles.eventContent}>
+            <View style={styles.eventHeader}>
+              <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
+                <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
+                <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
+                  {eventTypeInfo.label}
+                </ThemedText>
+              </View>
+              <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
+                {formatTime(event.startTime)} - {formatTime(event.endTime)}
+              </ThemedText>
+            </View>
+            <ThemedText style={styles.eventTitle} numberOfLines={1}>
+              {event.title}
+            </ThemedText>
+            {category ? (
+              <View style={[styles.categoryTag, { backgroundColor: category.color + "20" }]}>
+                <ThemedText style={[styles.categoryText, { color: category.color }]}>
+                  {category.name}
+                </ThemedText>
+              </View>
+            ) : null}
+          </View>
+        </Pressable>
+      );
+    }
+
+    const task = item.data;
+    const category = categories.find((c) => c.id === task.categoryId);
     return (
       <View style={[styles.taskItem, { backgroundColor: theme.backgroundDefault }]}>
         <Pressable
           style={[
             styles.checkbox,
             { borderColor: category?.color || theme.primary },
-            item.status === "completed" && { backgroundColor: category?.color || theme.primary },
+            task.status === "completed" && { backgroundColor: category?.color || theme.primary },
           ]}
-          onPress={() => toggleTaskStatus(item)}
+          onPress={() => toggleTaskStatus(task)}
         >
-          {item.status === "completed" ? (
+          {task.status === "completed" ? (
             <Feather name="check" size={14} color="#FFFFFF" />
           ) : null}
         </Pressable>
@@ -73,10 +163,10 @@ export default function CalendarScreen() {
           <ThemedText
             style={[
               styles.taskTitle,
-              item.status === "completed" && { textDecorationLine: "line-through", opacity: 0.6 },
+              task.status === "completed" && { textDecorationLine: "line-through", opacity: 0.6 },
             ]}
           >
-            {item.title}
+            {task.title}
           </ThemedText>
           <View style={styles.taskMeta}>
             <View style={[styles.categoryTag, { backgroundColor: (category?.color || theme.primary) + "20" }]}>
@@ -89,9 +179,9 @@ export default function CalendarScreen() {
                 styles.priorityDot,
                 {
                   backgroundColor:
-                    item.priority === "high"
+                    task.priority === "high"
                       ? theme.error
-                      : item.priority === "medium"
+                      : task.priority === "medium"
                       ? theme.warning
                       : theme.success,
                 },
@@ -102,6 +192,16 @@ export default function CalendarScreen() {
       </View>
     );
   };
+
+  const formatTime = (timeString: string) => {
+    const [hours, minutes] = timeString.split(":");
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+
+  const itemCount = selectedEvents.length + selectedTasks.length;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
@@ -135,17 +235,18 @@ export default function CalendarScreen() {
           {selectedDate === today ? "Today" : selectedDate}
         </ThemedText>
         <ThemedText style={[styles.tasksCount, { color: theme.textSecondary }]}>
+          {selectedEvents.length > 0 ? `${selectedEvents.length} event${selectedEvents.length !== 1 ? "s" : ""}, ` : ""}
           {selectedTasks.length} task{selectedTasks.length !== 1 ? "s" : ""}
         </ThemedText>
       </View>
 
       <FlatList
-        data={selectedTasks}
-        keyExtractor={(item) => item.id}
-        renderItem={renderTask}
+        data={listItems}
+        keyExtractor={(item) => `${item.type}-${item.data.id}`}
+        renderItem={renderItem}
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
-          paddingBottom: tabBarHeight + Spacing.xl,
+          paddingBottom: tabBarHeight + Spacing.xl + 60,
         }}
         scrollIndicatorInsets={{ bottom: insets.bottom }}
         ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
@@ -153,10 +254,34 @@ export default function CalendarScreen() {
           <View style={styles.emptyContainer}>
             <Feather name="sun" size={40} color={theme.textSecondary} />
             <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-              No tasks scheduled for this day
+              No events or tasks for this day
             </ThemedText>
+            <Pressable
+              style={[styles.addEventButton, { backgroundColor: theme.primary }]}
+              onPress={handleAddEvent}
+            >
+              <Feather name="plus" size={16} color="#FFFFFF" />
+              <ThemedText style={styles.addEventButtonText}>Add Event</ThemedText>
+            </Pressable>
           </View>
         }
+      />
+
+      <Pressable
+        style={[styles.fab, { backgroundColor: theme.primary, bottom: tabBarHeight + Spacing.lg }]}
+        onPress={handleAddEvent}
+      >
+        <Feather name="plus" size={24} color="#FFFFFF" />
+      </Pressable>
+
+      <SchedulingModal
+        visible={showSchedulingModal}
+        onClose={() => {
+          setShowSchedulingModal(false);
+          setEditingEvent(null);
+        }}
+        initialDate={selectedDate}
+        editingEvent={editingEvent}
       />
     </View>
   );
@@ -180,6 +305,43 @@ const styles = StyleSheet.create({
   },
   tasksCount: {
     fontSize: 14,
+  },
+  eventItem: {
+    flexDirection: "row",
+    borderRadius: BorderRadius.xs,
+    overflow: "hidden",
+  },
+  eventTimeBar: {
+    width: 4,
+  },
+  eventContent: {
+    flex: 1,
+    padding: Spacing.md,
+  },
+  eventHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: 4,
+  },
+  eventTypeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+    gap: 4,
+  },
+  eventTypeText: {
+    fontSize: 11,
+    fontWeight: "500",
+  },
+  eventTime: {
+    fontSize: 12,
+  },
+  eventTitle: {
+    fontSize: 15,
+    fontWeight: "500",
   },
   taskItem: {
     flexDirection: "row",
@@ -213,6 +375,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.sm,
     paddingVertical: 2,
     borderRadius: BorderRadius.full,
+    marginTop: 4,
+    alignSelf: "flex-start",
   },
   categoryText: {
     fontSize: 11,
@@ -225,12 +389,38 @@ const styles = StyleSheet.create({
   },
   emptyContainer: {
     alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.xxl * 2,
+    paddingVertical: Spacing.xl * 2,
+    gap: Spacing.md,
   },
   emptyText: {
     fontSize: 14,
-    marginTop: Spacing.md,
-    textAlign: "center",
+  },
+  addEventButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+  },
+  addEventButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  fab: {
+    position: "absolute",
+    right: Spacing.lg,
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
 });

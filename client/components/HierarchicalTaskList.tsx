@@ -21,6 +21,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ClickableDescription } from "@/components/ClickableDescription";
+import { SchedulingModal } from "@/components/SchedulingModal";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -228,7 +229,7 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
     if (!draggedTask || !targetTask) return;
     
     const parentId = draggedTask.parentId || null;
-    const siblings = tasks.filter(t => t.parentId === parentId && !t.deletedAt)
+    const siblings = tasks.filter(t => t.parentId === parentId)
       .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
     
     const siblingIds = siblings.map(t => t.id);
@@ -377,10 +378,11 @@ interface TaskItemProps {
 function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { updateTask, deleteTask } = useApp();
+  const { updateTask, deleteTask, getEventsByTask } = useApp();
   const { draggedTaskId, targetTaskId, setDraggedTaskId, handleTaskTap, cancelDrag } = useContext(DragContext);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const rotation = useSharedValue(0);
   const scale = useSharedValue(1);
   const isDragging = draggedTaskId === task.id;
@@ -445,6 +447,14 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
     navigation.navigate("AddTask", { categoryId: task.categoryId, parentTaskId: task.id });
     setShowDetails(false);
   }, [navigation, task.categoryId, task.id]);
+
+  const handleSchedule = useCallback(() => {
+    setShowSchedulingModal(true);
+    setShowDetails(false);
+  }, []);
+
+  const taskEvents = getEventsByTask(task.id);
+  const hasScheduledEvents = taskEvents.length > 0;
 
   const getDueDateStatus = useCallback(() => {
     if (!task.dueDate) return { color: theme.success, label: "No due date", showIndicator: true };
@@ -616,6 +626,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </View>
                   ) : null}
 
+                  {hasScheduledEvents ? (
+                    <View style={[styles.scheduledBadge, { backgroundColor: "#3B82F6" + "20" }]}>
+                      <Feather name="calendar" size={12} color="#3B82F6" />
+                    </View>
+                  ) : null}
+
                   <View style={[styles.priorityIndicator, { backgroundColor: priorityColor }]} />
                 </View>
 
@@ -645,6 +661,13 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                   >
                     <Feather name="edit-2" size={16} color={theme.primary} />
                     <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionButton, { backgroundColor: "#3B82F6" + "15" }]}
+                    onPress={handleSchedule}
+                  >
+                    <Feather name="calendar" size={16} color="#3B82F6" />
+                    <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
                   </Pressable>
                   <Pressable
                     style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
@@ -681,6 +704,13 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
           </View>
         ) : null}
       </View>
+
+      <SchedulingModal
+        visible={showSchedulingModal}
+        onClose={() => setShowSchedulingModal(false)}
+        linkedTask={task}
+        initialDate={task.dueDate || undefined}
+      />
     </View>
   );
 }
@@ -819,6 +849,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
+  },
+  scheduledBadge: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
   },
   priorityIndicator: {
     width: 4,
