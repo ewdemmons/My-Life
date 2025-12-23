@@ -19,6 +19,8 @@ interface AppContextType {
   addTask: (task: Omit<Task, "id" | "createdAt">) => Promise<void>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
+  reorderTasks: (taskIds: string[], parentId: string | null) => Promise<void>;
+  moveTaskToParent: (taskId: string, newParentId: string | null, newCategoryId?: string) => Promise<void>;
   getTasksByCategory: (categoryId: string) => Task[];
   getTasksByDate: (date: string) => Task[];
   restoreFromRecycleBin: (id: string) => Promise<void>;
@@ -228,6 +230,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     ]);
   }, [tasks, recycleBin]);
 
+  const reorderTasks = useCallback(async (taskIds: string[], parentId: string | null) => {
+    const updated = tasks.map((task) => {
+      const index = taskIds.indexOf(task.id);
+      if (index !== -1 && task.parentId === parentId) {
+        return { ...task, orderIndex: index };
+      }
+      return task;
+    });
+    setTasks(updated);
+    await saveTasks(updated);
+  }, [tasks]);
+
+  const moveTaskToParent = useCallback(async (taskId: string, newParentId: string | null, newCategoryId?: string) => {
+    const taskToMove = tasks.find((t) => t.id === taskId);
+    if (!taskToMove) return;
+
+    const getDescendants = (id: string): Task[] => {
+      const children = tasks.filter((t) => t.parentId === id);
+      return children.flatMap((child) => [child, ...getDescendants(child.id)]);
+    };
+    const descendants = getDescendants(taskId);
+
+    const categoryId = newCategoryId || (newParentId ? tasks.find((t) => t.id === newParentId)?.categoryId : taskToMove.categoryId) || taskToMove.categoryId;
+
+    const updated = tasks.map((task) => {
+      if (task.id === taskId) {
+        return { ...task, parentId: newParentId, categoryId, orderIndex: Date.now() };
+      }
+      if (descendants.find((d) => d.id === task.id)) {
+        return { ...task, categoryId };
+      }
+      return task;
+    });
+    setTasks(updated);
+    await saveTasks(updated);
+  }, [tasks]);
+
   const restoreFromRecycleBin = useCallback(async (id: string) => {
     const item = recycleBin.find((i) => i.id === id);
     if (!item) return;
@@ -300,6 +339,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addTask,
         updateTask,
         deleteTask,
+        reorderTasks,
+        moveTaskToParent,
         getTasksByCategory,
         getTasksByDate,
         restoreFromRecycleBin,

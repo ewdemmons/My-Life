@@ -30,6 +30,7 @@ export interface Task {
   priority: "low" | "medium" | "high";
   status: "pending" | "in_progress" | "completed";
   createdAt: number;
+  orderIndex?: number;
 }
 
 export interface DeletedItem {
