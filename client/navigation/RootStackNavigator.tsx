@@ -5,13 +5,13 @@ import CategoryDetailScreen from "@/screens/CategoryDetailScreen";
 import AddCategoryScreen from "@/screens/AddCategoryScreen";
 import AddTaskScreen from "@/screens/AddTaskScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
-import { LifeCategory } from "@/types";
+import { LifeCategory, Task } from "@/types";
 
 export type RootStackParamList = {
   Main: undefined;
   CategoryDetail: { category: LifeCategory };
   AddCategory: { category?: LifeCategory };
-  AddTask: { categoryId?: string; parentTaskId?: string };
+  AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();

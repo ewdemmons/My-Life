@@ -1,0 +1,21 @@
+Enhance the existing "My Life" app (built with Expo and React Native) by expanding the task management system. Currently, users can add new tasks and link them to life categories from the Life Wheel.
+
+New requirements:
+- Break task entries into these types: Task, Sub-task, Project, Objective, Goal, Idea, List, Item, Resource. Add a "Type" dropdown or selector in the task addition/edit form (e.g., using Picker from @react-native-picker/picker). Default to "Task". Each type inherits basic fields (title, description, due date, priority, status) but with capabilities to link to parent and child tasks (e.g., Projects can have child Tasks).
+
+- Enable hierarchical linking: Each task entry can link to a parent (e.g., a Task under a Project or Objective) and/or have children (e.g., Sub-tasks under a Task). In the add/edit form, add fields for selecting a parent (searchable dropdown of existing entries) and viewing/adding children (button to create linked sub-entries). Use Redux or Context to manage the hierarchy tree. Display hierarchies as nested, collapsible lists (e.g., using Accordion from react-native-collapsible or recursive FlatList).
+
+- Add expand/open functionality: In task lists (filtered by category on bubble detail screens), make entries expandable to view/edit details. Tapping an entry expands to show full description, type, linked parent/children, and edit buttons. Use state for toggle (e.g., useState for expanded items).
+
+- Integration: Ensure all tasks can link to a life category (keep existing selector). When viewing a bubble's detail screen, show hierarchical task list filtered by that category. Persist hierarchies locally with AsyncStorage or Realm (use nested JSON structures). 
+
+- UI Polish: Modernize the task add/edit form with validation (e.g., required title). Add icons for types (e.g., goal as a target icon). Keep dark mode compatibility.
+
+Plan step-by-step:
+1. Update task data model to include type, parentId, and childrenIds array.
+2. Modify add/edit screens to include type selector and parent/child linking.
+3. Refactor task lists to support hierarchies and expansion.
+4. Test with sample data: Create an Objective > Project > Task > Sub-task chain linked to a category.
+5. Ensure no breakage to Life Wheel, category linking, or basic calendar.
+
+After implementation, show the updated app in Expo preview and confirm hierarchies work.

@@ -32,9 +32,9 @@ const defaultCategories: LifeCategory[] = [
 ];
 
 const defaultTasks: Task[] = [
-  { id: "t1", title: "Call Mom", description: "Weekly check-in call", categoryId: "1", parentId: null, dueDate: new Date().toISOString().split("T")[0], priority: "high", status: "pending", createdAt: Date.now() },
-  { id: "t2", title: "Morning jog", description: "30 minute run", categoryId: "2", parentId: null, dueDate: new Date().toISOString().split("T")[0], priority: "medium", status: "pending", createdAt: Date.now() },
-  { id: "t3", title: "Project presentation", description: "Q4 review slides", categoryId: "3", parentId: null, dueDate: new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0], priority: "high", status: "in_progress", createdAt: Date.now() },
+  { id: "t1", title: "Call Mom", description: "Weekly check-in call", type: "task", categoryId: "1", parentId: null, dueDate: new Date().toISOString().split("T")[0], priority: "high", status: "pending", createdAt: Date.now() },
+  { id: "t2", title: "Morning jog", description: "30 minute run", type: "task", categoryId: "2", parentId: null, dueDate: new Date().toISOString().split("T")[0], priority: "medium", status: "pending", createdAt: Date.now() },
+  { id: "t3", title: "Project presentation", description: "Q4 review slides", type: "project", categoryId: "3", parentId: null, dueDate: new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0], priority: "high", status: "in_progress", createdAt: Date.now() },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
