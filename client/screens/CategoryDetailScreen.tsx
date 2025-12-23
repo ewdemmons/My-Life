@@ -1,32 +1,67 @@
-import React, { useState, useLayoutEffect } from "react";
-import { View, StyleSheet, Pressable, FlatList } from "react-native";
+import React, { useState, useLayoutEffect, useMemo } from "react";
+import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { HeaderButton } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
+import { Calendar } from "react-native-calendars";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { Task } from "@/types";
+import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
+import { TASK_TYPES, TaskType } from "@/types";
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
 
 export default function CategoryDetailScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const { theme } = useTheme();
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory, updateTask, deleteTask } = useApp();
+  const { getTasksByCategory } = useApp();
 
   const category = route.params.category;
   const [segment, setSegment] = useState<"tasks" | "calendar">("tasks");
+  const [selectedType, setSelectedType] = useState<TaskType | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const categoryTasks = getTasksByCategory(category.id);
+
+  const filteredTasks = useMemo(() => {
+    let filtered = categoryTasks;
+    if (selectedType) {
+      filtered = filtered.filter((t) => t.type === selectedType);
+    }
+    if (selectedDate) {
+      filtered = filtered.filter((t) => t.dueDate === selectedDate);
+    }
+    return filtered;
+  }, [categoryTasks, selectedType, selectedDate]);
+
+  const markedDates = useMemo(() => {
+    const marks: Record<string, { marked: boolean; dotColor: string }> = {};
+    categoryTasks.forEach((task) => {
+      if (task.dueDate) {
+        marks[task.dueDate] = {
+          marked: true,
+          dotColor: category.color,
+        };
+      }
+    });
+    if (selectedDate) {
+      marks[selectedDate] = {
+        ...marks[selectedDate],
+        selected: true,
+        selectedColor: category.color,
+      } as any;
+    }
+    return marks;
+  }, [categoryTasks, category.color, selectedDate]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -39,105 +74,52 @@ export default function CategoryDetailScreen() {
     });
   }, [navigation, category, theme]);
 
-  const toggleTaskStatus = (task: Task) => {
-    const newStatus = task.status === "completed" ? "pending" : "completed";
-    updateTask(task.id, { status: newStatus });
-  };
-
-  const renderTask = ({ item }: { item: Task }) => (
-    <View style={[styles.taskItem, { backgroundColor: theme.backgroundDefault }]}>
-      <Pressable
-        style={[
-          styles.checkbox,
-          { borderColor: category.color },
-          item.status === "completed" && { backgroundColor: category.color },
-        ]}
-        onPress={() => toggleTaskStatus(item)}
-      >
-        {item.status === "completed" ? (
-          <Feather name="check" size={14} color="#FFFFFF" />
-        ) : null}
-      </Pressable>
-      <View style={styles.taskContent}>
-        <ThemedText
-          style={[
-            styles.taskTitle,
-            item.status === "completed" && { textDecorationLine: "line-through", opacity: 0.6 },
-          ]}
-        >
-          {item.title}
-        </ThemedText>
-        {item.dueDate ? (
-          <ThemedText style={[styles.taskDue, { color: theme.textSecondary }]}>
-            Due: {item.dueDate}
-          </ThemedText>
-        ) : null}
-      </View>
-      <View
-        style={[
-          styles.priorityBadge,
-          {
-            backgroundColor:
-              item.priority === "high"
-                ? theme.error + "20"
-                : item.priority === "medium"
-                ? theme.warning + "20"
-                : theme.success + "20",
-          },
-        ]}
-      >
-        <ThemedText
-          style={[
-            styles.priorityText,
-            {
-              color:
-                item.priority === "high"
-                  ? theme.error
-                  : item.priority === "medium"
-                  ? theme.warning
-                  : theme.success,
-            },
-          ]}
-        >
-          {item.priority}
-        </ThemedText>
-      </View>
-    </View>
-  );
+  const stats = useMemo(() => {
+    const total = categoryTasks.length;
+    const completed = categoryTasks.filter((t) => t.status === "completed").length;
+    const pending = categoryTasks.filter((t) => t.status === "pending").length;
+    const inProgress = categoryTasks.filter((t) => t.status === "in_progress").length;
+    return { total, completed, pending, inProgress };
+  }, [categoryTasks]);
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
-      <View
-        style={[
-          styles.colorBar,
-          { backgroundColor: category.color, marginTop: headerHeight },
-        ]}
-      />
+      <View style={[styles.colorBar, { backgroundColor: category.color, marginTop: headerHeight }]} />
+
+      <View style={styles.statsRow}>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: category.color }]}>{stats.total}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Total</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.success }]}>{stats.completed}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Done</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.warning }]}>{stats.inProgress}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Active</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.textSecondary }]}>{stats.pending}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Pending</ThemedText>
+        </View>
+      </View>
+
       <View style={styles.segmentContainer}>
         <View style={[styles.segmentControl, { backgroundColor: theme.backgroundDefault }]}>
           <Pressable
-            style={[
-              styles.segment,
-              segment === "tasks" && { backgroundColor: theme.backgroundRoot },
-            ]}
+            style={[styles.segment, segment === "tasks" && { backgroundColor: theme.backgroundRoot }]}
             onPress={() => setSegment("tasks")}
           >
-            <ThemedText
-              style={[styles.segmentText, segment === "tasks" && { fontWeight: "600" }]}
-            >
-              Tasks
+            <ThemedText style={[styles.segmentText, segment === "tasks" && { fontWeight: "600" }]}>
+              Entries
             </ThemedText>
           </Pressable>
           <Pressable
-            style={[
-              styles.segment,
-              segment === "calendar" && { backgroundColor: theme.backgroundRoot },
-            ]}
+            style={[styles.segment, segment === "calendar" && { backgroundColor: theme.backgroundRoot }]}
             onPress={() => setSegment("calendar")}
           >
-            <ThemedText
-              style={[styles.segmentText, segment === "calendar" && { fontWeight: "600" }]}
-            >
+            <ThemedText style={[styles.segmentText, segment === "calendar" && { fontWeight: "600" }]}>
               Calendar
             </ThemedText>
           </Pressable>
@@ -145,31 +127,82 @@ export default function CategoryDetailScreen() {
       </View>
 
       {segment === "tasks" ? (
-        <FlatList
-          data={categoryTasks}
-          keyExtractor={(item) => item.id}
-          renderItem={renderTask}
-          contentContainerStyle={{
-            paddingHorizontal: Spacing.lg,
-            paddingBottom: insets.bottom + Spacing.xl,
-          }}
-          ListEmptyComponent={
-            <View style={styles.emptyContainer}>
-              <Feather name="check-circle" size={48} color={theme.textSecondary} />
-              <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-                No tasks in this category
+        <>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            style={styles.typeFilters}
+            contentContainerStyle={styles.typeFiltersContent}
+          >
+            <Pressable
+              style={[
+                styles.typeChip,
+                { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+                !selectedType && { borderColor: category.color },
+              ]}
+              onPress={() => setSelectedType(null)}
+            >
+              <ThemedText style={[styles.typeChipText, !selectedType && { color: category.color }]}>
+                All
               </ThemedText>
-            </View>
-          }
-          ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
-        />
+            </Pressable>
+            {TASK_TYPES.map((t) => (
+              <Pressable
+                key={t.value}
+                style={[
+                  styles.typeChip,
+                  { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+                  selectedType === t.value && { borderColor: category.color, backgroundColor: category.color + "15" },
+                ]}
+                onPress={() => setSelectedType(selectedType === t.value ? null : t.value)}
+              >
+                <Feather name={t.icon as any} size={14} color={selectedType === t.value ? category.color : theme.textSecondary} />
+                <ThemedText style={[styles.typeChipText, selectedType === t.value && { color: category.color }]}>
+                  {t.label}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </ScrollView>
+          <ScrollView
+            style={styles.taskList}
+            contentContainerStyle={{
+              paddingHorizontal: Spacing.lg,
+              paddingBottom: insets.bottom + Spacing.xxl + 60,
+            }}
+          >
+            <HierarchicalTaskList tasks={filteredTasks} />
+          </ScrollView>
+        </>
       ) : (
-        <View style={[styles.calendarPlaceholder, { paddingBottom: insets.bottom }]}>
-          <Feather name="calendar" size={48} color={theme.textSecondary} />
-          <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-            Calendar view for {category.name}
-          </ThemedText>
-        </View>
+        <ScrollView
+          style={styles.calendarContainer}
+          contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xxl + 60 }}
+        >
+          <Calendar
+            theme={{
+              backgroundColor: theme.backgroundRoot,
+              calendarBackground: theme.backgroundRoot,
+              textSectionTitleColor: theme.textSecondary,
+              selectedDayBackgroundColor: category.color,
+              selectedDayTextColor: "#FFFFFF",
+              todayTextColor: category.color,
+              dayTextColor: theme.text,
+              textDisabledColor: theme.textSecondary,
+              monthTextColor: theme.text,
+              arrowColor: category.color,
+            }}
+            markedDates={markedDates}
+            onDayPress={(day: { dateString: string }) => {
+              setSelectedDate(selectedDate === day.dateString ? null : day.dateString);
+            }}
+          />
+          {selectedDate ? (
+            <View style={styles.selectedDateSection}>
+              <ThemedText style={styles.selectedDateTitle}>Tasks for {selectedDate}</ThemedText>
+              <HierarchicalTaskList tasks={filteredTasks} />
+            </View>
+          ) : null}
+        </ScrollView>
       )}
 
       <Pressable
@@ -177,7 +210,7 @@ export default function CategoryDetailScreen() {
         onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
       >
         <Feather name="plus" size={24} color="#FFFFFF" />
-        <ThemedText style={styles.addButtonText}>Add Task</ThemedText>
+        <ThemedText style={styles.addButtonText}>Add Entry</ThemedText>
       </Pressable>
     </View>
   );
@@ -187,9 +220,29 @@ const styles = StyleSheet.create({
   colorBar: {
     height: 4,
   },
+  statsRow: {
+    flexDirection: "row",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    gap: Spacing.sm,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.xs,
+  },
+  statValue: {
+    fontSize: 20,
+    fontWeight: "700",
+  },
+  statLabel: {
+    fontSize: 11,
+    marginTop: 2,
+  },
   segmentContainer: {
     paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.lg,
+    paddingBottom: Spacing.md,
   },
   segmentControl: {
     flexDirection: "row",
@@ -205,56 +258,40 @@ const styles = StyleSheet.create({
   segmentText: {
     fontSize: 14,
   },
-  taskItem: {
+  typeFilters: {
+    maxHeight: 40,
+    marginBottom: Spacing.sm,
+  },
+  typeFiltersContent: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  typeChip: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.xs,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.full,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: Spacing.md,
+    borderWidth: 1,
+    gap: Spacing.xs,
   },
-  taskContent: {
+  typeChipText: {
+    fontSize: 13,
+  },
+  taskList: {
     flex: 1,
   },
-  taskTitle: {
+  calendarContainer: {
+    flex: 1,
+    paddingHorizontal: Spacing.lg,
+  },
+  selectedDateSection: {
+    marginTop: Spacing.lg,
+  },
+  selectedDateTitle: {
     fontSize: 16,
-    fontWeight: "500",
-  },
-  taskDue: {
-    fontSize: 12,
-    marginTop: 2,
-  },
-  priorityBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-  },
-  priorityText: {
-    fontSize: 10,
     fontWeight: "600",
-    textTransform: "capitalize",
-  },
-  emptyContainer: {
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.xxl * 2,
-  },
-  emptyText: {
-    fontSize: 14,
-    marginTop: Spacing.md,
-    textAlign: "center",
-  },
-  calendarPlaceholder: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
+    marginBottom: Spacing.md,
   },
   addButton: {
     position: "absolute",

@@ -1,5 +1,5 @@
-import React, { useState } from "react";
-import { View, StyleSheet, Pressable, FlatList, TextInput, Alert } from "react-native";
+import React, { useState, useMemo } from "react";
+import { View, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -9,111 +9,49 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
-import { Task } from "@/types";
+import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
+import { TASK_TYPES, TaskType } from "@/types";
 
 export default function TasksScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { tasks, categories, updateTask, deleteTask } = useApp();
+  const { tasks, categories } = useApp();
   const [searchQuery, setSearchQuery] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [selectedType, setSelectedType] = useState<TaskType | null>(null);
 
-  const filteredTasks = tasks.filter((task) => {
-    const matchesSearch = task.title.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesStatus = showCompleted ? true : task.status !== "completed";
-    return matchesSearch && matchesStatus;
-  });
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const searchLower = searchQuery.toLowerCase();
+      const matchesSearch = task.title.toLowerCase().includes(searchLower) ||
+                           (task.description || "").toLowerCase().includes(searchLower);
+      const matchesStatus = showCompleted ? true : task.status !== "completed";
+      const matchesCategory = selectedCategory ? task.categoryId === selectedCategory : true;
+      const matchesType = selectedType ? task.type === selectedType : true;
+      return matchesSearch && matchesStatus && matchesCategory && matchesType;
+    });
+  }, [tasks, searchQuery, showCompleted, selectedCategory, selectedType]);
 
-  const groupedTasks = categories.map((cat) => ({
-    category: cat,
-    tasks: filteredTasks.filter((t) => t.categoryId === cat.id),
-  })).filter((group) => group.tasks.length > 0);
-
-  const toggleTaskStatus = (task: Task) => {
-    const newStatus = task.status === "completed" ? "pending" : "completed";
-    updateTask(task.id, { status: newStatus });
+  const clearFilters = () => {
+    setSelectedCategory(null);
+    setSelectedType(null);
+    setSearchQuery("");
+    setShowCompleted(false);
   };
 
-  const handleDeleteTask = (task: Task) => {
-    Alert.alert(
-      "Delete Task",
-      `Are you sure you want to delete "${task.title}"?`,
-      [
-        { text: "Cancel", style: "cancel" },
-        { text: "Delete", style: "destructive", onPress: () => deleteTask(task.id) },
-      ]
-    );
-  };
-
-  const renderTask = (task: Task, categoryColor: string) => (
-    <Pressable
-      key={task.id}
-      style={[styles.taskItem, { backgroundColor: theme.backgroundDefault }]}
-      onLongPress={() => handleDeleteTask(task)}
-    >
-      <Pressable
-        style={[
-          styles.checkbox,
-          { borderColor: categoryColor },
-          task.status === "completed" && { backgroundColor: categoryColor },
-        ]}
-        onPress={() => toggleTaskStatus(task)}
-      >
-        {task.status === "completed" ? (
-          <Feather name="check" size={14} color="#FFFFFF" />
-        ) : null}
-      </Pressable>
-      <View style={styles.taskContent}>
-        <ThemedText
-          style={[
-            styles.taskTitle,
-            task.status === "completed" && { textDecorationLine: "line-through", opacity: 0.6 },
-          ]}
-        >
-          {task.title}
-        </ThemedText>
-        <View style={styles.taskMeta}>
-          {task.dueDate ? (
-            <View style={styles.dueBadge}>
-              <Feather name="calendar" size={12} color={theme.textSecondary} />
-              <ThemedText style={[styles.dueText, { color: theme.textSecondary }]}>
-                {task.dueDate}
-              </ThemedText>
-            </View>
-          ) : null}
-          <View
-            style={[
-              styles.priorityDot,
-              {
-                backgroundColor:
-                  task.priority === "high"
-                    ? theme.error
-                    : task.priority === "medium"
-                    ? theme.warning
-                    : theme.success,
-              },
-            ]}
-          />
-        </View>
-      </View>
-    </Pressable>
-  );
+  const hasFilters = selectedCategory || selectedType || searchQuery || showCompleted;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
-      <View
-        style={[
-          styles.searchContainer,
-          { paddingTop: headerHeight + Spacing.md, backgroundColor: theme.backgroundRoot },
-        ]}
-      >
+      <View style={[styles.header, { paddingTop: headerHeight + Spacing.md }]}>
         <View style={[styles.searchBar, { backgroundColor: theme.backgroundDefault }]}>
           <Feather name="search" size={20} color={theme.textSecondary} />
           <TextInput
             style={[styles.searchInput, { color: theme.text }]}
-            placeholder="Search tasks..."
+            placeholder="Search entries..."
             placeholderTextColor={theme.textSecondary}
             value={searchQuery}
             onChangeText={setSearchQuery}
@@ -139,43 +77,102 @@ export default function TasksScreen() {
         </Pressable>
       </View>
 
-      <FlatList
-        data={groupedTasks}
-        keyExtractor={(item) => item.category.id}
+      <View style={styles.filtersContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
+          <Pressable
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+              !selectedCategory && { borderColor: theme.primary },
+            ]}
+            onPress={() => setSelectedCategory(null)}
+          >
+            <ThemedText style={[styles.filterChipText, !selectedCategory && { color: theme.primary }]}>
+              All Categories
+            </ThemedText>
+          </Pressable>
+          {categories.map((cat) => (
+            <Pressable
+              key={cat.id}
+              style={[
+                styles.filterChip,
+                { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+                selectedCategory === cat.id && { borderColor: cat.color, backgroundColor: cat.color + "15" },
+              ]}
+              onPress={() => setSelectedCategory(selectedCategory === cat.id ? null : cat.id)}
+            >
+              <View style={[styles.filterDot, { backgroundColor: cat.color }]} />
+              <ThemedText
+                style={[styles.filterChipText, selectedCategory === cat.id && { color: cat.color }]}
+                numberOfLines={1}
+              >
+                {cat.name}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      <View style={styles.typeFiltersContainer}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filtersRow}>
+          <Pressable
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+              !selectedType && { borderColor: theme.secondary },
+            ]}
+            onPress={() => setSelectedType(null)}
+          >
+            <ThemedText style={[styles.filterChipText, !selectedType && { color: theme.secondary }]}>
+              All Types
+            </ThemedText>
+          </Pressable>
+          {TASK_TYPES.map((t) => (
+            <Pressable
+              key={t.value}
+              style={[
+                styles.filterChip,
+                { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+                selectedType === t.value && { borderColor: theme.secondary, backgroundColor: theme.secondary + "15" },
+              ]}
+              onPress={() => setSelectedType(selectedType === t.value ? null : t.value)}
+            >
+              <Feather name={t.icon as any} size={14} color={selectedType === t.value ? theme.secondary : theme.textSecondary} />
+              <ThemedText
+                style={[styles.filterChipText, selectedType === t.value && { color: theme.secondary }]}
+              >
+                {t.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </View>
+
+      {hasFilters ? (
+        <Pressable style={styles.clearFilters} onPress={clearFilters}>
+          <Feather name="x" size={14} color={theme.primary} />
+          <ThemedText style={[styles.clearFiltersText, { color: theme.primary }]}>
+            Clear filters
+          </ThemedText>
+        </Pressable>
+      ) : null}
+
+      <ScrollView
+        style={styles.content}
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
           paddingBottom: tabBarHeight + Spacing.xxl + Spacing.fabSize,
         }}
         scrollIndicatorInsets={{ bottom: insets.bottom }}
-        renderItem={({ item }) => (
-          <View style={styles.categoryGroup}>
-            <View style={styles.categoryHeader}>
-              <View style={[styles.categoryDot, { backgroundColor: item.category.color }]} />
-              <ThemedText style={styles.categoryTitle}>{item.category.name}</ThemedText>
-              <ThemedText style={[styles.taskCount, { color: theme.textSecondary }]}>
-                {item.tasks.length}
-              </ThemedText>
-            </View>
-            <View style={styles.tasksList}>
-              {item.tasks.map((task) => renderTask(task, item.category.color))}
-            </View>
-          </View>
-        )}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Feather name="inbox" size={48} color={theme.textSecondary} />
-            <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-              {searchQuery ? "No tasks match your search" : "No tasks yet"}
-            </ThemedText>
-          </View>
-        }
-      />
+      >
+        <HierarchicalTaskList tasks={filteredTasks} showCategory />
+      </ScrollView>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  searchContainer: {
+  header: {
     flexDirection: "row",
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
@@ -201,79 +198,45 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  categoryGroup: {
-    marginBottom: Spacing.xl,
+  filtersContainer: {
+    paddingBottom: Spacing.sm,
   },
-  categoryHeader: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginBottom: Spacing.md,
+  typeFiltersContainer: {
+    paddingBottom: Spacing.sm,
+  },
+  filtersRow: {
+    paddingHorizontal: Spacing.lg,
     gap: Spacing.sm,
   },
-  categoryDot: {
-    width: 12,
-    height: 12,
+  filterChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.full,
+    borderWidth: 1,
+    gap: Spacing.xs,
   },
-  categoryTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    flex: 1,
-  },
-  taskCount: {
-    fontSize: 14,
-  },
-  tasksList: {
-    gap: Spacing.sm,
-  },
-  taskItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.xs,
-  },
-  checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: BorderRadius.full,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-    marginRight: Spacing.md,
-  },
-  taskContent: {
-    flex: 1,
-  },
-  taskTitle: {
-    fontSize: 15,
-    fontWeight: "500",
-  },
-  taskMeta: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: 4,
-    gap: Spacing.sm,
-  },
-  dueBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  dueText: {
-    fontSize: 12,
-  },
-  priorityDot: {
+  filterDot: {
     width: 8,
     height: 8,
-    borderRadius: BorderRadius.full,
+    borderRadius: 4,
   },
-  emptyContainer: {
+  filterChipText: {
+    fontSize: 13,
+  },
+  clearFilters: {
+    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.xxl * 2,
+    paddingVertical: Spacing.xs,
+    gap: Spacing.xs,
   },
-  emptyText: {
-    fontSize: 14,
-    marginTop: Spacing.md,
+  clearFiltersText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  content: {
+    flex: 1,
   },
 });

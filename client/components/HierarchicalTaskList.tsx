@@ -97,7 +97,7 @@ function TaskItem({ task, depth, showCategory, categories }: TaskItemProps) {
   }, [task.id, task.status, updateTask]);
 
   const handleEdit = useCallback(() => {
-    navigation.navigate("AddTask", { task });
+    navigation.navigate("AddTask", { task, categoryId: task.categoryId, parentTaskId: task.parentId || undefined });
     setShowDetails(false);
   }, [navigation, task]);
 

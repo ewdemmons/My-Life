@@ -33,8 +33,17 @@ const defaultCategories: LifeCategory[] = [
 
 const defaultTasks: Task[] = [
   { id: "t1", title: "Call Mom", description: "Weekly check-in call", type: "task", categoryId: "1", parentId: null, dueDate: new Date().toISOString().split("T")[0], priority: "high", status: "pending", createdAt: Date.now() },
-  { id: "t2", title: "Morning jog", description: "30 minute run", type: "task", categoryId: "2", parentId: null, dueDate: new Date().toISOString().split("T")[0], priority: "medium", status: "pending", createdAt: Date.now() },
-  { id: "t3", title: "Project presentation", description: "Q4 review slides", type: "project", categoryId: "3", parentId: null, dueDate: new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0], priority: "high", status: "in_progress", createdAt: Date.now() },
+  { id: "t2", title: "Get Fit This Year", description: "Annual health and fitness goal", type: "goal", categoryId: "2", parentId: null, dueDate: null, priority: "high", status: "in_progress", createdAt: Date.now() },
+  { id: "t2a", title: "Build Running Habit", description: "Run 3x per week", type: "objective", categoryId: "2", parentId: "t2", dueDate: null, priority: "high", status: "in_progress", createdAt: Date.now() + 1 },
+  { id: "t2b", title: "Morning Jog Routine", description: "30 min run each session", type: "project", categoryId: "2", parentId: "t2a", dueDate: new Date(Date.now() + 86400000 * 30).toISOString().split("T")[0], priority: "medium", status: "in_progress", createdAt: Date.now() + 2 },
+  { id: "t2c", title: "Today's Run", description: "30 minute jog around the park", type: "task", categoryId: "2", parentId: "t2b", dueDate: new Date().toISOString().split("T")[0], priority: "medium", status: "pending", createdAt: Date.now() + 3 },
+  { id: "t2d", title: "Warm up stretches", description: "5 min dynamic stretching", type: "subtask", categoryId: "2", parentId: "t2c", dueDate: new Date().toISOString().split("T")[0], priority: "low", status: "pending", createdAt: Date.now() + 4 },
+  { id: "t3", title: "Q4 Business Review", description: "Quarterly review project", type: "project", categoryId: "3", parentId: null, dueDate: new Date(Date.now() + 86400000 * 7).toISOString().split("T")[0], priority: "high", status: "in_progress", createdAt: Date.now() },
+  { id: "t3a", title: "Prepare Slides", description: "Create presentation deck", type: "task", categoryId: "3", parentId: "t3", dueDate: new Date(Date.now() + 86400000 * 2).toISOString().split("T")[0], priority: "high", status: "pending", createdAt: Date.now() + 1 },
+  { id: "t3b", title: "Gather Sales Data", description: "Pull Q4 numbers from CRM", type: "subtask", categoryId: "3", parentId: "t3a", dueDate: new Date(Date.now() + 86400000).toISOString().split("T")[0], priority: "medium", status: "pending", createdAt: Date.now() + 2 },
+  { id: "t4", title: "New App Feature Ideas", description: "Brainstorm ideas for the mobile app", type: "list", categoryId: "3", parentId: null, dueDate: null, priority: "low", status: "pending", createdAt: Date.now() },
+  { id: "t4a", title: "Dark mode improvements", description: "Better contrast ratios", type: "idea", categoryId: "3", parentId: "t4", dueDate: null, priority: "low", status: "pending", createdAt: Date.now() + 1 },
+  { id: "t4b", title: "Push notifications", description: "Task reminders", type: "idea", categoryId: "3", parentId: "t4", dueDate: null, priority: "medium", status: "pending", createdAt: Date.now() + 2 },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -61,7 +70,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       
       if (tasksData) {
-        setTasks(JSON.parse(tasksData));
+        const parsed = JSON.parse(tasksData);
+        const migrated = parsed.map((task: any) => ({
+          ...task,
+          type: task.type || "task",
+        }));
+        setTasks(migrated);
+        if (parsed.some((t: any) => !t.type)) {
+          await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(migrated));
+        }
       } else {
         setTasks(defaultTasks);
         await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(defaultTasks));
