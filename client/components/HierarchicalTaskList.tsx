@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback } from "react";
-import { View, StyleSheet, Pressable, Alert } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -11,6 +11,19 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+const TYPE_COLORS: Record<TaskType, string> = {
+  goal: "#8B5CF6",
+  objective: "#F97316",
+  project: "#3B82F6",
+  task: "#10B981",
+  subtask: "#6B7280",
+  appointment: "#EC4899",
+  idea: "#EAB308",
+  list: "#06B6D4",
+  item: "#9CA3AF",
+  resource: "#8B5CF6",
+};
 
 interface HierarchicalTaskListProps {
   tasks: Task[];
@@ -80,8 +93,9 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
   if (hierarchy.length === 0) {
     return (
       <View style={styles.emptyContainer}>
-        <Feather name="inbox" size={48} color="rgba(128,128,128,0.3)" />
+        <Feather name="inbox" size={56} color="rgba(128,128,128,0.25)" />
         <ThemedText style={styles.emptyText}>No entries yet</ThemedText>
+        <ThemedText style={styles.emptyHint}>Tap + to add your first entry</ThemedText>
       </View>
     );
   }
@@ -95,6 +109,7 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
           depth={0}
           showCategory={showCategory}
           categories={categories}
+          parentColor={null}
         />
       ))}
     </View>
@@ -106,10 +121,11 @@ interface TaskItemProps {
   depth: number;
   showCategory: boolean;
   categories: { id: string; name: string; color: string }[];
+  parentColor: string | null;
 }
 
-function TaskItem({ task, depth, showCategory, categories }: TaskItemProps) {
-  const { theme } = useTheme();
+function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskItemProps) {
+  const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateTask, deleteTask } = useApp();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -119,6 +135,8 @@ function TaskItem({ task, depth, showCategory, categories }: TaskItemProps) {
   const typeInfo = getTaskTypeInfo(task.type);
   const category = categories.find((c) => c.id === task.categoryId);
   const hasChildren = task.children.length > 0;
+  const typeColor = TYPE_COLORS[task.type];
+  const categoryColor = category?.color || theme.primary;
 
   const toggleExpand = useCallback(() => {
     setIsExpanded(!isExpanded);
@@ -168,180 +186,286 @@ function TaskItem({ task, depth, showCategory, categories }: TaskItemProps) {
     setShowDetails(false);
   }, [navigation, task.categoryId, task.id]);
 
+  const getDueDateStatus = useCallback(() => {
+    if (!task.dueDate) return { color: theme.success, label: null };
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const dueDate = new Date(task.dueDate);
+    dueDate.setHours(0, 0, 0, 0);
+    
+    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    
+    if (diffDays < 0) return { color: theme.error, label: "Overdue" };
+    if (diffDays === 0) return { color: theme.warning, label: "Today" };
+    if (diffDays <= 3) return { color: theme.warning, label: `${diffDays}d` };
+    return { color: theme.success, label: task.dueDate };
+  }, [task.dueDate, theme]);
+
+  const dueDateInfo = getDueDateStatus();
   const priorityColor = task.priority === "high" ? theme.error : 
                         task.priority === "medium" ? theme.warning : theme.success;
 
+  const cardShadow = Platform.select({
+    ios: {
+      shadowColor: "#000",
+      shadowOffset: { width: 0, height: 2 },
+      shadowOpacity: isDark ? 0.4 : 0.08,
+      shadowRadius: 8,
+    },
+    android: {
+      elevation: 3,
+    },
+    default: {},
+  });
+
   return (
-    <View style={[styles.itemContainer, { marginLeft: depth * Spacing.lg }]}>
-      <Pressable
-        style={[
-          styles.item,
-          { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
-          task.status === "completed" && styles.itemCompleted,
-        ]}
-        onPress={() => setShowDetails(!showDetails)}
-      >
-        <View style={styles.itemHeader}>
-          {hasChildren ? (
-            <Pressable onPress={toggleExpand} hitSlop={8}>
-              <Animated.View style={chevronStyle}>
-                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
-              </Animated.View>
-            </Pressable>
-          ) : (
-            <View style={styles.chevronPlaceholder} />
-          )}
+    <View style={styles.itemWrapper}>
+      {depth > 0 && parentColor ? (
+        <View 
+          style={[
+            styles.hierarchyLine, 
+            { 
+              backgroundColor: parentColor + "40",
+              left: (depth - 1) * 24 + 8,
+            }
+          ]} 
+        />
+      ) : null}
+      <View style={[styles.itemContainer, { marginLeft: depth * 24 }]}>
+        <Pressable
+          style={[
+            styles.item,
+            cardShadow,
+            { 
+              backgroundColor: isDark ? theme.backgroundDefault : "#FFFFFF",
+              borderColor: isDark ? theme.border : "transparent",
+            },
+            task.status === "completed" && styles.itemCompleted,
+          ]}
+          onPress={() => setShowDetails(!showDetails)}
+        >
+          <View style={styles.itemHeader}>
+            <View style={styles.leftSection}>
+              {hasChildren ? (
+                <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
+                  <Animated.View style={chevronStyle}>
+                    <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+                  </Animated.View>
+                </Pressable>
+              ) : (
+                <View style={styles.chevronPlaceholder} />
+              )}
 
-          <Pressable onPress={handleToggleComplete} hitSlop={8}>
-            <Feather
-              name={task.status === "completed" ? "check-circle" : "circle"}
-              size={22}
-              color={task.status === "completed" ? theme.success : theme.textSecondary}
-            />
-          </Pressable>
+              <Pressable onPress={handleToggleComplete} hitSlop={12} style={styles.checkboxButton}>
+                <View style={[
+                  styles.checkbox,
+                  { borderColor: task.status === "completed" ? theme.success : theme.textSecondary },
+                  task.status === "completed" && { backgroundColor: theme.success }
+                ]}>
+                  {task.status === "completed" ? (
+                    <Feather name="check" size={14} color="#FFFFFF" />
+                  ) : null}
+                </View>
+              </Pressable>
 
-          <View style={styles.itemContent}>
-            <View style={styles.titleRow}>
-              <Feather
-                name={typeInfo.icon as any}
-                size={14}
-                color={theme.textSecondary}
-                style={styles.typeIcon}
-              />
+              <View style={[styles.typeIconContainer, { backgroundColor: typeColor + "20" }]}>
+                <Feather
+                  name={typeInfo.icon as any}
+                  size={20}
+                  color={typeColor}
+                />
+              </View>
+            </View>
+
+            <View style={styles.itemContent}>
               <ThemedText
                 style={[
                   styles.title,
+                  { color: isDark ? "#FFFFFF" : theme.text },
                   task.status === "completed" && styles.titleCompleted,
                 ]}
-                numberOfLines={1}
+                numberOfLines={2}
               >
                 {task.title}
               </ThemedText>
-            </View>
-            <View style={styles.metaRow}>
-              <View style={[styles.priorityDot, { backgroundColor: priorityColor }]} />
-              <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                {typeInfo.label}
-              </ThemedText>
-              {showCategory && category ? (
-                <>
-                  <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
-                  <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                    {category.name}
+              <View style={styles.metaRow}>
+                <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
+                  <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
+                    {typeInfo.label}
                   </ThemedText>
-                </>
-              ) : null}
-              {task.dueDate ? (
-                <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                  {task.dueDate}
-                </ThemedText>
-              ) : null}
-              {hasChildren ? (
-                <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                  {task.children.length} sub-entries
-                </ThemedText>
-              ) : null}
+                </View>
+                
+                {showCategory && category ? (
+                  <View style={styles.categoryBadge}>
+                    <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                    <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                      {category.name}
+                    </ThemedText>
+                  </View>
+                ) : null}
+
+                {task.dueDate ? (
+                  <View style={styles.dueDateBadge}>
+                    <View style={[styles.dueDateDot, { backgroundColor: dueDateInfo.color }]} />
+                    <ThemedText style={[styles.metaText, { color: dueDateInfo.color }]}>
+                      {dueDateInfo.label}
+                    </ThemedText>
+                  </View>
+                ) : null}
+
+                {hasChildren ? (
+                  <View style={styles.childCountBadge}>
+                    <Feather name="layers" size={12} color={theme.textSecondary} />
+                    <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                      {task.children.length}
+                    </ThemedText>
+                  </View>
+                ) : null}
+
+                <View style={[styles.priorityIndicator, { backgroundColor: priorityColor }]} />
+              </View>
             </View>
           </View>
-        </View>
 
-        {showDetails ? (
-          <View style={[styles.details, { borderTopColor: theme.border }]}>
-            {task.description ? (
-              <ThemedText style={[styles.description, { color: theme.textSecondary }]}>
-                {task.description}
-              </ThemedText>
-            ) : null}
-            <View style={styles.actions}>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.primary + "20" }]}
-                onPress={handleEdit}
-              >
-                <Feather name="edit-2" size={16} color={theme.primary} />
-                <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.secondary + "20" }]}
-                onPress={handleAddSubtask}
-              >
-                <Feather name="plus" size={16} color={theme.secondary} />
-                <ThemedText style={[styles.actionText, { color: theme.secondary }]}>Add Sub-entry</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.error + "20" }]}
-                onPress={handleDelete}
-              >
-                <Feather name="trash-2" size={16} color={theme.error} />
-                <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
-              </Pressable>
+          {showDetails ? (
+            <View style={[styles.details, { borderTopColor: theme.border }]}>
+              {task.description ? (
+                <ThemedText style={[styles.description, { color: isDark ? "#9CA3AF" : "#6B7280" }]}>
+                  {task.description}
+                </ThemedText>
+              ) : null}
+              <View style={styles.actions}>
+                <Pressable
+                  style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
+                  onPress={handleEdit}
+                >
+                  <Feather name="edit-2" size={16} color={theme.primary} />
+                  <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
+                  onPress={handleAddSubtask}
+                >
+                  <Feather name="plus" size={16} color={typeColor} />
+                  <ThemedText style={[styles.actionText, { color: typeColor }]}>Add Sub-entry</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
+                  onPress={handleDelete}
+                >
+                  <Feather name="trash-2" size={16} color={theme.error} />
+                  <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
+                </Pressable>
+              </View>
             </View>
+          ) : null}
+        </Pressable>
+
+        {isExpanded && hasChildren ? (
+          <View style={styles.children}>
+            {task.children.map((child) => (
+              <TaskItem
+                key={child.id}
+                task={child}
+                depth={depth + 1}
+                showCategory={showCategory}
+                categories={categories}
+                parentColor={categoryColor}
+              />
+            ))}
           </View>
         ) : null}
-      </Pressable>
-
-      {isExpanded && hasChildren ? (
-        <View style={styles.children}>
-          {task.children.map((child) => (
-            <TaskItem
-              key={child.id}
-              task={child}
-              depth={depth + 1}
-              showCategory={showCategory}
-              categories={categories}
-            />
-          ))}
-        </View>
-      ) : null}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
-    gap: Spacing.sm,
+    gap: Spacing.md,
   },
   emptyContainer: {
     alignItems: "center",
-    paddingVertical: Spacing.xl * 2,
+    paddingVertical: Spacing.xl * 3,
   },
   emptyText: {
-    marginTop: Spacing.md,
+    marginTop: Spacing.lg,
+    fontSize: 18,
+    fontWeight: "600",
     opacity: 0.5,
+  },
+  emptyHint: {
+    marginTop: Spacing.xs,
+    fontSize: 14,
+    opacity: 0.4,
+  },
+  itemWrapper: {
+    position: "relative",
+  },
+  hierarchyLine: {
+    position: "absolute",
+    top: 0,
+    bottom: 0,
+    width: 3,
+    borderRadius: 2,
   },
   itemContainer: {
     marginBottom: Spacing.xs,
   },
   item: {
-    borderRadius: BorderRadius.sm,
+    borderRadius: BorderRadius.md,
     borderWidth: 1,
     overflow: "hidden",
   },
   itemCompleted: {
-    opacity: 0.7,
+    opacity: 0.65,
   },
   itemHeader: {
     flexDirection: "row",
-    alignItems: "center",
+    alignItems: "flex-start",
     padding: Spacing.md,
+    paddingVertical: Spacing.lg,
     gap: Spacing.sm,
   },
+  leftSection: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  expandButton: {
+    padding: 2,
+  },
   chevronPlaceholder: {
-    width: 18,
+    width: 24,
+  },
+  checkboxButton: {
+    padding: 2,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  typeIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: "center",
+    justifyContent: "center",
   },
   itemContent: {
     flex: 1,
-  },
-  titleRow: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  typeIcon: {
-    marginRight: Spacing.xs,
+    paddingTop: 2,
   },
   title: {
-    fontSize: 15,
-    fontWeight: "500",
-    flex: 1,
+    fontSize: 17,
+    fontWeight: "600",
+    lineHeight: 22,
+    marginBottom: Spacing.xs,
   },
   titleCompleted: {
     textDecorationLine: "line-through",
@@ -350,30 +474,60 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    marginTop: 4,
     gap: Spacing.sm,
     flexWrap: "wrap",
   },
-  priorityDot: {
+  typeBadge: {
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  typeBadgeText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  categoryBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  categoryDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  dueDateBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+  },
+  dueDateDot: {
     width: 6,
     height: 6,
     borderRadius: 3,
   },
-  categoryDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+  childCountBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  priorityIndicator: {
+    width: 4,
+    height: 16,
+    borderRadius: 2,
+    marginLeft: "auto",
   },
   metaText: {
-    fontSize: 12,
+    fontSize: 13,
   },
   details: {
     padding: Spacing.md,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.md,
     borderTopWidth: 1,
   },
   description: {
-    fontSize: 14,
+    fontSize: 15,
+    lineHeight: 22,
     marginBottom: Spacing.md,
   },
   actions: {
@@ -384,16 +538,16 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.xs,
     gap: Spacing.xs,
   },
   actionText: {
-    fontSize: 13,
-    fontWeight: "500",
+    fontSize: 14,
+    fontWeight: "600",
   },
   children: {
-    marginTop: Spacing.xs,
+    marginTop: Spacing.sm,
   },
 });
