@@ -67,13 +67,25 @@ client/
 - Animated interactions
 
 ### Hierarchical Task Management
-- **9 Entry Types**: Goal, Objective, Project, Task, Sub-task, Idea, List, Item, Resource
+- **10 Entry Types**: Goal, Objective, Project, Task, Sub-task, Appointment, Idea, List, Item, Resource
 - **Parent-child relationships**: Create nested hierarchies (e.g., Goal > Objective > Project > Task > Sub-task)
 - **Expand/collapse**: View child entries inline with visual indentation
 - **Type filtering**: Filter entries by type (Goal, Task, etc.)
 - **Category filtering**: Filter by life category
-- **Cascading delete**: Deleting a parent removes all child entries
-- **Type icons**: Visual indicators for each entry type
+- **Cascading delete**: Deleting a parent moves all child entries to Recycle Bin
+- **Type icons**: Large colored icons (24dp) with type-specific colors
+- **Enhanced visuals**: 
+  - Bold 18sp titles with 14sp metadata
+  - Type badges with colored backgrounds
+  - Due date indicators (red=overdue, orange=today/soon, green=on-track)
+  - Colored hierarchy lines for nested children
+  - Card elevation with subtle shadows
+
+### Recycle Bin
+- Deleted items stored for 30 days
+- Restore or permanently delete from Profile screen
+- Shows days remaining before auto-deletion
+- Cascading restore includes all related child items
 
 ### Calendar
 - Monthly calendar view
