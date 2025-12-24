@@ -73,6 +73,13 @@ export function SchedulingModal({
   const [showRecurrencePicker, setShowRecurrencePicker] = useState(false);
   const [showTaskPicker, setShowTaskPicker] = useState(false);
 
+  const openDateTimePicker = (picker: "startDate" | "startTime" | "endDate" | "endTime") => {
+    setShowStartDatePicker(picker === "startDate");
+    setShowStartTimePicker(picker === "startTime");
+    setShowEndDatePicker(picker === "endDate");
+    setShowEndTimePicker(picker === "endTime");
+  };
+
   useEffect(() => {
     if (visible) {
       setTitle(editingEvent?.title || linkedTask?.title || "");
@@ -267,7 +274,7 @@ export function SchedulingModal({
             <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
               <Pressable
                 style={styles.row}
-                onPress={() => setShowStartDatePicker(true)}
+                onPress={() => openDateTimePicker("startDate")}
               >
                 <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
                   <Feather name="calendar" size={18} color={theme.primary} />
@@ -287,7 +294,7 @@ export function SchedulingModal({
 
               <Pressable
                 style={styles.row}
-                onPress={() => setShowStartTimePicker(true)}
+                onPress={() => openDateTimePicker("startTime")}
               >
                 <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
                   <Feather name="clock" size={18} color={theme.primary} />
@@ -307,7 +314,7 @@ export function SchedulingModal({
 
               <Pressable
                 style={styles.row}
-                onPress={() => setShowEndDatePicker(true)}
+                onPress={() => openDateTimePicker("endDate")}
               >
                 <View style={[styles.iconContainer, { backgroundColor: theme.secondary + "20" }]}>
                   <Feather name="calendar" size={18} color={theme.secondary} />
@@ -327,7 +334,7 @@ export function SchedulingModal({
 
               <Pressable
                 style={styles.row}
-                onPress={() => setShowEndTimePicker(true)}
+                onPress={() => openDateTimePicker("endTime")}
               >
                 <View style={[styles.iconContainer, { backgroundColor: theme.secondary + "20" }]}>
                   <Feather name="clock" size={18} color={theme.secondary} />
