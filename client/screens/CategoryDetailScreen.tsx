@@ -15,7 +15,7 @@ import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
 import { SchedulingModal } from "@/components/SchedulingModal";
-import { TASK_TYPES, TaskType } from "@/types";
+import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent } from "@/types";
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
 
@@ -32,7 +32,30 @@ export default function CategoryDetailScreen() {
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const categoryTasks = getTasksByCategory(category.id);
+
+  const getEventTypeInfo = (type: string) => {
+    return EVENT_TYPES.find(e => e.value === type) || EVENT_TYPES[0];
+  };
+
+  const formatTime = (timeString: string) => {
+    const [hours, minutes] = timeString.split(":");
+    const hour = parseInt(hours, 10);
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour % 12 || 12;
+    return `${hour12}:${minutes} ${ampm}`;
+  };
+
+  const handleEventPress = (event: CalendarEvent) => {
+    setEditingEvent(event);
+    setShowSchedulingModal(true);
+  };
+
+  const handleAddEvent = () => {
+    setEditingEvent(null);
+    setShowSchedulingModal(true);
+  };
 
   const categoryEvents = useMemo(() => 
     events.filter(e => e.categoryId === category.id),
@@ -195,15 +218,46 @@ export default function CategoryDetailScreen() {
               <ThemedText style={styles.selectedDateTitle}>Events for {selectedDate}</ThemedText>
               {categoryEvents.filter(e => e.startDate === selectedDate).length > 0 ? (
                 <View style={styles.eventsList}>
-                  {categoryEvents.filter(e => e.startDate === selectedDate).map(event => (
-                    <View key={event.id} style={[styles.eventItem, { backgroundColor: theme.backgroundDefault }]}>
-                      <View style={[styles.eventDot, { backgroundColor: category.color }]} />
-                      <ThemedText style={styles.eventTitle}>{event.title}</ThemedText>
-                      <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
-                        {event.startTime}
-                      </ThemedText>
-                    </View>
-                  ))}
+                  {categoryEvents.filter(e => e.startDate === selectedDate).map(event => {
+                    const eventTypeInfo = getEventTypeInfo(event.eventType);
+                    const isTimedEvent = event.eventType === "appointment" || event.eventType === "meeting";
+                    return (
+                      <Pressable 
+                        key={event.id} 
+                        style={[styles.eventCard, { backgroundColor: theme.backgroundDefault }]}
+                        onPress={() => handleEventPress(event)}
+                      >
+                        <View style={[styles.eventTimeBar, { backgroundColor: eventTypeInfo.color }]} />
+                        <View style={styles.eventCardContent}>
+                          <View style={styles.eventHeader}>
+                            <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
+                              <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
+                              <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
+                                {eventTypeInfo.label}
+                              </ThemedText>
+                            </View>
+                            {isTimedEvent ? (
+                              <ThemedText style={[styles.eventTimeText, { color: theme.textSecondary }]}>
+                                {formatTime(event.startTime)} - {formatTime(event.endTime)}
+                              </ThemedText>
+                            ) : (
+                              <ThemedText style={[styles.eventTimeText, { color: theme.textSecondary }]}>
+                                {formatTime(event.startTime)}
+                              </ThemedText>
+                            )}
+                          </View>
+                          <ThemedText style={styles.eventCardTitle} numberOfLines={1}>
+                            {event.title}
+                          </ThemedText>
+                          {event.description ? (
+                            <ThemedText style={[styles.eventDescription, { color: theme.textSecondary }]} numberOfLines={2}>
+                              {event.description}
+                            </ThemedText>
+                          ) : null}
+                        </View>
+                      </Pressable>
+                    );
+                  })}
                 </View>
               ) : (
                 <ThemedText style={[styles.noEventsText, { color: theme.textSecondary }]}>
@@ -225,7 +279,7 @@ export default function CategoryDetailScreen() {
         </Pressable>
         <Pressable
           style={[styles.actionButton, { backgroundColor: theme.success }]}
-          onPress={() => setShowSchedulingModal(true)}
+          onPress={handleAddEvent}
         >
           <Feather name="calendar" size={20} color="#FFFFFF" />
           <ThemedText style={styles.actionButtonText}>Schedule</ThemedText>
@@ -234,9 +288,13 @@ export default function CategoryDetailScreen() {
 
       <SchedulingModal
         visible={showSchedulingModal}
-        onClose={() => setShowSchedulingModal(false)}
+        onClose={() => {
+          setShowSchedulingModal(false);
+          setEditingEvent(null);
+        }}
         initialDate={selectedDate || undefined}
-        preselectedCategoryId={category.id}
+        lockedCategoryId={category.id}
+        editingEvent={editingEvent}
       />
     </View>
   );
@@ -322,24 +380,44 @@ const styles = StyleSheet.create({
   eventsList: {
     gap: Spacing.sm,
   },
-  eventItem: {
+  eventCard: {
+    flexDirection: "row",
+    borderRadius: BorderRadius.xs,
+    overflow: "hidden",
+  },
+  eventTimeBar: {
+    width: 4,
+  },
+  eventCardContent: {
+    flex: 1,
+    padding: Spacing.md,
+    gap: Spacing.xs,
+  },
+  eventHeader: {
     flexDirection: "row",
     alignItems: "center",
-    padding: Spacing.md,
+    justifyContent: "space-between",
+  },
+  eventTypeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
     borderRadius: BorderRadius.xs,
-    gap: Spacing.sm,
+    gap: 4,
   },
-  eventDot: {
-    width: 10,
-    height: 10,
-    borderRadius: 5,
+  eventTypeText: {
+    fontSize: 11,
+    fontWeight: "600",
   },
-  eventTitle: {
-    flex: 1,
+  eventTimeText: {
+    fontSize: 12,
+  },
+  eventCardTitle: {
     fontSize: 15,
-    fontWeight: "500",
+    fontWeight: "600",
   },
-  eventTime: {
+  eventDescription: {
     fontSize: 13,
   },
   noEventsText: {
