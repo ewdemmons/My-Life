@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { View, ScrollView, StyleSheet, Pressable, Modal, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -65,7 +65,14 @@ export default function HomeScreen() {
     }
   };
 
-  const pendingTasksCount = tasks.filter((t) => t.status !== "completed").length;
+  const stats = useMemo(() => {
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.status === "completed").length;
+    const pending = tasks.filter((t) => t.status === "pending").length;
+    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+    return { total, completed, pending, inProgress };
+  }, [tasks]);
+
   const todayEvents = events.filter(
     (e) => e.startDate === new Date().toISOString().split("T")[0]
   );
@@ -90,31 +97,20 @@ export default function HomeScreen() {
     >
       <View style={styles.statsRow}>
         <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <View style={[styles.statIcon, { backgroundColor: theme.primary + "20" }]}>
-            <Feather name="target" size={20} color={theme.primary} />
-          </View>
-          <ThemedText style={styles.statValue}>{categories.length}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
-            Life Areas
-          </ThemedText>
+          <ThemedText style={[styles.statValue, { color: theme.primary }]}>{stats.total}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Total</ThemedText>
         </View>
         <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <View style={[styles.statIcon, { backgroundColor: theme.secondary + "20" }]}>
-            <Feather name="check-square" size={20} color={theme.secondary} />
-          </View>
-          <ThemedText style={styles.statValue}>{pendingTasksCount}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
-            Pending Tasks
-          </ThemedText>
+          <ThemedText style={[styles.statValue, { color: theme.success }]}>{stats.completed}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Done</ThemedText>
         </View>
         <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <View style={[styles.statIcon, { backgroundColor: theme.success + "20" }]}>
-            <Feather name="calendar" size={20} color={theme.success} />
-          </View>
-          <ThemedText style={styles.statValue}>{todayEvents.length}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
-            Due Today
-          </ThemedText>
+          <ThemedText style={[styles.statValue, { color: theme.warning }]}>{stats.inProgress}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Active</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.secondary }]}>{todayEvents.length}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Today</ThemedText>
         </View>
       </View>
 
