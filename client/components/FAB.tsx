@@ -17,11 +17,12 @@ const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
 interface FABProps {
   onAddCategory: () => void;
   onAddTask: () => void;
+  onAddEvent?: () => void;
 }
 
 const TAB_BAR_HEIGHT = Platform.select({ ios: 49, android: 56, default: 50 });
 
-export function FAB({ onAddCategory, onAddTask }: FABProps) {
+export function FAB({ onAddCategory, onAddTask, onAddEvent }: FABProps) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [isOpen, setIsOpen] = useState(false);
@@ -53,6 +54,13 @@ export function FAB({ onAddCategory, onAddTask }: FABProps) {
   const handleAddTask = () => {
     setIsOpen(false);
     onAddTask();
+  };
+
+  const handleAddEvent = () => {
+    setIsOpen(false);
+    if (onAddEvent) {
+      onAddEvent();
+    }
   };
 
   return (
@@ -128,6 +136,28 @@ export function FAB({ onAddCategory, onAddTask }: FABProps) {
                   </ThemedText>
                 </View>
               </Pressable>
+              {onAddEvent ? (
+                <>
+                  <View style={[styles.separator, { backgroundColor: theme.border }]} />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                    onPress={handleAddEvent}
+                  >
+                    <View style={[styles.menuIcon, { backgroundColor: theme.success + "20" }]}>
+                      <Feather name="calendar" size={20} color={theme.success} />
+                    </View>
+                    <View style={styles.menuTextContainer}>
+                      <ThemedText style={styles.menuTitle}>Schedule Event</ThemedText>
+                      <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
+                        Add to your calendar
+                      </ThemedText>
+                    </View>
+                  </Pressable>
+                </>
+              ) : null}
             </BlurView>
           </View>
         </Pressable>

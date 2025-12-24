@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -10,6 +10,7 @@ import TasksScreen from "@/screens/TasksScreen";
 import CalendarScreen from "@/screens/CalendarScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { FAB } from "@/components/FAB";
+import { SchedulingModal } from "@/components/SchedulingModal";
 import { useTheme } from "@/hooks/useTheme";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { HeaderTitle } from "@/components/HeaderTitle";
@@ -28,6 +29,7 @@ export default function MainTabNavigator() {
   const { theme, isDark } = useTheme();
   const screenOptions = useScreenOptions();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
 
   const handleAddCategory = () => {
     navigation.navigate("AddCategory", {});
@@ -35,6 +37,10 @@ export default function MainTabNavigator() {
 
   const handleAddTask = () => {
     navigation.navigate("AddTask", {});
+  };
+
+  const handleAddEvent = () => {
+    setShowSchedulingModal(true);
   };
 
   return (
@@ -109,7 +115,15 @@ export default function MainTabNavigator() {
           }}
         />
       </Tab.Navigator>
-      <FAB onAddCategory={handleAddCategory} onAddTask={handleAddTask} />
+      <FAB 
+        onAddCategory={handleAddCategory} 
+        onAddTask={handleAddTask} 
+        onAddEvent={handleAddEvent}
+      />
+      <SchedulingModal
+        visible={showSchedulingModal}
+        onClose={() => setShowSchedulingModal(false)}
+      />
     </View>
   );
 }
