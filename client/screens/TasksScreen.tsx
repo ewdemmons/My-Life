@@ -44,6 +44,14 @@ export default function TasksScreen() {
 
   const hasFilters = selectedCategory || selectedType || searchQuery || showCompleted;
 
+  const stats = useMemo(() => {
+    const total = tasks.length;
+    const completed = tasks.filter((t) => t.status === "completed").length;
+    const pending = tasks.filter((t) => t.status === "pending").length;
+    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
+    return { total, completed, pending, inProgress };
+  }, [tasks]);
+
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
       <View style={[styles.header, { paddingTop: headerHeight + Spacing.md }]}>
@@ -75,6 +83,25 @@ export default function TasksScreen() {
             color={showCompleted ? theme.primary : theme.textSecondary}
           />
         </Pressable>
+      </View>
+
+      <View style={styles.statsRow}>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.primary }]}>{stats.total}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Total</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.success }]}>{stats.completed}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Done</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.warning }]}>{stats.inProgress}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Active</ThemedText>
+        </View>
+        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
+          <ThemedText style={[styles.statValue, { color: theme.textSecondary }]}>{stats.pending}</ThemedText>
+          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Pending</ThemedText>
+        </View>
       </View>
 
       <View style={styles.filtersContainer}>
@@ -197,6 +224,26 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xs,
     alignItems: "center",
     justifyContent: "center",
+  },
+  statsRow: {
+    flexDirection: "row",
+    paddingHorizontal: Spacing.lg,
+    paddingBottom: Spacing.md,
+    gap: Spacing.sm,
+  },
+  statCard: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.xs,
+  },
+  statValue: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  statLabel: {
+    fontSize: 10,
+    marginTop: 2,
   },
   filtersContainer: {
     paddingBottom: Spacing.sm,
