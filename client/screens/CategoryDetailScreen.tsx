@@ -25,7 +25,7 @@ export default function CategoryDetailScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory } = useApp();
+  const { getTasksByCategory, events } = useApp();
 
   const category = route.params.category;
   const [segment, setSegment] = useState<"tasks" | "calendar">("tasks");
@@ -34,16 +34,18 @@ export default function CategoryDetailScreen() {
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const categoryTasks = getTasksByCategory(category.id);
 
+  const categoryEvents = useMemo(() => 
+    events.filter(e => e.categoryId === category.id),
+    [events, category.id]
+  );
 
   const markedDates = useMemo(() => {
     const marks: Record<string, { marked: boolean; dotColor: string }> = {};
-    categoryTasks.forEach((task) => {
-      if (task.dueDate) {
-        marks[task.dueDate] = {
-          marked: true,
-          dotColor: category.color,
-        };
-      }
+    categoryEvents.forEach((event) => {
+      marks[event.startDate] = {
+        marked: true,
+        dotColor: category.color,
+      };
     });
     if (selectedDate) {
       marks[selectedDate] = {
@@ -53,7 +55,7 @@ export default function CategoryDetailScreen() {
       } as any;
     }
     return marks;
-  }, [categoryTasks, category.color, selectedDate]);
+  }, [categoryEvents, category.color, selectedDate]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -190,8 +192,24 @@ export default function CategoryDetailScreen() {
           />
           {selectedDate ? (
             <View style={styles.selectedDateSection}>
-              <ThemedText style={styles.selectedDateTitle}>Tasks for {selectedDate}</ThemedText>
-              <HierarchicalTaskList tasks={categoryTasks.filter((t) => t.dueDate === selectedDate)} />
+              <ThemedText style={styles.selectedDateTitle}>Events for {selectedDate}</ThemedText>
+              {categoryEvents.filter(e => e.startDate === selectedDate).length > 0 ? (
+                <View style={styles.eventsList}>
+                  {categoryEvents.filter(e => e.startDate === selectedDate).map(event => (
+                    <View key={event.id} style={[styles.eventItem, { backgroundColor: theme.backgroundDefault }]}>
+                      <View style={[styles.eventDot, { backgroundColor: category.color }]} />
+                      <ThemedText style={styles.eventTitle}>{event.title}</ThemedText>
+                      <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
+                        {event.startTime}
+                      </ThemedText>
+                    </View>
+                  ))}
+                </View>
+              ) : (
+                <ThemedText style={[styles.noEventsText, { color: theme.textSecondary }]}>
+                  No events scheduled for this date
+                </ThemedText>
+              )}
             </View>
           ) : null}
         </ScrollView>
@@ -300,6 +318,34 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "600",
     marginBottom: Spacing.md,
+  },
+  eventsList: {
+    gap: Spacing.sm,
+  },
+  eventItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.xs,
+    gap: Spacing.sm,
+  },
+  eventDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+  },
+  eventTitle: {
+    flex: 1,
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  eventTime: {
+    fontSize: 13,
+  },
+  noEventsText: {
+    fontSize: 14,
+    textAlign: "center",
+    paddingVertical: Spacing.lg,
   },
   actionRow: {
     position: "absolute",

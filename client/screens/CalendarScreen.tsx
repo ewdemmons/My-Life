@@ -29,21 +29,6 @@ export default function CalendarScreen() {
 
   const markedDates = useMemo(() => {
     const marks: { [key: string]: any } = {};
-    
-    tasks.forEach((task) => {
-      if (task.dueDate) {
-        const category = categories.find((c) => c.id === task.categoryId);
-        if (!marks[task.dueDate]) {
-          marks[task.dueDate] = { dots: [] };
-        }
-        if (marks[task.dueDate].dots.length < 4) {
-          marks[task.dueDate].dots.push({
-            key: task.id,
-            color: category?.color || theme.primary,
-          });
-        }
-      }
-    });
 
     events.forEach((event) => {
       const eventTypeInfo = getEventTypeInfo(event.eventType);
@@ -64,12 +49,7 @@ export default function CalendarScreen() {
       selectedColor: theme.primary,
     };
     return marks;
-  }, [tasks, categories, events, selectedDate, theme]);
-
-  const selectedTasks = useMemo(() => 
-    tasks.filter((t) => t.dueDate === selectedDate),
-    [tasks, selectedDate]
-  );
+  }, [events, selectedDate, theme]);
 
   const selectedEvents = useMemo(() =>
     events.filter((e) => e.startDate === selectedDate)
@@ -80,9 +60,8 @@ export default function CalendarScreen() {
   const listItems: ListItem[] = useMemo(() => {
     const items: ListItem[] = [];
     selectedEvents.forEach(e => items.push({ type: "event", data: e }));
-    selectedTasks.forEach(t => items.push({ type: "task", data: t }));
     return items;
-  }, [selectedEvents, selectedTasks]);
+  }, [selectedEvents]);
 
   const toggleTaskStatus = (task: Task) => {
     const newStatus = task.status === "completed" ? "pending" : "completed";
@@ -216,7 +195,7 @@ export default function CalendarScreen() {
     return `${hour12}:${minutes} ${ampm}`;
   };
 
-  const itemCount = selectedEvents.length + selectedTasks.length;
+  const itemCount = selectedEvents.length;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
@@ -250,8 +229,7 @@ export default function CalendarScreen() {
           {selectedDate === today ? "Today" : selectedDate}
         </ThemedText>
         <ThemedText style={[styles.tasksCount, { color: theme.textSecondary }]}>
-          {selectedEvents.length > 0 ? `${selectedEvents.length} event${selectedEvents.length !== 1 ? "s" : ""}, ` : ""}
-          {selectedTasks.length} task{selectedTasks.length !== 1 ? "s" : ""}
+          {selectedEvents.length} event{selectedEvents.length !== 1 ? "s" : ""}
         </ThemedText>
       </View>
 

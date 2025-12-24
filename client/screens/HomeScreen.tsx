@@ -22,7 +22,7 @@ export default function HomeScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { categories, tasks, deleteCategory, isLoading } = useApp();
+  const { categories, tasks, events, deleteCategory, isLoading } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
 
   const handleCategoryPress = (category: LifeCategory) => {
@@ -66,8 +66,8 @@ export default function HomeScreen() {
   };
 
   const pendingTasksCount = tasks.filter((t) => t.status !== "completed").length;
-  const todayTasks = tasks.filter(
-    (t) => t.dueDate === new Date().toISOString().split("T")[0] && t.status !== "completed"
+  const todayEvents = events.filter(
+    (e) => e.startDate === new Date().toISOString().split("T")[0]
   );
 
   if (isLoading) {
@@ -111,7 +111,7 @@ export default function HomeScreen() {
           <View style={[styles.statIcon, { backgroundColor: theme.success + "20" }]}>
             <Feather name="calendar" size={20} color={theme.success} />
           </View>
-          <ThemedText style={styles.statValue}>{todayTasks.length}</ThemedText>
+          <ThemedText style={styles.statValue}>{todayEvents.length}</ThemedText>
           <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
             Due Today
           </ThemedText>

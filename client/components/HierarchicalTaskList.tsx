@@ -456,23 +456,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   const taskEvents = getEventsByTask(task.id);
   const hasScheduledEvents = taskEvents.length > 0;
 
-  const getDueDateStatus = useCallback(() => {
-    if (!task.dueDate) return { color: theme.success, label: "No due date", showIndicator: true };
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const dueDate = new Date(task.dueDate);
-    dueDate.setHours(0, 0, 0, 0);
-    
-    const diffDays = Math.ceil((dueDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
-    
-    if (diffDays < 0) return { color: theme.error, label: "Overdue", showIndicator: true };
-    if (diffDays === 0) return { color: theme.warning, label: "Today", showIndicator: true };
-    if (diffDays <= 3) return { color: theme.warning, label: `${diffDays}d left`, showIndicator: true };
-    return { color: theme.success, label: task.dueDate, showIndicator: true };
-  }, [task.dueDate, theme]);
-
-  const dueDateInfo = getDueDateStatus();
   const priorityColor = task.priority === "high" ? theme.error : 
                         task.priority === "medium" ? theme.warning : theme.success;
 
@@ -610,13 +593,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </View>
                   ) : null}
 
-                  <View style={styles.dueDateBadge}>
-                    <View style={[styles.dueDateDot, { backgroundColor: dueDateInfo.color }]} />
-                    <ThemedText style={[styles.metaText, { color: dueDateInfo.color }]}>
-                      {dueDateInfo.label}
-                    </ThemedText>
-                  </View>
-
                   {hasChildren ? (
                     <View style={styles.childCountBadge}>
                       <Feather name="layers" size={12} color={theme.textSecondary} />
@@ -709,7 +685,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
         visible={showSchedulingModal}
         onClose={() => setShowSchedulingModal(false)}
         linkedTask={task}
-        initialDate={task.dueDate || undefined}
       />
     </View>
   );
@@ -835,14 +810,7 @@ const styles = StyleSheet.create({
     height: 12,
     borderRadius: 6,
   },
-  dueDateBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  dueDateDot: {
-    width: 8,
-    height: 8,
+  _placeholder: {
     borderRadius: 4,
   },
   childCountBadge: {
