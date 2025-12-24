@@ -64,6 +64,9 @@ export function SchedulingModal({
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(
     editingEvent?.linkedTaskId || linkedTask?.id || null
   );
+  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
+    editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || null
+  );
 
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
@@ -72,6 +75,9 @@ export function SchedulingModal({
   const [showEventTypePicker, setShowEventTypePicker] = useState(false);
   const [showRecurrencePicker, setShowRecurrencePicker] = useState(false);
   const [showTaskPicker, setShowTaskPicker] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+
+  const isTimedEvent = eventType === "appointment" || eventType === "meeting";
 
   const openDateTimePicker = (picker: "startDate" | "startTime" | "endDate" | "endTime") => {
     setShowStartDatePicker(picker === "startDate");
@@ -83,14 +89,16 @@ export function SchedulingModal({
   useEffect(() => {
     if (visible) {
       setTitle(editingEvent?.title || linkedTask?.title || "");
-      setDescription(editingEvent?.description || "");
+      setDescription(editingEvent?.description || linkedTask?.description || "");
       setStartDate(getInitialStartDate());
       setEndDate(getInitialEndDate());
-      setEventType(editingEvent?.eventType || "appointment");
+      setEventType(editingEvent?.eventType || (linkedTask ? "reminder" : "appointment"));
       setRecurrence(editingEvent?.recurrence || "none");
       setSelectedTaskId(editingEvent?.linkedTaskId || linkedTask?.id || null);
+      const initialCategory = editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || (categories.length > 0 ? categories[0].id : null);
+      setSelectedCategoryId(initialCategory);
     }
-  }, [visible, editingEvent, linkedTask, initialDate]);
+  }, [visible, editingEvent, linkedTask, initialDate, preselectedCategoryId, categories]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
@@ -178,18 +186,19 @@ export function SchedulingModal({
     if (!title.trim()) return;
 
     const linkedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) : null;
+    const finalCategoryId = selectedCategoryId || linkedTask?.categoryId || null;
 
     const eventData = {
       title: title.trim(),
       description: description.trim(),
       startDate: getDateString(startDate),
-      startTime: getTimeString(startDate),
-      endDate: getDateString(endDate),
-      endTime: getTimeString(endDate),
+      startTime: isTimedEvent ? getTimeString(startDate) : getTimeString(startDate),
+      endDate: isTimedEvent ? getDateString(endDate) : getDateString(startDate),
+      endTime: isTimedEvent ? getTimeString(endDate) : getTimeString(startDate),
       eventType,
       recurrence,
       linkedTaskId: selectedTaskId,
-      categoryId: linkedTask?.categoryId || null,
+      categoryId: finalCategoryId,
     };
 
     if (editingEvent) {
@@ -208,9 +217,11 @@ export function SchedulingModal({
   };
 
   const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) : null;
-  const selectedCategory = selectedTask
-    ? categories.find((c) => c.id === selectedTask.categoryId)
-    : null;
+  const selectedCategory = selectedCategoryId 
+    ? categories.find((c) => c.id === selectedCategoryId)
+    : selectedTask 
+      ? categories.find((c) => c.id === selectedTask.categoryId)
+      : null;
 
   const eventTypeInfo = EVENT_TYPES.find((e) => e.value === eventType);
   const recurrenceInfo = RECURRENCE_OPTIONS.find((r) => r.value === recurrence);
@@ -247,6 +258,19 @@ export function SchedulingModal({
               />
             </View>
 
+            <View style={[styles.descriptionContainer, { backgroundColor: theme.backgroundDefault }]}>
+              <TextInput
+                style={[styles.descriptionInput, { color: theme.text }]}
+                placeholder="Add description (optional)"
+                placeholderTextColor={theme.textSecondary}
+                value={description}
+                onChangeText={setDescription}
+                multiline
+                numberOfLines={3}
+                textAlignVertical="top"
+              />
+            </View>
+
             <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
               <Pressable
                 style={styles.row}
@@ -271,85 +295,127 @@ export function SchedulingModal({
               </Pressable>
             </View>
 
-            <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
-              <Pressable
-                style={styles.row}
-                onPress={() => openDateTimePicker("startDate")}
-              >
-                <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
-                  <Feather name="calendar" size={18} color={theme.primary} />
-                </View>
-                <View style={styles.rowContent}>
-                  <ThemedText style={styles.rowLabel}>Start Date</ThemedText>
-                  <View style={styles.rowValue}>
-                    <ThemedText style={{ color: theme.textSecondary }}>
-                      {formatDate(startDate)}
-                    </ThemedText>
-                    <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+            {isTimedEvent ? (
+              <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
+                <Pressable
+                  style={styles.row}
+                  onPress={() => openDateTimePicker("startDate")}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
+                    <Feather name="calendar" size={18} color={theme.primary} />
                   </View>
-                </View>
-              </Pressable>
-
-              <View style={[styles.separator, { backgroundColor: theme.border }]} />
-
-              <Pressable
-                style={styles.row}
-                onPress={() => openDateTimePicker("startTime")}
-              >
-                <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
-                  <Feather name="clock" size={18} color={theme.primary} />
-                </View>
-                <View style={styles.rowContent}>
-                  <ThemedText style={styles.rowLabel}>Start Time</ThemedText>
-                  <View style={styles.rowValue}>
-                    <ThemedText style={{ color: theme.textSecondary }}>
-                      {formatTime(startDate)}
-                    </ThemedText>
-                    <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>Start Date</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText style={{ color: theme.textSecondary }}>
+                        {formatDate(startDate)}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
                   </View>
-                </View>
-              </Pressable>
+                </Pressable>
 
-              <View style={[styles.separator, { backgroundColor: theme.border }]} />
+                <View style={[styles.separator, { backgroundColor: theme.border }]} />
 
-              <Pressable
-                style={styles.row}
-                onPress={() => openDateTimePicker("endDate")}
-              >
-                <View style={[styles.iconContainer, { backgroundColor: theme.secondary + "20" }]}>
-                  <Feather name="calendar" size={18} color={theme.secondary} />
-                </View>
-                <View style={styles.rowContent}>
-                  <ThemedText style={styles.rowLabel}>End Date</ThemedText>
-                  <View style={styles.rowValue}>
-                    <ThemedText style={{ color: theme.textSecondary }}>
-                      {formatDate(endDate)}
-                    </ThemedText>
-                    <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                <Pressable
+                  style={styles.row}
+                  onPress={() => openDateTimePicker("startTime")}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
+                    <Feather name="clock" size={18} color={theme.primary} />
                   </View>
-                </View>
-              </Pressable>
-
-              <View style={[styles.separator, { backgroundColor: theme.border }]} />
-
-              <Pressable
-                style={styles.row}
-                onPress={() => openDateTimePicker("endTime")}
-              >
-                <View style={[styles.iconContainer, { backgroundColor: theme.secondary + "20" }]}>
-                  <Feather name="clock" size={18} color={theme.secondary} />
-                </View>
-                <View style={styles.rowContent}>
-                  <ThemedText style={styles.rowLabel}>End Time</ThemedText>
-                  <View style={styles.rowValue}>
-                    <ThemedText style={{ color: theme.textSecondary }}>
-                      {formatTime(endDate)}
-                    </ThemedText>
-                    <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>Start Time</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText style={{ color: theme.textSecondary }}>
+                        {formatTime(startDate)}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
                   </View>
-                </View>
-              </Pressable>
-            </View>
+                </Pressable>
+
+                <View style={[styles.separator, { backgroundColor: theme.border }]} />
+
+                <Pressable
+                  style={styles.row}
+                  onPress={() => openDateTimePicker("endDate")}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: theme.secondary + "20" }]}>
+                    <Feather name="calendar" size={18} color={theme.secondary} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>End Date</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText style={{ color: theme.textSecondary }}>
+                        {formatDate(endDate)}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
+                  </View>
+                </Pressable>
+
+                <View style={[styles.separator, { backgroundColor: theme.border }]} />
+
+                <Pressable
+                  style={styles.row}
+                  onPress={() => openDateTimePicker("endTime")}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: theme.secondary + "20" }]}>
+                    <Feather name="clock" size={18} color={theme.secondary} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>End Time</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText style={{ color: theme.textSecondary }}>
+                        {formatTime(endDate)}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
+                  </View>
+                </Pressable>
+              </View>
+            ) : (
+              <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
+                <Pressable
+                  style={styles.row}
+                  onPress={() => openDateTimePicker("startDate")}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
+                    <Feather name="calendar" size={18} color={theme.primary} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>Date</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText style={{ color: theme.textSecondary }}>
+                        {formatDate(startDate)}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
+                  </View>
+                </Pressable>
+
+                <View style={[styles.separator, { backgroundColor: theme.border }]} />
+
+                <Pressable
+                  style={styles.row}
+                  onPress={() => openDateTimePicker("startTime")}
+                >
+                  <View style={[styles.iconContainer, { backgroundColor: theme.primary + "20" }]}>
+                    <Feather name="bell" size={18} color={theme.primary} />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>Remind me at</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText style={{ color: theme.textSecondary }}>
+                        {formatTime(startDate)}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
+                  </View>
+                </Pressable>
+              </View>
+            )}
 
             <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
               <Pressable style={styles.row} onPress={() => setShowRecurrencePicker(true)}>
@@ -369,8 +435,32 @@ export function SchedulingModal({
             </View>
 
             <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
+              <Pressable style={styles.row} onPress={() => setShowCategoryPicker(true)}>
+                <View style={[styles.iconContainer, { backgroundColor: (selectedCategory?.color || theme.primary) + "20" }]}>
+                  <Feather
+                    name="grid"
+                    size={18}
+                    color={selectedCategory?.color || theme.primary}
+                  />
+                </View>
+                <View style={styles.rowContent}>
+                  <ThemedText style={styles.rowLabel}>Life Category</ThemedText>
+                  <View style={styles.rowValue}>
+                    <ThemedText
+                      style={{ color: theme.textSecondary }}
+                      numberOfLines={1}
+                    >
+                      {selectedCategory ? selectedCategory.name : "None"}
+                    </ThemedText>
+                    <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                  </View>
+                </View>
+              </Pressable>
+
+              <View style={[styles.separator, { backgroundColor: theme.border }]} />
+
               <Pressable style={styles.row} onPress={() => setShowTaskPicker(true)}>
-                <View style={[styles.iconContainer, { backgroundColor: selectedCategory?.color + "20" || theme.warning + "20" }]}>
+                <View style={[styles.iconContainer, { backgroundColor: (selectedCategory?.color || theme.warning) + "20" }]}>
                   <Feather
                     name="link"
                     size={18}
@@ -546,6 +636,9 @@ export function SchedulingModal({
                         if (!title.trim()) {
                           setTitle(task.title);
                         }
+                        if (task.categoryId) {
+                          setSelectedCategoryId(task.categoryId);
+                        }
                         setShowTaskPicker(false);
                       }}
                     >
@@ -574,6 +667,57 @@ export function SchedulingModal({
             </ScrollView>
           </View>
         </View>
+      </Modal>
+
+      <Modal
+        visible={showCategoryPicker}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCategoryPicker(false)}
+      >
+        <Pressable
+          style={[styles.pickerOverlay, { backgroundColor: "rgba(0,0,0,0.5)" }]}
+          onPress={() => setShowCategoryPicker(false)}
+        >
+          <View style={[styles.pickerContent, { backgroundColor: theme.backgroundRoot }]}>
+            <ThemedText style={styles.pickerTitle}>Life Category</ThemedText>
+            <Pressable
+              style={[
+                styles.pickerItem,
+                !selectedCategoryId && { backgroundColor: theme.primary + "15" },
+              ]}
+              onPress={() => {
+                setSelectedCategoryId(null);
+                setShowCategoryPicker(false);
+              }}
+            >
+              <View style={[styles.categoryDot, { backgroundColor: theme.textSecondary }]} />
+              <ThemedText style={styles.pickerItemText}>None</ThemedText>
+              {!selectedCategoryId ? (
+                <Feather name="check" size={18} color={theme.primary} />
+              ) : null}
+            </Pressable>
+            {categories.map((cat) => (
+              <Pressable
+                key={cat.id}
+                style={[
+                  styles.pickerItem,
+                  selectedCategoryId === cat.id && { backgroundColor: cat.color + "15" },
+                ]}
+                onPress={() => {
+                  setSelectedCategoryId(cat.id);
+                  setShowCategoryPicker(false);
+                }}
+              >
+                <View style={[styles.categoryDot, { backgroundColor: cat.color }]} />
+                <ThemedText style={styles.pickerItemText}>{cat.name}</ThemedText>
+                {selectedCategoryId === cat.id ? (
+                  <Feather name="check" size={18} color={theme.primary} />
+                ) : null}
+              </Pressable>
+            ))}
+          </View>
+        </Pressable>
       </Modal>
     </Modal>
   );
@@ -627,6 +771,15 @@ const styles = StyleSheet.create({
     flex: 1,
     marginLeft: Spacing.md,
     ...Typography.body,
+  },
+  descriptionContainer: {
+    padding: Spacing.lg,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.lg,
+  },
+  descriptionInput: {
+    ...Typography.body,
+    minHeight: 80,
   },
   section: {
     borderRadius: BorderRadius.md,
@@ -742,5 +895,10 @@ const styles = StyleSheet.create({
   },
   taskCategory: {
     ...Typography.caption,
+  },
+  categoryDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
   },
 });

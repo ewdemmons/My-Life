@@ -106,9 +106,13 @@ export default function CalendarScreen() {
       const linkedTask = event.linkedTaskId 
         ? tasks.find(t => t.id === event.linkedTaskId) 
         : null;
-      const category = linkedTask 
-        ? categories.find(c => c.id === linkedTask.categoryId) 
-        : null;
+      const eventCategory = event.categoryId 
+        ? categories.find(c => c.id === event.categoryId)
+        : linkedTask 
+          ? categories.find(c => c.id === linkedTask.categoryId) 
+          : null;
+
+      const isTimedEvent = event.eventType === "appointment" || event.eventType === "meeting";
 
       return (
         <Pressable 
@@ -124,17 +128,28 @@ export default function CalendarScreen() {
                   {eventTypeInfo.label}
                 </ThemedText>
               </View>
-              <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
-                {formatTime(event.startTime)} - {formatTime(event.endTime)}
-              </ThemedText>
+              {isTimedEvent ? (
+                <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
+                  {formatTime(event.startTime)} - {formatTime(event.endTime)}
+                </ThemedText>
+              ) : (
+                <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
+                  {formatTime(event.startTime)}
+                </ThemedText>
+              )}
             </View>
             <ThemedText style={styles.eventTitle} numberOfLines={1}>
               {event.title}
             </ThemedText>
-            {category ? (
-              <View style={[styles.categoryTag, { backgroundColor: category.color + "20" }]}>
-                <ThemedText style={[styles.categoryText, { color: category.color }]}>
-                  {category.name}
+            {event.description ? (
+              <ThemedText style={[styles.eventDescription, { color: theme.textSecondary }]} numberOfLines={2}>
+                {event.description}
+              </ThemedText>
+            ) : null}
+            {eventCategory ? (
+              <View style={[styles.categoryTag, { backgroundColor: eventCategory.color + "20" }]}>
+                <ThemedText style={[styles.categoryText, { color: eventCategory.color }]}>
+                  {eventCategory.name}
                 </ThemedText>
               </View>
             ) : null}
@@ -342,6 +357,10 @@ const styles = StyleSheet.create({
   eventTitle: {
     fontSize: 15,
     fontWeight: "500",
+  },
+  eventDescription: {
+    fontSize: 13,
+    marginTop: 2,
   },
   taskItem: {
     flexDirection: "row",

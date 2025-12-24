@@ -1,0 +1,51 @@
+Refine and enhance the existing Scheduling Modal in "My Life" to better support distinct event types while keeping the modal unified and smart.
+
+Current setup: There is already a Scheduling Modal used for creating/editing calendar events.
+
+Update it as follows:
+
+Event Types:
+1. Reminder and Due Date: Only requires a date + optional "Remind me at" time on that day (no end time or duration needed).
+2. Appointment and Meeting: Requires full start date/time + end date/time (or duration picker).
+
+Common fields — ensure these are present for ALL events (both types):
+- Title (pre-fill from task if scheduling from one)
+- Description (multiline text input — optional but always visible/shown)
+- Life Category (dropdown or auto-inherited from current context/bubble)
+- Optional link to existing task (searchable dropdown of tasks)
+
+Dynamic UI Logic:
+- If Reminder or Due Date is selected:
+  - Show date picker + optional "Remind at" time picker/dropdown.
+  - Hide start/end time and duration fields.
+- If Appointment or Meeting is selected:
+  - Show full start date/time and end date/time pickers.
+  - Hide the single-date "Remind at" field.
+
+Integration updates:
+- Ensure the "Schedule" button already present on task cards (next to Edit/Delete) opens this refined modal, pre-filling:
+  - Title and description from the task
+  - Linked task ID set automatically
+  - Default Event Type = Reminder/Due Date (unless user changes it)
+  - Date pre-filled from any existing task due date
+- On Calendar screen (+ button or tap on slot): Open the same refined modal.
+  - Pre-select current life category if viewing a bubble-specific calendar.
+  - Allow standalone events or linking to an existing task.
+
+Display on calendar (using existing react-native-calendars setup):
+- Reminder/Due Date events: Show in all-day section or as colored dots/banners.
+- Appointment/Meeting events: Show as timed blocks with duration.
+- Include a small description preview/truncation on events if space allows.
+
+Add or enhance a calendar icon badge on task cards when the task has any scheduled event.
+
+Plan step-by-step:
+1. Modify the existing SchedulingModal component with the new type selector and conditional field rendering.
+2. Adjust task card buttons to use the refined modal with proper pre-filling.
+3. Ensure calendar rendering distinguishes the two event types correctly.
+4. Persist all changes consistently.
+
+Demo in Expo preview:
+- Scheduling an existing task as a Reminder (with description)
+- Creating a standalone Appointment/Meeting from the Calendar screen (with full description)
+- Viewing both event types correctly on the calendar
