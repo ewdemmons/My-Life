@@ -14,6 +14,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
+import { SchedulingModal } from "@/components/SchedulingModal";
 import { TASK_TYPES, TaskType } from "@/types";
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
@@ -30,6 +31,7 @@ export default function CategoryDetailScreen() {
   const [segment, setSegment] = useState<"tasks" | "calendar">("tasks");
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const categoryTasks = getTasksByCategory(category.id);
 
 
@@ -195,13 +197,29 @@ export default function CategoryDetailScreen() {
         </ScrollView>
       )}
 
-      <Pressable
-        style={[styles.addButton, { backgroundColor: category.color, bottom: insets.bottom + Spacing.lg }]}
-        onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
-      >
-        <Feather name="plus" size={24} color="#FFFFFF" />
-        <ThemedText style={styles.addButtonText}>Add Entry</ThemedText>
-      </Pressable>
+      <View style={[styles.actionRow, { bottom: insets.bottom + Spacing.lg }]}>
+        <Pressable
+          style={[styles.actionButton, { backgroundColor: category.color }]}
+          onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
+        >
+          <Feather name="plus" size={20} color="#FFFFFF" />
+          <ThemedText style={styles.actionButtonText}>Add Entry</ThemedText>
+        </Pressable>
+        <Pressable
+          style={[styles.actionButton, { backgroundColor: theme.success }]}
+          onPress={() => setShowSchedulingModal(true)}
+        >
+          <Feather name="calendar" size={20} color="#FFFFFF" />
+          <ThemedText style={styles.actionButtonText}>Schedule</ThemedText>
+        </Pressable>
+      </View>
+
+      <SchedulingModal
+        visible={showSchedulingModal}
+        onClose={() => setShowSchedulingModal(false)}
+        initialDate={selectedDate || undefined}
+        preselectedCategoryId={category.id}
+      />
     </View>
   );
 }
@@ -283,20 +301,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     marginBottom: Spacing.md,
   },
-  addButton: {
+  actionRow: {
     position: "absolute",
     left: Spacing.lg,
     right: Spacing.lg,
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  actionButton: {
+    flex: 1,
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     paddingVertical: Spacing.md,
     borderRadius: BorderRadius.xs,
-    gap: Spacing.sm,
+    gap: Spacing.xs,
   },
-  addButtonText: {
+  actionButtonText: {
     color: "#FFFFFF",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: "600",
   },
 });

@@ -12,7 +12,6 @@ import ProfileScreen from "@/screens/ProfileScreen";
 import { FAB } from "@/components/FAB";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { useTheme } from "@/hooks/useTheme";
-import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { HeaderTitle } from "@/components/HeaderTitle";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -27,7 +26,6 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 
 export default function MainTabNavigator() {
   const { theme, isDark } = useTheme();
-  const screenOptions = useScreenOptions();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
 
@@ -48,7 +46,12 @@ export default function MainTabNavigator() {
       <Tab.Navigator
         initialRouteName="HomeTab"
         screenOptions={{
-          ...screenOptions,
+          headerTitleAlign: "center",
+          headerTransparent: true,
+          headerTintColor: theme.text,
+          headerStyle: {
+            backgroundColor: "transparent",
+          },
           tabBarActiveTintColor: theme.tabIconSelected,
           tabBarInactiveTintColor: theme.tabIconDefault,
           tabBarStyle: {

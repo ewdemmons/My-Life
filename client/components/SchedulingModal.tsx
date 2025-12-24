@@ -29,6 +29,7 @@ interface SchedulingModalProps {
   initialDate?: string;
   linkedTask?: Task | null;
   editingEvent?: CalendarEvent | null;
+  preselectedCategoryId?: string;
 }
 
 export function SchedulingModal({
@@ -37,6 +38,7 @@ export function SchedulingModal({
   initialDate,
   linkedTask,
   editingEvent,
+  preselectedCategoryId,
 }: SchedulingModalProps) {
   const { theme } = useTheme();
   const { addEvent, updateEvent, deleteEvent, tasks, categories } = useApp();
@@ -521,7 +523,7 @@ export function SchedulingModal({
                 ) : null}
               </Pressable>
               {tasks
-                .filter((t) => !t.parentId)
+                .filter((t) => !t.parentId && (!preselectedCategoryId || t.categoryId === preselectedCategoryId))
                 .map((task) => {
                   const category = categories.find((c) => c.id === task.categoryId);
                   return (
