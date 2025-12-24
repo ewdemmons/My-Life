@@ -36,7 +36,6 @@ export default function AddTaskScreen() {
   const [categoryId, setCategoryId] = useState(editingTask?.categoryId || preselectedCategoryId || categories[0]?.id || "");
   const [parentId, setParentId] = useState<string | null>(editingTask?.parentId || preselectedParentId || null);
   const [priority, setPriority] = useState<"low" | "medium" | "high">(editingTask?.priority || "medium");
-  const [dueDate, setDueDate] = useState(editingTask?.dueDate || new Date().toISOString().split("T")[0]);
   const [showParentPicker, setShowParentPicker] = useState(false);
 
   const isValid = title.trim().length > 0 && categoryId;
@@ -61,7 +60,6 @@ export default function AddTaskScreen() {
         type: taskType,
         categoryId,
         parentId,
-        dueDate,
         priority,
       });
     } else {
@@ -71,13 +69,12 @@ export default function AddTaskScreen() {
         type: taskType,
         categoryId,
         parentId,
-        dueDate,
         priority,
         status: "pending",
       });
     }
     navigation.goBack();
-  }, [title, description, taskType, categoryId, parentId, priority, dueDate, isEditing, editingTask, addTask, updateTask, navigation]);
+  }, [title, description, taskType, categoryId, parentId, priority, isEditing, editingTask, addTask, updateTask, navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -276,19 +273,6 @@ export default function AddTaskScreen() {
           </View>
         </View>
 
-        <View style={styles.section}>
-          <ThemedText style={styles.label}>Due Date</ThemedText>
-          <TextInput
-            style={[
-              styles.input,
-              { backgroundColor: theme.backgroundDefault, color: theme.text, borderColor: theme.border },
-            ]}
-            placeholder="YYYY-MM-DD"
-            placeholderTextColor={theme.textSecondary}
-            value={dueDate}
-            onChangeText={setDueDate}
-          />
-        </View>
       </KeyboardAwareScrollViewCompat>
 
       <Modal

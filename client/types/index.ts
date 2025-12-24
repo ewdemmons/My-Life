@@ -26,7 +26,6 @@ export interface Task {
   type: TaskType;
   categoryId: string;
   parentId: string | null;
-  dueDate: string | null;
   priority: "low" | "medium" | "high";
   status: "pending" | "in_progress" | "completed";
   createdAt: number;

@@ -1,0 +1,39 @@
+Update the task management system in "My Life" to completely remove direct date handling from tasks. The Calendar and scheduled events will be the only source of truth for all timing.
+
+Current setup: Task entries have a "Due Date" field (and related UI in forms, display, badges, etc.).
+
+Changes required:
+1. Permanently remove the "Due Date" field:
+   - Delete the dueDate property from the task data model/schema.
+   - Remove any due date input from task add/edit forms/modals.
+   - Remove all due date display text, indicators, colored dots, or badges from task cards (in global Tasks screen, bubble Entries, and any expanded views).
+   - Delete any filters, sorting, or logic that references task due dates.
+
+2. No migration or conversion:
+   - Do not attempt to convert or migrate existing due dates into events.
+   - Simply delete all existing due date values from tasks during this update (clear the field permanently).
+
+3. Preserve and rely on scheduled events only:
+   - Timing comes exclusively from Reminder/Due Date or Appointment/Meeting events created via the Scheduling Modal.
+   - Continue showing the calendar icon badge on task cards only if the task is linked to a scheduled event.
+   - Do not add any new date fields to tasks.
+
+4. Clean up UI:
+   - Ensure no empty spaces, errors, or remnants where due dates used to appear.
+   - Keep all other task info intact (title, type, category color, description, hierarchy, sub-entries).
+
+Plan step-by-step:
+1. Update task schema/storage to remove dueDate and clear any existing values.
+2. Modify TaskAddEditModal and task form components to eliminate date inputs.
+3. Update TaskItem/TaskCard rendering in all lists to remove due date elements.
+4. Remove any due-date-related code from filters, sorting, badges, or notifications.
+5. Verify that scheduled events (linked to tasks) remain fully functional.
+
+After changes, thoroughly test and demo in Expo preview:
+- Create a new task → confirm no date field or due date display appears
+- Schedule an existing task as a Reminder → confirm calendar icon badge appears on the task card, and the Reminder event displays correctly on the Calendar
+- Schedule a task as an Appointment/Meeting → confirm badge on task card and timed block on Calendar
+- View task summaries (global Tasks and bubble Entries) → confirm no due date remnants, but scheduled event badges are visible where appropriate
+- Confirm both Reminder (all-day/dot) and Appointment/Meeting (timed block) events display correctly on the Calendar
+
+Ensure no breakage to hierarchy, categories, scheduling modal, or existing scheduled events.
