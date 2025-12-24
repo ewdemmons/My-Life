@@ -5,13 +5,16 @@
 
 ## Current State
 MVP implementation with core features:
-- Life Wheel dashboard with interactive category bubbles
+- Minimalist Home screen with "Balance Your World" headline
+- Life Wheel dashboard with interactive category bubbles (10% enlarged)
+- Central wheel hub with soft glow effect for interactive appearance
 - Add/Edit Life Categories with name, description, color, and icon
-- Task management with categories, priorities, and due dates
-- Calendar view with task dots
-- Profile screen with stats and settings
+- Hierarchical task management with 10 entry types
+- Calendar view with event scheduling (Reminder, Due Date, Appointment, Meeting)
+- Profile screen with stats, settings, and Recycle Bin
 - Local data persistence with AsyncStorage
 - Dark mode support (follows system settings)
+- Feature parity between bubble calendars and global calendar
 
 ## Architecture
 

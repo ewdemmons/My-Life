@@ -1,7 +1,6 @@
-import React, { useState, useMemo } from "react";
-import { View, ScrollView, StyleSheet, Pressable, Modal, Alert } from "react-native";
+import React, { useState } from "react";
+import { View, StyleSheet, Pressable, Modal, Alert, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -16,13 +15,14 @@ import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { LifeCategory } from "@/types";
 
+const appIcon = require("@assets/images/icon.png");
+
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { categories, tasks, events, deleteCategory, isLoading } = useApp();
+  const { categories, tasks, deleteCategory, isLoading } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
 
   const handleCategoryPress = (category: LifeCategory) => {
@@ -65,17 +65,9 @@ export default function HomeScreen() {
     }
   };
 
-  const stats = useMemo(() => {
-    const total = tasks.length;
-    const completed = tasks.filter((t) => t.status === "completed").length;
-    const pending = tasks.filter((t) => t.status === "pending").length;
-    const inProgress = tasks.filter((t) => t.status === "in_progress").length;
-    return { total, completed, pending, inProgress };
-  }, [tasks]);
-
-  const todayEvents = events.filter(
-    (e) => e.startDate === new Date().toISOString().split("T")[0]
-  );
+  const handleAddPress = () => {
+    navigation.navigate("AddCategory", {});
+  };
 
   if (isLoading) {
     return (
@@ -86,44 +78,28 @@ export default function HomeScreen() {
   }
 
   return (
-    <ScrollView
-      style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
-      contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.xl,
-        paddingBottom: tabBarHeight + Spacing.xxl + Spacing.fabSize,
-        paddingHorizontal: Spacing.lg,
-      }}
-      scrollIndicatorInsets={{ bottom: insets.bottom }}
-    >
-      <View style={styles.statsRow}>
-        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText style={[styles.statValue, { color: theme.primary }]}>{stats.total}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Total</ThemedText>
-        </View>
-        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText style={[styles.statValue, { color: theme.success }]}>{stats.completed}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Done</ThemedText>
-        </View>
-        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText style={[styles.statValue, { color: theme.warning }]}>{stats.inProgress}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Active</ThemedText>
-        </View>
-        <View style={[styles.statCard, { backgroundColor: theme.backgroundDefault }]}>
-          <ThemedText style={[styles.statValue, { color: theme.secondary }]}>{todayEvents.length}</ThemedText>
-          <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>Today</ThemedText>
+    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
+        <View style={styles.titleRow}>
+          <Image source={appIcon} style={styles.appIcon} />
+          <ThemedText style={styles.appTitle}>My Life</ThemedText>
         </View>
       </View>
 
-      <View style={styles.wheelSection}>
-        <ThemedText style={styles.sectionTitle}>Your Life Wheel</ThemedText>
-        <ThemedText style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-          Tap a category to view details, long press to edit
+      <View style={styles.heroSection}>
+        <ThemedText style={styles.headline}>Balance Your World</ThemedText>
+        <ThemedText style={[styles.subheadline, { color: theme.textSecondary }]}>
+          Everything that matters, organized in one place.
         </ThemedText>
+      </View>
+
+      <View style={styles.wheelContainer}>
         {categories.length > 0 ? (
           <LifeWheel
             categories={categories}
             onCategoryPress={handleCategoryPress}
             onCategoryLongPress={handleCategoryLongPress}
+            enlarged
           />
         ) : (
           <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
@@ -134,7 +110,16 @@ export default function HomeScreen() {
             </ThemedText>
           </View>
         )}
+
+        <Pressable
+          style={[styles.fab, { backgroundColor: theme.primary }]}
+          onPress={handleAddPress}
+        >
+          <Feather name="plus" size={28} color="#FFFFFF" />
+        </Pressable>
       </View>
+
+      <View style={{ height: tabBarHeight }} />
 
       <Modal
         visible={selectedCategory !== null}
@@ -176,62 +161,65 @@ export default function HomeScreen() {
           </View>
         </Pressable>
       </Modal>
-    </ScrollView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
   loadingContainer: {
     flex: 1,
     alignItems: "center",
     justifyContent: "center",
   },
-  statsRow: {
+  header: {
+    paddingHorizontal: Spacing.lg,
+  },
+  titleRow: {
     flexDirection: "row",
-    gap: Spacing.md,
-    marginBottom: Spacing.xl,
-  },
-  statCard: {
-    flex: 1,
     alignItems: "center",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.sm,
+    gap: Spacing.sm,
   },
-  statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: BorderRadius.full,
+  appIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+  },
+  appTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#FFFFFF",
+  },
+  heroSection: {
+    paddingTop: Spacing.xxl,
+    paddingBottom: Spacing.xl,
     alignItems: "center",
-    justifyContent: "center",
+  },
+  headline: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    textAlign: "center",
     marginBottom: Spacing.sm,
   },
-  statValue: {
-    fontSize: 20,
-    fontWeight: "700",
-  },
-  statLabel: {
-    fontSize: 11,
+  subheadline: {
+    fontSize: 16,
     textAlign: "center",
+    paddingHorizontal: Spacing.xl,
   },
-  wheelSection: {
-    marginTop: Spacing.md,
-  },
-  sectionTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    marginBottom: Spacing.xs,
-    textAlign: "center",
-  },
-  sectionSubtitle: {
-    fontSize: 14,
-    textAlign: "center",
-    marginBottom: Spacing.xl,
+  wheelContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
   },
   emptyState: {
     alignItems: "center",
     padding: Spacing.xxl,
     borderRadius: BorderRadius.md,
-    marginTop: Spacing.xl,
+    marginHorizontal: Spacing.lg,
   },
   emptyTitle: {
     fontSize: 20,
@@ -242,6 +230,21 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: 14,
     textAlign: "center",
+  },
+  fab: {
+    position: "absolute",
+    bottom: Spacing.xl,
+    right: Spacing.xl,
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    alignItems: "center",
+    justifyContent: "center",
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 8,
   },
   overlay: {
     flex: 1,

@@ -78,7 +78,7 @@ export default function MainTabNavigator() {
           component={HomeScreen}
           options={{
             title: "Home",
-            headerTitle: () => <HeaderTitle title="My Life" />,
+            headerShown: false,
             tabBarIcon: ({ color, size }) => (
               <Feather name="home" size={size} color={color} />
             ),
