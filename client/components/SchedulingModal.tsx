@@ -645,7 +645,11 @@ export function SchedulingModal({
                 ) : null}
               </Pressable>
               {tasks
-                .filter((t) => !t.parentId && (!preselectedCategoryId || t.categoryId === preselectedCategoryId))
+                .filter((t) => !t.parentId && (
+                  lockedCategoryId 
+                    ? t.categoryId === lockedCategoryId 
+                    : (!preselectedCategoryId || t.categoryId === preselectedCategoryId)
+                ))
                 .map((task) => {
                   const category = categories.find((c) => c.id === task.categoryId);
                   return (
@@ -661,7 +665,7 @@ export function SchedulingModal({
                         if (!title.trim()) {
                           setTitle(task.title);
                         }
-                        if (task.categoryId) {
+                        if (task.categoryId && !lockedCategoryId) {
                           setSelectedCategoryId(task.categoryId);
                         }
                         setShowTaskPicker(false);
