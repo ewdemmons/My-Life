@@ -30,6 +30,7 @@ interface SchedulingModalProps {
   linkedTask?: Task | null;
   editingEvent?: CalendarEvent | null;
   preselectedCategoryId?: string;
+  lockedCategoryId?: string;
 }
 
 export function SchedulingModal({
@@ -39,6 +40,7 @@ export function SchedulingModal({
   linkedTask,
   editingEvent,
   preselectedCategoryId,
+  lockedCategoryId,
 }: SchedulingModalProps) {
   const { theme } = useTheme();
   const { addEvent, updateEvent, deleteEvent, tasks, categories } = useApp();
@@ -65,7 +67,7 @@ export function SchedulingModal({
     editingEvent?.linkedTaskId || linkedTask?.id || null
   );
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || null
+    lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || null
   );
 
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
@@ -95,10 +97,10 @@ export function SchedulingModal({
       setEventType(editingEvent?.eventType || (linkedTask ? "reminder" : "appointment"));
       setRecurrence(editingEvent?.recurrence || "none");
       setSelectedTaskId(editingEvent?.linkedTaskId || linkedTask?.id || null);
-      const initialCategory = editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || (categories.length > 0 ? categories[0].id : null);
+      const initialCategory = lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || (categories.length > 0 ? categories[0].id : null);
       setSelectedCategoryId(initialCategory);
     }
-  }, [visible, editingEvent, linkedTask, initialDate, preselectedCategoryId, categories]);
+  }, [visible, editingEvent, linkedTask, initialDate, preselectedCategoryId, lockedCategoryId, categories]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {
@@ -435,27 +437,50 @@ export function SchedulingModal({
             </View>
 
             <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
-              <Pressable style={styles.row} onPress={() => setShowCategoryPicker(true)}>
-                <View style={[styles.iconContainer, { backgroundColor: (selectedCategory?.color || theme.primary) + "20" }]}>
-                  <Feather
-                    name="grid"
-                    size={18}
-                    color={selectedCategory?.color || theme.primary}
-                  />
-                </View>
-                <View style={styles.rowContent}>
-                  <ThemedText style={styles.rowLabel}>Life Category</ThemedText>
-                  <View style={styles.rowValue}>
-                    <ThemedText
-                      style={{ color: theme.textSecondary }}
-                      numberOfLines={1}
-                    >
-                      {selectedCategory ? selectedCategory.name : "None"}
-                    </ThemedText>
-                    <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              {lockedCategoryId ? (
+                <View style={styles.row}>
+                  <View style={[styles.iconContainer, { backgroundColor: (selectedCategory?.color || theme.primary) + "20" }]}>
+                    <Feather
+                      name="grid"
+                      size={18}
+                      color={selectedCategory?.color || theme.primary}
+                    />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>Life Category</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText
+                        style={{ color: selectedCategory?.color || theme.textSecondary }}
+                        numberOfLines={1}
+                      >
+                        {selectedCategory?.name || "None"}
+                      </ThemedText>
+                    </View>
                   </View>
                 </View>
-              </Pressable>
+              ) : (
+                <Pressable style={styles.row} onPress={() => setShowCategoryPicker(true)}>
+                  <View style={[styles.iconContainer, { backgroundColor: (selectedCategory?.color || theme.primary) + "20" }]}>
+                    <Feather
+                      name="grid"
+                      size={18}
+                      color={selectedCategory?.color || theme.primary}
+                    />
+                  </View>
+                  <View style={styles.rowContent}>
+                    <ThemedText style={styles.rowLabel}>Life Category</ThemedText>
+                    <View style={styles.rowValue}>
+                      <ThemedText
+                        style={{ color: theme.textSecondary }}
+                        numberOfLines={1}
+                      >
+                        {selectedCategory ? selectedCategory.name : "None"}
+                      </ThemedText>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </View>
+                  </View>
+                </Pressable>
+              )}
 
               <View style={[styles.separator, { backgroundColor: theme.border }]} />
 
