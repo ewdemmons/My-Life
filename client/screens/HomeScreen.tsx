@@ -15,7 +15,7 @@ import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { LifeCategory } from "@/types";
 
-const appIcon = require("@assets/images/icon.png");
+const appIcon = require("../../assets/images/icon.png");
 
 export default function HomeScreen() {
   const insets = useSafeAreaInsets();
