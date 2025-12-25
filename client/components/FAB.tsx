@@ -9,7 +9,7 @@ import Animated, {
 } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import { useTheme } from "@/hooks/useTheme";
-import { Spacing, BorderRadius, Shadows } from "@/constants/theme";
+import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 
 const AnimatedPressable = Animated.createAnimatedComponent(Pressable);
@@ -72,7 +72,11 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent }: FABProps) {
           {
             backgroundColor: theme.primary,
             bottom: bottomOffset,
-            ...Shadows.fab,
+            shadowColor: "#000",
+            shadowOffset: { width: 0, height: 4 },
+            shadowOpacity: 0.3,
+            shadowRadius: 8,
+            elevation: 8,
           },
         ]}
         onPressIn={handlePressIn}
