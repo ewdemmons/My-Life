@@ -47,6 +47,7 @@ client/
 │   ├── TasksScreen.tsx     # All tasks view
 │   ├── CalendarScreen.tsx  # Calendar with tasks
 │   ├── ProfileScreen.tsx   # Settings & stats
+│   ├── PeopleScreen.tsx    # People management
 │   ├── CategoryDetailScreen.tsx
 │   ├── AddCategoryScreen.tsx
 │   └── AddTaskScreen.tsx
@@ -55,6 +56,7 @@ client/
 │   ├── FAB.tsx             # Floating action button
 │   ├── SchedulingModal.tsx # Event creation/editing modal
 │   ├── RecurringEventModal.tsx # Series-aware edit/delete options
+│   ├── PeopleSelector.tsx  # Multi-select people picker & avatars
 │   └── ...other components
 ├── utils/
 │   └── recurrence.ts       # Recurrence generation utilities
@@ -119,6 +121,19 @@ client/
 - **Instance exceptions**: Edited instances become exceptions, preserved during series updates
 - **Series deletion**: Delete single instance or entire series
 - **Recurrence clarity note**: Shows description like "Repeats Weekly on Mondays"
+
+### People Management
+- **Person profiles**: Name, relationship type, email, phone, photo, notes
+- **Relationship types**: Family, Friend, Colleague, Pet, Teammate, Other
+- **Photo support**: Upload photos via expo-image-picker with 1:1 aspect ratio
+- **People tab**: 5th tab in navigation with searchable list and add/edit modal
+- **Linking to entities**: 
+  - Categories can tag people (peopleIds)
+  - Tasks can assign people (assigneeIds)
+  - Events can add attendees (attendeeIds)
+- **Avatar display**: Stacked avatars with initials (when no photo) on task cards and event views
+- **Cascading deletion**: Deleting a person removes their ID from all linked categories, tasks, and events
+- **Defensive handling**: Missing person IDs are gracefully ignored in UI
 
 ### Data Persistence
 - All data stored locally with AsyncStorage
