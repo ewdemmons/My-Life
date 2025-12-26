@@ -15,7 +15,9 @@ import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
 import { SchedulingModal } from "@/components/SchedulingModal";
+import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent } from "@/types";
+import { isRecurringEvent } from "@/utils/recurrence";
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
 
@@ -25,14 +27,16 @@ export default function CategoryDetailScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory, events } = useApp();
+  const { getTasksByCategory, events, deleteEvent, deleteEventSeries } = useApp();
 
   const category = route.params.category;
   const [segment, setSegment] = useState<"tasks" | "calendar">("tasks");
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [editingAsInstance, setEditingAsInstance] = useState(false);
   const categoryTasks = getTasksByCategory(category.id);
 
   const getEventTypeInfo = (type: string) => {
@@ -49,7 +53,39 @@ export default function CategoryDetailScreen() {
 
   const handleEventPress = (event: CalendarEvent) => {
     setEditingEvent(event);
+    if (isRecurringEvent(event)) {
+      setShowRecurringModal(true);
+    } else {
+      setShowSchedulingModal(true);
+    }
+  };
+
+  const handleEditInstance = () => {
+    setShowRecurringModal(false);
+    setEditingAsInstance(true);
     setShowSchedulingModal(true);
+  };
+
+  const handleEditSeries = () => {
+    setShowRecurringModal(false);
+    setEditingAsInstance(false);
+    setShowSchedulingModal(true);
+  };
+
+  const handleDeleteInstance = async () => {
+    if (editingEvent) {
+      await deleteEvent(editingEvent.id);
+      setShowRecurringModal(false);
+      setEditingEvent(null);
+    }
+  };
+
+  const handleDeleteSeriesEvent = async () => {
+    if (editingEvent?.seriesId) {
+      await deleteEventSeries(editingEvent.seriesId);
+      setShowRecurringModal(false);
+      setEditingEvent(null);
+    }
   };
 
   const handleAddEvent = () => {
@@ -230,11 +266,18 @@ export default function CategoryDetailScreen() {
                         <View style={[styles.eventTimeBar, { backgroundColor: eventTypeInfo.color }]} />
                         <View style={styles.eventCardContent}>
                           <View style={styles.eventHeader}>
-                            <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
-                              <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
-                              <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
-                                {eventTypeInfo.label}
-                              </ThemedText>
+                            <View style={styles.eventBadgeRow}>
+                              <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
+                                <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
+                                <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
+                                  {eventTypeInfo.label}
+                                </ThemedText>
+                              </View>
+                              {isRecurringEvent(event) ? (
+                                <View style={[styles.repeatBadge, { backgroundColor: theme.success + "20" }]}>
+                                  <Feather name="repeat" size={10} color={theme.success} />
+                                </View>
+                              ) : null}
                             </View>
                             {isTimedEvent ? (
                               <ThemedText style={[styles.eventTimeText, { color: theme.textSecondary }]}>
@@ -291,10 +334,24 @@ export default function CategoryDetailScreen() {
         onClose={() => {
           setShowSchedulingModal(false);
           setEditingEvent(null);
+          setEditingAsInstance(false);
         }}
         initialDate={selectedDate || undefined}
         lockedCategoryId={category.id}
         editingEvent={editingEvent}
+        editingAsInstance={editingAsInstance}
+      />
+      <RecurringEventModal
+        visible={showRecurringModal}
+        event={editingEvent}
+        onClose={() => {
+          setShowRecurringModal(false);
+          setEditingEvent(null);
+        }}
+        onEditInstance={handleEditInstance}
+        onEditSeries={handleEditSeries}
+        onDeleteInstance={handleDeleteInstance}
+        onDeleteSeries={handleDeleteSeriesEvent}
       />
     </View>
   );
@@ -398,6 +455,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "space-between",
   },
+  eventBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
   eventTypeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -405,6 +467,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: BorderRadius.xs,
     gap: 4,
+  },
+  repeatBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
   },
   eventTypeText: {
     fontSize: 11,

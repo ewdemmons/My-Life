@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, useCallback } fr
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LifeCategory, Task, DeletedItem, CalendarEvent } from "@/types";
 import { CategoryColors } from "@/constants/theme";
+import { generateRecurringInstances } from "@/utils/recurrence";
 
 const CATEGORIES_KEY = "@mylife_categories";
 const TASKS_KEY = "@mylife_tasks";
@@ -27,8 +28,12 @@ interface AppContextType {
   addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => Promise<void>;
   updateEvent: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
+  updateEventSeries: (seriesId: string, updates: Partial<CalendarEvent>) => Promise<void>;
+  deleteEventSeries: (seriesId: string) => Promise<void>;
+  updateEventInstance: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
   getEventsByDate: (date: string) => CalendarEvent[];
   getEventsByTask: (taskId: string) => CalendarEvent[];
+  getEventsBySeries: (seriesId: string) => CalendarEvent[];
   restoreFromRecycleBin: (id: string) => Promise<void>;
   permanentlyDelete: (id: string) => Promise<void>;
   emptyRecycleBin: () => Promise<void>;
@@ -339,14 +344,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
-    const newEvent: CalendarEvent = {
-      ...event,
-      id: Date.now().toString(),
-      createdAt: Date.now(),
-    };
-    const updated = [...events, newEvent];
-    setEvents(updated);
-    await saveEvents(updated);
+    const baseTimestamp = Date.now();
+    
+    if (event.recurrence && event.recurrence !== "none") {
+      const seriesId = baseTimestamp.toString();
+      const instances = generateRecurringInstances(event, seriesId);
+      
+      const newEvents: CalendarEvent[] = instances.map((instance, index) => ({
+        ...instance,
+        id: (baseTimestamp + index).toString(),
+        createdAt: baseTimestamp,
+      }));
+      
+      const updated = [...events, ...newEvents];
+      setEvents(updated);
+      await saveEvents(updated);
+    } else {
+      const newEvent: CalendarEvent = {
+        ...event,
+        id: baseTimestamp.toString(),
+        createdAt: baseTimestamp,
+        seriesId: null,
+      };
+      const updated = [...events, newEvent];
+      setEvents(updated);
+      await saveEvents(updated);
+    }
   }, [events]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
@@ -363,6 +386,55 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     await saveEvents(updated);
   }, [events]);
 
+  const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>) => {
+    const seriesEvents = events.filter(e => e.seriesId === seriesId && !e.isException);
+    if (seriesEvents.length === 0) return;
+    
+    const firstEvent = seriesEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    
+    const updated = events.map((event) => {
+      if (event.seriesId === seriesId && !event.isException) {
+        const eventUpdates = { ...updates };
+        
+        if (updates.startTime !== undefined) {
+          eventUpdates.startTime = updates.startTime;
+        }
+        if (updates.endTime !== undefined) {
+          eventUpdates.endTime = updates.endTime;
+        }
+        
+        if (updates.startDate !== undefined && event.id === firstEvent.id) {
+          eventUpdates.startDate = updates.startDate;
+          if (updates.endDate !== undefined) {
+            eventUpdates.endDate = updates.endDate;
+          }
+        } else {
+          delete eventUpdates.startDate;
+          delete eventUpdates.endDate;
+        }
+        
+        return { ...event, ...eventUpdates };
+      }
+      return event;
+    });
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
+
+  const deleteEventSeries = useCallback(async (seriesId: string) => {
+    const updated = events.filter((event) => event.seriesId !== seriesId);
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
+
+  const updateEventInstance = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
+    const updated = events.map((event) =>
+      event.id === id ? { ...event, ...updates, isException: true } : event
+    );
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
+
   const getEventsByDate = useCallback(
     (date: string) => events.filter((event) => event.startDate === date),
     [events]
@@ -370,6 +442,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const getEventsByTask = useCallback(
     (taskId: string) => events.filter((event) => event.linkedTaskId === taskId),
+    [events]
+  );
+
+  const getEventsBySeries = useCallback(
+    (seriesId: string) => events.filter((event) => event.seriesId === seriesId),
     [events]
   );
 
@@ -393,8 +470,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addEvent,
         updateEvent,
         deleteEvent,
+        updateEventSeries,
+        deleteEventSeries,
+        updateEventInstance,
         getEventsByDate,
         getEventsByTask,
+        getEventsBySeries,
         restoreFromRecycleBin,
         permanentlyDelete,
         emptyRecycleBin,

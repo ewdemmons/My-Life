@@ -22,6 +22,7 @@ import {
   Task,
 } from "@/types";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
+import { getRecurrenceDescription } from "@/utils/recurrence";
 
 interface SchedulingModalProps {
   visible: boolean;
@@ -31,6 +32,7 @@ interface SchedulingModalProps {
   editingEvent?: CalendarEvent | null;
   preselectedCategoryId?: string;
   lockedCategoryId?: string;
+  editingAsInstance?: boolean;
 }
 
 export function SchedulingModal({
@@ -41,9 +43,10 @@ export function SchedulingModal({
   editingEvent,
   preselectedCategoryId,
   lockedCategoryId,
+  editingAsInstance = false,
 }: SchedulingModalProps) {
   const { theme } = useTheme();
-  const { addEvent, updateEvent, deleteEvent, tasks, categories } = useApp();
+  const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories } = useApp();
 
   const getInitialStartDate = () => {
     if (editingEvent) return new Date(editingEvent.startDate + "T" + editingEvent.startTime);
@@ -204,7 +207,17 @@ export function SchedulingModal({
     };
 
     if (editingEvent) {
-      await updateEvent(editingEvent.id, eventData);
+      const isPartOfSeries = editingEvent.seriesId != null && editingEvent.seriesId !== "";
+      
+      if (isPartOfSeries) {
+        if (editingAsInstance) {
+          await updateEventInstance(editingEvent.id, eventData);
+        } else {
+          await updateEventSeries(editingEvent.seriesId, eventData);
+        }
+      } else {
+        await updateEvent(editingEvent.id, eventData);
+      }
     } else {
       await addEvent(eventData);
     }
@@ -434,6 +447,14 @@ export function SchedulingModal({
                   </View>
                 </View>
               </Pressable>
+              {recurrence !== "none" ? (
+                <View style={[styles.recurrenceNote, { borderTopColor: theme.border }]}>
+                  <Feather name="info" size={14} color={theme.success} style={{ marginRight: Spacing.xs }} />
+                  <ThemedText style={[styles.recurrenceNoteText, { color: theme.success }]}>
+                    {getRecurrenceDescription(recurrence, getDateString(startDate))}
+                  </ThemedText>
+                </View>
+              ) : null}
             </View>
 
             <View style={[styles.section, { backgroundColor: theme.backgroundDefault }]}>
@@ -845,6 +866,18 @@ const styles = StyleSheet.create({
   separator: {
     height: 1,
     marginLeft: 52,
+  },
+  recurrenceNote: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderTopWidth: 1,
+    marginLeft: 52,
+  },
+  recurrenceNoteText: {
+    ...Typography.caption,
+    flex: 1,
   },
   deleteButton: {
     flexDirection: "row",

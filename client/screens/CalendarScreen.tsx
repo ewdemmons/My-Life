@@ -10,8 +10,10 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { SchedulingModal } from "@/components/SchedulingModal";
+import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { useApp } from "@/context/AppContext";
 import { Task, CalendarEvent, EVENT_TYPES, getEventTypeInfo } from "@/types";
+import { isRecurringEvent } from "@/utils/recurrence";
 
 type ListItem = { type: "task"; data: Task } | { type: "event"; data: CalendarEvent };
 
@@ -20,12 +22,14 @@ export default function CalendarScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
-  const { tasks, categories, events, updateTask, deleteEvent } = useApp();
+  const { tasks, categories, events, updateTask, deleteEvent, deleteEventSeries, updateEventInstance } = useApp();
 
   const today = new Date().toISOString().split("T")[0];
   const [selectedDate, setSelectedDate] = useState(today);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [editingAsInstance, setEditingAsInstance] = useState(false);
 
   const markedDates = useMemo(() => {
     const marks: { [key: string]: any } = {};
@@ -70,12 +74,45 @@ export default function CalendarScreen() {
 
   const handleEventPress = (event: CalendarEvent) => {
     setEditingEvent(event);
-    setShowSchedulingModal(true);
+    if (isRecurringEvent(event)) {
+      setShowRecurringModal(true);
+    } else {
+      setShowSchedulingModal(true);
+    }
   };
 
   const handleAddEvent = () => {
     setEditingEvent(null);
+    setEditingAsInstance(false);
     setShowSchedulingModal(true);
+  };
+
+  const handleEditInstance = () => {
+    setShowRecurringModal(false);
+    setEditingAsInstance(true);
+    setShowSchedulingModal(true);
+  };
+
+  const handleEditSeries = () => {
+    setShowRecurringModal(false);
+    setEditingAsInstance(false);
+    setShowSchedulingModal(true);
+  };
+
+  const handleDeleteInstance = async () => {
+    if (editingEvent) {
+      await deleteEvent(editingEvent.id);
+      setShowRecurringModal(false);
+      setEditingEvent(null);
+    }
+  };
+
+  const handleDeleteSeries = async () => {
+    if (editingEvent?.seriesId) {
+      await deleteEventSeries(editingEvent.seriesId);
+      setShowRecurringModal(false);
+      setEditingEvent(null);
+    }
   };
 
   const renderItem = ({ item }: { item: ListItem }) => {
@@ -101,11 +138,18 @@ export default function CalendarScreen() {
           <View style={[styles.eventTimeBar, { backgroundColor: eventTypeInfo.color }]} />
           <View style={styles.eventContent}>
             <View style={styles.eventHeader}>
-              <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
-                <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
-                <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
-                  {eventTypeInfo.label}
-                </ThemedText>
+              <View style={styles.eventBadgeRow}>
+                <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
+                  <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
+                  <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
+                    {eventTypeInfo.label}
+                  </ThemedText>
+                </View>
+                {isRecurringEvent(event) ? (
+                  <View style={[styles.repeatBadge, { backgroundColor: theme.success + "20" }]}>
+                    <Feather name="repeat" size={10} color={theme.success} />
+                  </View>
+                ) : null}
               </View>
               {isTimedEvent ? (
                 <ThemedText style={[styles.eventTime, { color: theme.textSecondary }]}>
@@ -272,9 +316,23 @@ export default function CalendarScreen() {
         onClose={() => {
           setShowSchedulingModal(false);
           setEditingEvent(null);
+          setEditingAsInstance(false);
         }}
         initialDate={selectedDate}
         editingEvent={editingEvent}
+        editingAsInstance={editingAsInstance}
+      />
+      <RecurringEventModal
+        visible={showRecurringModal}
+        event={editingEvent}
+        onClose={() => {
+          setShowRecurringModal(false);
+          setEditingEvent(null);
+        }}
+        onEditInstance={handleEditInstance}
+        onEditSeries={handleEditSeries}
+        onDeleteInstance={handleDeleteInstance}
+        onDeleteSeries={handleDeleteSeries}
       />
     </View>
   );
@@ -317,6 +375,11 @@ const styles = StyleSheet.create({
     justifyContent: "space-between",
     marginBottom: 4,
   },
+  eventBadgeRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
   eventTypeBadge: {
     flexDirection: "row",
     alignItems: "center",
@@ -324,6 +387,13 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: BorderRadius.full,
     gap: 4,
+  },
+  repeatBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
   },
   eventTypeText: {
     fontSize: 11,

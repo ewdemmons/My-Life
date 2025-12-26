@@ -78,6 +78,9 @@ export interface CalendarEvent {
   linkedTaskId: string | null;
   categoryId: string | null;
   createdAt: number;
+  seriesId?: string | null;
+  isException?: boolean;
+  originalDate?: string;
 }
 
 export const EVENT_TYPES: { value: EventType; label: string; icon: string; color: string }[] = [

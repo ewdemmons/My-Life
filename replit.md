@@ -53,7 +53,11 @@ client/
 ├── components/
 │   ├── LifeWheel.tsx       # Life Wheel visualization
 │   ├── FAB.tsx             # Floating action button
+│   ├── SchedulingModal.tsx # Event creation/editing modal
+│   ├── RecurringEventModal.tsx # Series-aware edit/delete options
 │   └── ...other components
+├── utils/
+│   └── recurrence.ts       # Recurrence generation utilities
 ├── navigation/
 │   ├── RootStackNavigator.tsx
 │   └── MainTabNavigator.tsx
@@ -107,6 +111,15 @@ client/
 - Colored dots for tasks by category
 - Task list for selected date
 
+### Recurring Events
+- **Recurrence options**: None, Daily, Weekly, Biweekly, Monthly, Yearly
+- **Series generation**: Up to 2 years or 100 occurrences
+- **Visual indicator**: Repeat icon (↻) on recurring events
+- **Series-aware editing**: Choose to edit single instance or entire series
+- **Instance exceptions**: Edited instances become exceptions, preserved during series updates
+- **Series deletion**: Delete single instance or entire series
+- **Recurrence clarity note**: Shows description like "Repeats Weekly on Mondays"
+
 ### Data Persistence
 - All data stored locally with AsyncStorage
 - Default sample categories and tasks on first launch
@@ -132,3 +145,4 @@ npm run dev
 - Push notifications
 - AI assistant for task suggestions
 - Drag-and-drop task reordering
+- Series regeneration when changing recurrence pattern (currently edits apply to existing instances only)
