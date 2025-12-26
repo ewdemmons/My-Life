@@ -1,0 +1,54 @@
+Implement full recurrence support for scheduled events in "My Life". Currently, the Scheduling Modal has a "Repeat" field (e.g., Weekly), but selected recurrence options are not applied — events only appear once.
+
+Requirements:
+1. Make recurrence functional:
+   - Supported options: Never (default), Daily, Weekly, Monthly, Yearly
+   - When a repeat option is selected (other than Never), generate and store the full series of recurring events (up to a reasonable limit, e.g., 2 years ahead or 100 occurrences).
+   - Each instance in the series should be a separate event entry with:
+     - Same title, description, event type (Reminder or Appointment/Meeting), category, linked task
+     - Appropriate date/time based on recurrence rule
+     - A reference to the parent recurring event (parentId or seriesId)
+     - Exception handling support (for future individual edits/deletions)
+
+2. Display recurring events correctly:
+   - In all calendar views (global Calendar and bubble-specific calendars):
+     - Show a small repeat icon (↻) on every instance of a recurring series
+     - In month view: Show dots/banners for each occurrence
+     - In day/week view: Show timed blocks (for Appointments) or all-day entries (for Reminders) for each instance
+   - When tapping any instance:
+     - Popup shows "This is part of a recurring series" with options:
+       - Edit this instance only (create exception)
+       - Edit entire series
+       - Delete this instance / Delete series
+
+3. Editing and exceptions:
+   - Editing the series updates all future instances
+   - Allow breaking the rule for individual instances (e.g., move one weekly call without affecting others)
+
+4. Scheduling Modal updates:
+   - Keep the existing "Repeat" selector
+   - Add a note: "Repeats Weekly on [calculated days]" for clarity when Weekly is selected
+   - When saving a recurring event, generate the series automatically
+
+5. Performance and storage:
+   - Generate instances on save (or lazily on calendar load)
+   - Limit series length to prevent infinite loops
+   - Clean up past instances periodically (optional)
+
+Apply this consistently to both global and bubble calendars — recurring events must appear and behave identically in both.
+
+Plan step-by-step:
+1. Update event data model to support recurrenceRule, seriesId, and exception flags
+2. Modify Scheduling Modal save logic to generate recurring instances
+3. Update calendar rendering (react-native-calendars) to display all instances with repeat icon
+4. Enhance event tap popup to show series info and edit options
+5. Test series creation, display, and individual edits
+
+Demo in Expo preview:
+- Create a Weekly Reminder ("Call Mom") → confirm multiple instances appear on calendar with repeat icons
+- View in both global and bubble calendar → confirm identical display
+- Tap one instance → see series options
+- Edit one instance only → confirm it becomes an exception while others remain
+- Create a recurring Appointment → confirm timed blocks repeat correctly
+
+Ensure no breakage to non-recurring events, task linking, or existing features.
