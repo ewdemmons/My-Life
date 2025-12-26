@@ -12,6 +12,7 @@ import PeopleScreen from "@/screens/PeopleScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { FAB } from "@/components/FAB";
 import { SchedulingModal } from "@/components/SchedulingModal";
+import { AddPersonModal } from "@/components/AddPersonModal";
 import { useTheme } from "@/hooks/useTheme";
 import { HeaderTitle } from "@/components/HeaderTitle";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -30,6 +31,7 @@ export default function MainTabNavigator() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [showAddPersonModal, setShowAddPersonModal] = useState(false);
 
   const handleAddCategory = () => {
     navigation.navigate("AddCategory", {});
@@ -41,6 +43,10 @@ export default function MainTabNavigator() {
 
   const handleAddEvent = () => {
     setShowSchedulingModal(true);
+  };
+
+  const handleAddPerson = () => {
+    setShowAddPersonModal(true);
   };
 
   return (
@@ -135,10 +141,15 @@ export default function MainTabNavigator() {
         onAddCategory={handleAddCategory} 
         onAddTask={handleAddTask} 
         onAddEvent={handleAddEvent}
+        onAddPerson={handleAddPerson}
       />
       <SchedulingModal
         visible={showSchedulingModal}
         onClose={() => setShowSchedulingModal(false)}
+      />
+      <AddPersonModal
+        visible={showAddPersonModal}
+        onClose={() => setShowAddPersonModal(false)}
       />
     </View>
   );

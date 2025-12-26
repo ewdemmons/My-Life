@@ -18,11 +18,12 @@ interface FABProps {
   onAddCategory: () => void;
   onAddTask: () => void;
   onAddEvent?: () => void;
+  onAddPerson?: () => void;
 }
 
 const TAB_BAR_HEIGHT = Platform.select({ ios: 49, android: 56, default: 50 });
 
-export function FAB({ onAddCategory, onAddTask, onAddEvent }: FABProps) {
+export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson }: FABProps) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [isOpen, setIsOpen] = useState(false);
@@ -60,6 +61,13 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent }: FABProps) {
     setIsOpen(false);
     if (onAddEvent) {
       onAddEvent();
+    }
+  };
+
+  const handleAddPerson = () => {
+    setIsOpen(false);
+    if (onAddPerson) {
+      onAddPerson();
     }
   };
 
@@ -153,6 +161,28 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent }: FABProps) {
                       <ThemedText style={styles.menuTitle}>Schedule Event</ThemedText>
                       <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
                         Add to your calendar
+                      </ThemedText>
+                    </View>
+                  </Pressable>
+                </>
+              ) : null}
+              {onAddPerson ? (
+                <>
+                  <View style={[styles.separator, { backgroundColor: theme.border }]} />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                    onPress={handleAddPerson}
+                  >
+                    <View style={[styles.menuIcon, { backgroundColor: "#F472B6" + "20" }]}>
+                      <Feather name="user-plus" size={20} color="#F472B6" />
+                    </View>
+                    <View style={styles.menuTextContainer}>
+                      <ThemedText style={styles.menuTitle}>Add Person</ThemedText>
+                      <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
+                        Add someone to your contacts
                       </ThemedText>
                     </View>
                   </Pressable>
