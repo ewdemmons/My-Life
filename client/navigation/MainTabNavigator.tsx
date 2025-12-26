@@ -8,6 +8,7 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import HomeScreen from "@/screens/HomeScreen";
 import TasksScreen from "@/screens/TasksScreen";
 import CalendarScreen from "@/screens/CalendarScreen";
+import PeopleScreen from "@/screens/PeopleScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import { FAB } from "@/components/FAB";
 import { SchedulingModal } from "@/components/SchedulingModal";
@@ -19,6 +20,7 @@ export type MainTabParamList = {
   HomeTab: undefined;
   TasksTab: undefined;
   CalendarTab: undefined;
+  PeopleTab: undefined;
   ProfileTab: undefined;
 };
 
@@ -103,6 +105,17 @@ export default function MainTabNavigator() {
             headerTitle: "Calendar",
             tabBarIcon: ({ color, size }) => (
               <Feather name="calendar" size={size} color={color} />
+            ),
+          }}
+        />
+        <Tab.Screen
+          name="PeopleTab"
+          component={PeopleScreen}
+          options={{
+            title: "People",
+            headerTitle: "People",
+            tabBarIcon: ({ color, size }) => (
+              <Feather name="users" size={size} color={color} />
             ),
           }}
         />

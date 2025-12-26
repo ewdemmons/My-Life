@@ -22,6 +22,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ClickableDescription } from "@/components/ClickableDescription";
 import { SchedulingModal } from "@/components/SchedulingModal";
+import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -609,6 +610,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                   ) : null}
 
                   <View style={[styles.priorityIndicator, { backgroundColor: priorityColor }]} />
+
+                  {task.assigneeIds && task.assigneeIds.length > 0 ? (
+                    <View style={styles.assigneesContainer}>
+                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
+                    </View>
+                  ) : null}
                 </View>
 
                 {isDragging ? (
@@ -830,6 +837,9 @@ const styles = StyleSheet.create({
     height: 16,
     borderRadius: 2,
     marginLeft: "auto",
+  },
+  assigneesContainer: {
+    marginLeft: Spacing.sm,
   },
   metaText: {
     fontSize: 14,

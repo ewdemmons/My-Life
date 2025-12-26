@@ -1,12 +1,13 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem, CalendarEvent } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
 import { CategoryColors } from "@/constants/theme";
 import { generateRecurringInstances } from "@/utils/recurrence";
 
 const CATEGORIES_KEY = "@mylife_categories";
 const TASKS_KEY = "@mylife_tasks";
 const EVENTS_KEY = "@mylife_events";
+const PEOPLE_KEY = "@mylife_people";
 const RECYCLE_BIN_KEY = "@mylife_recycle_bin";
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
@@ -14,6 +15,7 @@ interface AppContextType {
   categories: LifeCategory[];
   tasks: Task[];
   events: CalendarEvent[];
+  people: Person[];
   recycleBin: DeletedItem[];
   isLoading: boolean;
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<void>;
@@ -34,6 +36,10 @@ interface AppContextType {
   getEventsByDate: (date: string) => CalendarEvent[];
   getEventsByTask: (taskId: string) => CalendarEvent[];
   getEventsBySeries: (seriesId: string) => CalendarEvent[];
+  addPerson: (person: Omit<Person, "id" | "createdAt">) => Promise<void>;
+  updatePerson: (id: string, updates: Partial<Person>) => Promise<void>;
+  deletePerson: (id: string) => Promise<void>;
+  getPersonById: (id: string) => Person | undefined;
   restoreFromRecycleBin: (id: string) => Promise<void>;
   permanentlyDelete: (id: string) => Promise<void>;
   emptyRecycleBin: () => Promise<void>;
@@ -70,6 +76,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
+  const [people, setPeople] = useState<Person[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -85,10 +92,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const loadData = async () => {
     try {
-      const [categoriesData, tasksData, eventsData, recycleBinData] = await Promise.all([
+      const [categoriesData, tasksData, eventsData, peopleData, recycleBinData] = await Promise.all([
         AsyncStorage.getItem(CATEGORIES_KEY),
         AsyncStorage.getItem(TASKS_KEY),
         AsyncStorage.getItem(EVENTS_KEY),
+        AsyncStorage.getItem(PEOPLE_KEY),
         AsyncStorage.getItem(RECYCLE_BIN_KEY),
       ]);
       
@@ -117,6 +125,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (eventsData) {
         setEvents(JSON.parse(eventsData));
+      }
+
+      if (peopleData) {
+        setPeople(JSON.parse(peopleData));
       }
 
       if (recycleBinData) {
@@ -150,6 +162,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const saveEvents = async (newEvents: CalendarEvent[]) => {
     await AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(newEvents));
+  };
+
+  const savePeople = async (newPeople: Person[]) => {
+    await AsyncStorage.setItem(PEOPLE_KEY, JSON.stringify(newPeople));
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
@@ -450,12 +466,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [events]
   );
 
+  const addPerson = useCallback(async (person: Omit<Person, "id" | "createdAt">) => {
+    const newPerson: Person = {
+      ...person,
+      id: Date.now().toString(),
+      createdAt: Date.now(),
+    };
+    const updated = [...people, newPerson];
+    setPeople(updated);
+    await savePeople(updated);
+  }, [people]);
+
+  const updatePerson = useCallback(async (id: string, updates: Partial<Person>) => {
+    const updated = people.map((person) =>
+      person.id === id ? { ...person, ...updates } : person
+    );
+    setPeople(updated);
+    await savePeople(updated);
+  }, [people]);
+
+  const deletePerson = useCallback(async (id: string) => {
+    const updatedPeople = people.filter((person) => person.id !== id);
+    setPeople(updatedPeople);
+    await savePeople(updatedPeople);
+    
+    const updatedCategories = categories.map((category) => ({
+      ...category,
+      peopleIds: category.peopleIds?.filter((pid) => pid !== id),
+    }));
+    setCategories(updatedCategories);
+    await saveCategories(updatedCategories);
+    
+    const updatedTasks = tasks.map((task) => ({
+      ...task,
+      assigneeIds: task.assigneeIds?.filter((pid) => pid !== id),
+    }));
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
+    
+    const updatedEvents = events.map((event) => ({
+      ...event,
+      attendeeIds: event.attendeeIds?.filter((pid) => pid !== id),
+    }));
+    setEvents(updatedEvents);
+    await saveEvents(updatedEvents);
+  }, [people, categories, tasks, events]);
+
+  const getPersonById = useCallback(
+    (id: string) => people.find((person) => person.id === id),
+    [people]
+  );
+
   return (
     <AppContext.Provider
       value={{
         categories,
         tasks,
         events,
+        people,
         recycleBin,
         isLoading,
         addCategory,
@@ -476,6 +544,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         getEventsByDate,
         getEventsByTask,
         getEventsBySeries,
+        addPerson,
+        updatePerson,
+        deletePerson,
+        getPersonById,
         restoreFromRecycleBin,
         permanentlyDelete,
         emptyRecycleBin,

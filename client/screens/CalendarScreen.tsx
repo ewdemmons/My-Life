@@ -11,6 +11,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
+import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { Task, CalendarEvent, EVENT_TYPES, getEventTypeInfo } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
@@ -174,6 +175,11 @@ export default function CalendarScreen() {
                 <ThemedText style={[styles.categoryText, { color: eventCategory.color }]}>
                   {eventCategory.name}
                 </ThemedText>
+              </View>
+            ) : null}
+            {event.attendeeIds && event.attendeeIds.length > 0 ? (
+              <View style={styles.attendeesRow}>
+                <PeopleAvatars personIds={event.attendeeIds} maxDisplay={4} size={22} />
               </View>
             ) : null}
           </View>
@@ -443,6 +449,10 @@ const styles = StyleSheet.create({
     paddingVertical: 2,
     borderRadius: BorderRadius.full,
     marginTop: 4,
+    alignSelf: "flex-start",
+  },
+  attendeesRow: {
+    marginTop: Spacing.xs,
     alignSelf: "flex-start",
   },
   categoryText: {

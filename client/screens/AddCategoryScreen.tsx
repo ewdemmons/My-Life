@@ -9,6 +9,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, CategoryColors } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { PeopleSelector } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 
@@ -35,6 +36,7 @@ export default function AddCategoryScreen() {
   const [description, setDescription] = useState(editingCategory?.description || "");
   const [color, setColor] = useState(editingCategory?.color || CategoryColors[0]);
   const [icon, setIcon] = useState(editingCategory?.icon || ICONS[0]);
+  const [peopleIds, setPeopleIds] = useState<string[]>(editingCategory?.peopleIds || []);
 
   const isValid = name.trim().length > 0;
 
@@ -47,6 +49,7 @@ export default function AddCategoryScreen() {
         description: description.trim(),
         color,
         icon,
+        peopleIds,
       });
     } else {
       await addCategory({
@@ -54,10 +57,11 @@ export default function AddCategoryScreen() {
         description: description.trim(),
         color,
         icon,
+        peopleIds,
       });
     }
     navigation.goBack();
-  }, [name, description, color, icon, isEditing, editingCategory, addCategory, updateCategory, navigation]);
+  }, [name, description, color, icon, peopleIds, isEditing, editingCategory, addCategory, updateCategory, navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -173,6 +177,13 @@ export default function AddCategoryScreen() {
           ))}
         </View>
       </View>
+
+      <PeopleSelector
+        selectedIds={peopleIds}
+        onSelectionChange={setPeopleIds}
+        label="Tag People (Optional)"
+        placeholder="Tag family, friends, or teammates..."
+      />
 
       <View style={[styles.preview, { backgroundColor: theme.backgroundDefault }]}>
         <ThemedText style={[styles.previewLabel, { color: theme.textSecondary }]}>

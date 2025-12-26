@@ -11,6 +11,7 @@ import {
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { ThemedText } from "./ThemedText";
+import { PeopleSelector } from "./PeopleSelector";
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
 import {
@@ -72,6 +73,7 @@ export function SchedulingModal({
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
     lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || null
   );
+  const [attendeeIds, setAttendeeIds] = useState<string[]>(editingEvent?.attendeeIds || []);
 
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
@@ -102,6 +104,7 @@ export function SchedulingModal({
       setSelectedTaskId(editingEvent?.linkedTaskId || linkedTask?.id || null);
       const initialCategory = lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || (categories.length > 0 ? categories[0].id : null);
       setSelectedCategoryId(initialCategory);
+      setAttendeeIds(editingEvent?.attendeeIds || []);
     }
   }, [visible, editingEvent, linkedTask, initialDate, preselectedCategoryId, lockedCategoryId, categories]);
 
@@ -204,6 +207,7 @@ export function SchedulingModal({
       recurrence,
       linkedTaskId: selectedTaskId,
       categoryId: finalCategoryId,
+      attendeeIds,
     };
 
     if (editingEvent) {
@@ -526,6 +530,15 @@ export function SchedulingModal({
                   </View>
                 </View>
               </Pressable>
+            </View>
+
+            <View style={{ paddingHorizontal: Spacing.lg, marginTop: Spacing.md }}>
+              <PeopleSelector
+                selectedIds={attendeeIds}
+                onSelectionChange={setAttendeeIds}
+                label="Attendees (Optional)"
+                placeholder="Add attendees..."
+              />
             </View>
 
             {editingEvent ? (

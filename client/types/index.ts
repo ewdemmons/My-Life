@@ -1,3 +1,25 @@
+export type RelationshipType = "family" | "friend" | "colleague" | "pet" | "teammate" | "other";
+
+export interface Person {
+  id: string;
+  name: string;
+  relationship: RelationshipType;
+  email?: string;
+  phone?: string;
+  photoUri?: string;
+  notes?: string;
+  createdAt: number;
+}
+
+export const RELATIONSHIP_TYPES: { value: RelationshipType; label: string; icon: string }[] = [
+  { value: "family", label: "Family", icon: "heart" },
+  { value: "friend", label: "Friend", icon: "smile" },
+  { value: "colleague", label: "Colleague", icon: "briefcase" },
+  { value: "pet", label: "Pet", icon: "github" },
+  { value: "teammate", label: "Teammate", icon: "users" },
+  { value: "other", label: "Other", icon: "user" },
+];
+
 export interface LifeCategory {
   id: string;
   name: string;
@@ -5,6 +27,7 @@ export interface LifeCategory {
   color: string;
   icon: string;
   createdAt: number;
+  peopleIds?: string[];
 }
 
 export type TaskType = 
@@ -30,6 +53,7 @@ export interface Task {
   status: "pending" | "in_progress" | "completed";
   createdAt: number;
   orderIndex?: number;
+  assigneeIds?: string[];
 }
 
 export interface DeletedItem {
@@ -81,6 +105,7 @@ export interface CalendarEvent {
   seriesId?: string | null;
   isException?: boolean;
   originalDate?: string;
+  attendeeIds?: string[];
 }
 
 export const EVENT_TYPES: { value: EventType; label: string; icon: string; color: string }[] = [

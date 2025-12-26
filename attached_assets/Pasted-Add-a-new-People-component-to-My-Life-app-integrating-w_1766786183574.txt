@@ -1,0 +1,42 @@
+Add a new "People" component to "My Life" app, integrating with existing features like Life Categories, Tasks, and Scheduled Events/Calendar.
+
+Core requirements:
+1. People Management:
+   - New bottom nav tab: "People" (icon: users or group).
+   - Screen shows searchable list of added people/pets (FlatList with avatars).
+   - Add/Edit modal: Fields = Name, Relationship (dropdown: Family, Friend, Colleague, Pet, Teammate, Other), Contact (email/phone optional), Photo (Expo ImagePicker or icon), Notes (description).
+
+2. Tagging/Linking People:
+   - In Life Bubble add/edit: Optional multi-select dropdown for tagging people (e.g., Family bubble tags family members — shows as avatars on bubble detail).
+   - In Task add/edit modal: Assign to people (multi-select dropdown) — shows assignee avatars/badges on task cards.
+   - In Scheduling Modal (events): Add "Attendees" field (multi-select people dropdown) — shows attendee icons on event popups/calendar blocks.
+
+3. Sharing/Inviting:
+   - From People profile: "Invite to App" button — sends email/phone invite with app link (use Expo Linking or Firebase Dynamic Links).
+   - If invitee is an existing user (via username/email match): Enable app linking for shared access.
+   - Per-item sharing: In bubble/task/event detail, add "Share with" button to select people and set permissions (View, Edit).
+   - Use Firebase for real-time sync on shared items (e.g., co-edit tasks).
+
+4. UI Polish:
+   - People tags appear as small avatars/names in relevant views (bubbles, tasks, events).
+   - Notifications: Auto-push/email to tagged people for assignments/events (e.g., "You've been assigned a task").
+   - Searchable dropdowns everywhere for quick tagging.
+
+5. Data & Integration:
+   - Store People as a new entity (ID, name, etc.) in local storage/Realm, link via IDs in bubbles/tasks/events.
+   - Prepare for AI: Add hooks for suggestions (e.g., in task modal: "Suggest tagging family?") — implement later.
+   - Ensure offline support with sync.
+
+Plan step-by-step:
+1. Create People tab/screen and add/edit modal.
+2. Add People dropdowns to existing modals (bubbles, tasks, scheduling).
+3. Implement tagging display in views (avatars on cards/popups).
+4. Add basic sharing/invite logic (Firebase integration if not already).
+5. Test integrations: Tag a person in a task, schedule an event with attendees, share a bubble.
+
+Demo in Expo preview:
+- Add a person → tag in a bubble/task/event
+- Invite via email → simulate sharing
+- View tagged avatars in lists/calendar
+
+Ensure no breakage to existing features; use shared components for consistency.

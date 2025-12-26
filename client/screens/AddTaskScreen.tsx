@@ -9,6 +9,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { PeopleSelector } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { TaskType, TASK_TYPES, Task } from "@/types";
@@ -36,6 +37,7 @@ export default function AddTaskScreen() {
   const [categoryId, setCategoryId] = useState(editingTask?.categoryId || preselectedCategoryId || categories[0]?.id || "");
   const [parentId, setParentId] = useState<string | null>(editingTask?.parentId || preselectedParentId || null);
   const [priority, setPriority] = useState<"low" | "medium" | "high">(editingTask?.priority || "medium");
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(editingTask?.assigneeIds || []);
   const [showParentPicker, setShowParentPicker] = useState(false);
 
   const isValid = title.trim().length > 0 && categoryId;
@@ -61,6 +63,7 @@ export default function AddTaskScreen() {
         categoryId,
         parentId,
         priority,
+        assigneeIds,
       });
     } else {
       await addTask({
@@ -70,11 +73,12 @@ export default function AddTaskScreen() {
         categoryId,
         parentId,
         priority,
+        assigneeIds,
         status: "pending",
       });
     }
     navigation.goBack();
-  }, [title, description, taskType, categoryId, parentId, priority, isEditing, editingTask, addTask, updateTask, navigation]);
+  }, [title, description, taskType, categoryId, parentId, priority, assigneeIds, isEditing, editingTask, addTask, updateTask, navigation]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -272,6 +276,13 @@ export default function AddTaskScreen() {
             ))}
           </View>
         </View>
+
+        <PeopleSelector
+          selectedIds={assigneeIds}
+          onSelectionChange={setAssigneeIds}
+          label="Assign To (Optional)"
+          placeholder="Assign to people..."
+        />
 
       </KeyboardAwareScrollViewCompat>
 
