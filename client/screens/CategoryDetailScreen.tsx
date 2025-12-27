@@ -19,6 +19,7 @@ import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { SharePeopleModal } from "@/components/SharePeopleModal";
+import { AddPersonModal } from "@/components/AddPersonModal";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 
@@ -61,6 +62,7 @@ export default function CategoryDetailScreen() {
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showAddPersonModal, setShowAddPersonModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editingAsInstance, setEditingAsInstance] = useState(false);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
@@ -566,7 +568,7 @@ export default function CategoryDetailScreen() {
           </ThemedText>
           <Pressable
             style={[styles.addPersonCta, { backgroundColor: category.color }]}
-            onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
+            onPress={() => setShowAddPersonModal(true)}
           >
             <Feather name="user-plus" size={16} color="#FFFFFF" />
             <ThemedText style={styles.addPersonCtaText}>Add Person</ThemedText>
@@ -677,6 +679,12 @@ export default function CategoryDetailScreen() {
         sharedWith={category.sharedWith || []}
         onUpdateSharing={handleUpdateSharing}
         itemTitle={category.name}
+      />
+
+      <AddPersonModal
+        visible={showAddPersonModal}
+        onClose={() => setShowAddPersonModal(false)}
+        preSelectedCategoryId={category.id}
       />
     </View>
   );
