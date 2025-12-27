@@ -14,6 +14,8 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import * as ImagePicker from "expo-image-picker";
+import * as MailComposer from "expo-mail-composer";
+import * as SMS from "expo-sms";
 import { Image } from "expo-image";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
@@ -41,6 +43,101 @@ export default function PeopleScreen() {
   const [photoUri, setPhotoUri] = useState("");
   const [notes, setNotes] = useState("");
   const [showRelationshipPicker, setShowRelationshipPicker] = useState(false);
+  const [showInviteModal, setShowInviteModal] = useState(false);
+
+  const generateInviteCode = () => {
+    return 'MYLIFE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
+  };
+
+  const handleSendEmailInvite = async () => {
+    if (!editingPerson) return;
+    
+    const personEmail = editingPerson.email || email;
+    if (!personEmail) {
+      Alert.alert("No Email", "Please add an email address to send an invite.");
+      return;
+    }
+
+    const inviteCode = generateInviteCode();
+    const isAvailable = await MailComposer.isAvailableAsync();
+
+    if (!isAvailable) {
+      if (Platform.OS === "web") {
+        Alert.alert(
+          "Not Available",
+          "Email composer is only available in Expo Go on your mobile device."
+        );
+      } else {
+        const mailtoUrl = `mailto:${personEmail}?subject=${encodeURIComponent("Join me on My Life!")}&body=${encodeURIComponent(
+          `Hi ${editingPerson.name},\n\nI'd like to share my life organization with you using the My Life app!\n\nDownload the app and use this invite code to connect with me:\n\n${inviteCode}\n\nLooking forward to organizing together!`
+        )}`;
+        await Linking.openURL(mailtoUrl);
+      }
+      setShowInviteModal(false);
+      return;
+    }
+
+    try {
+      await MailComposer.composeAsync({
+        recipients: [personEmail],
+        subject: "Join me on My Life!",
+        body: `Hi ${editingPerson.name},\n\nI'd like to share my life organization with you using the My Life app!\n\nDownload the app and use this invite code to connect with me:\n\n${inviteCode}\n\nLooking forward to organizing together!`,
+      });
+
+      await updatePerson(editingPerson.id, {
+        inviteCode,
+        inviteSentAt: Date.now(),
+      });
+
+      Alert.alert("Invite Sent", `An invite has been sent to ${editingPerson.name}.`);
+    } catch (error) {
+      Alert.alert("Error", "Failed to send invite. Please try again.");
+    }
+    setShowInviteModal(false);
+  };
+
+  const handleSendSMSInvite = async () => {
+    if (!editingPerson) return;
+    
+    const personPhone = editingPerson.phone || phone;
+    if (!personPhone) {
+      Alert.alert("No Phone", "Please add a phone number to send an SMS invite.");
+      return;
+    }
+
+    const inviteCode = generateInviteCode();
+    
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "SMS is only available in Expo Go on your mobile device."
+      );
+      return;
+    }
+
+    const isAvailable = await SMS.isAvailableAsync();
+    if (!isAvailable) {
+      Alert.alert("SMS Not Available", "SMS is not available on this device.");
+      return;
+    }
+
+    try {
+      await SMS.sendSMSAsync(
+        [personPhone],
+        `Hi ${editingPerson.name}! I'd like to share my life organization with you using the My Life app. Download it and use invite code: ${inviteCode} to connect with me!`
+      );
+
+      await updatePerson(editingPerson.id, {
+        inviteCode,
+        inviteSentAt: Date.now(),
+      });
+
+      Alert.alert("Invite Sent", `An SMS invite has been sent to ${editingPerson.name}.`);
+    } catch (error) {
+      Alert.alert("Error", "Failed to send SMS. Please try again.");
+    }
+    setShowInviteModal(false);
+  };
 
   const filteredPeople = useMemo(() => {
     if (!searchQuery.trim()) return people;
@@ -346,19 +443,35 @@ export default function PeopleScreen() {
             </View>
 
             {editingPerson ? (
-              <Pressable
-                style={[styles.deleteButton, { borderColor: theme.error }]}
-                onPress={() => {
-                  setModalVisible(false);
-                  handleDelete(editingPerson);
-                  resetForm();
-                }}
-              >
-                <Feather name="trash-2" size={18} color={theme.error} />
-                <ThemedText style={[styles.deleteButtonText, { color: theme.error }]}>
-                  Remove Person
-                </ThemedText>
-              </Pressable>
+              <View style={styles.actionButtons}>
+                <Pressable
+                  style={[styles.inviteButton, { backgroundColor: theme.primary + "15", borderColor: theme.primary }]}
+                  onPress={() => setShowInviteModal(true)}
+                >
+                  <Feather name="send" size={18} color={theme.primary} />
+                  <ThemedText style={[styles.inviteButtonText, { color: theme.primary }]}>
+                    {editingPerson.inviteSentAt ? "Resend Invite" : "Invite to App"}
+                  </ThemedText>
+                </Pressable>
+                {editingPerson.inviteSentAt ? (
+                  <ThemedText style={[styles.inviteStatus, { color: theme.textSecondary }]}>
+                    Invite sent on {new Date(editingPerson.inviteSentAt).toLocaleDateString()}
+                  </ThemedText>
+                ) : null}
+                <Pressable
+                  style={[styles.deleteButton, { borderColor: theme.error }]}
+                  onPress={() => {
+                    setModalVisible(false);
+                    handleDelete(editingPerson);
+                    resetForm();
+                  }}
+                >
+                  <Feather name="trash-2" size={18} color={theme.error} />
+                  <ThemedText style={[styles.deleteButtonText, { color: theme.error }]}>
+                    Remove Person
+                  </ThemedText>
+                </Pressable>
+              </View>
             ) : null}
           </KeyboardAwareScrollViewCompat>
         </View>
@@ -401,6 +514,68 @@ export default function PeopleScreen() {
                   ) : null}
                 </Pressable>
               ))}
+            </View>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={showInviteModal}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowInviteModal(false)}
+        >
+          <Pressable
+            style={styles.pickerOverlay}
+            onPress={() => setShowInviteModal(false)}
+          >
+            <View style={[styles.inviteModalContent, { backgroundColor: theme.backgroundDefault }]}>
+              <ThemedText style={styles.inviteModalTitle}>
+                Invite {editingPerson?.name}
+              </ThemedText>
+              <ThemedText style={[styles.inviteModalSubtitle, { color: theme.textSecondary }]}>
+                Send an invite to join My Life and collaborate with you
+              </ThemedText>
+
+              <Pressable
+                style={[styles.inviteOption, { backgroundColor: theme.backgroundRoot }]}
+                onPress={handleSendEmailInvite}
+              >
+                <View style={[styles.inviteOptionIcon, { backgroundColor: "#3B82F6" + "20" }]}>
+                  <Feather name="mail" size={22} color="#3B82F6" />
+                </View>
+                <View style={styles.inviteOptionInfo}>
+                  <ThemedText style={styles.inviteOptionTitle}>Send Email</ThemedText>
+                  <ThemedText style={[styles.inviteOptionDesc, { color: theme.textSecondary }]}>
+                    {editingPerson?.email || "No email added"}
+                  </ThemedText>
+                </View>
+                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              </Pressable>
+
+              <Pressable
+                style={[styles.inviteOption, { backgroundColor: theme.backgroundRoot }]}
+                onPress={handleSendSMSInvite}
+              >
+                <View style={[styles.inviteOptionIcon, { backgroundColor: "#22C55E" + "20" }]}>
+                  <Feather name="message-circle" size={22} color="#22C55E" />
+                </View>
+                <View style={styles.inviteOptionInfo}>
+                  <ThemedText style={styles.inviteOptionTitle}>Send SMS</ThemedText>
+                  <ThemedText style={[styles.inviteOptionDesc, { color: theme.textSecondary }]}>
+                    {editingPerson?.phone || "No phone added"}
+                  </ThemedText>
+                </View>
+                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              </Pressable>
+
+              <Pressable
+                style={[styles.inviteCancelButton]}
+                onPress={() => setShowInviteModal(false)}
+              >
+                <ThemedText style={[styles.inviteCancelText, { color: theme.textSecondary }]}>
+                  Cancel
+                </ThemedText>
+              </Pressable>
             </View>
           </Pressable>
         </Modal>
@@ -636,12 +811,85 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     gap: Spacing.sm,
     paddingVertical: Spacing.md,
-    marginTop: Spacing.xl,
+    marginTop: Spacing.md,
     borderRadius: BorderRadius.xs,
     borderWidth: 1,
   },
   deleteButtonText: {
     fontSize: 16,
     fontWeight: "500",
+  },
+  actionButtons: {
+    marginTop: Spacing.lg,
+    gap: Spacing.sm,
+  },
+  inviteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+  },
+  inviteButtonText: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  inviteStatus: {
+    fontSize: 12,
+    textAlign: "center",
+    marginTop: Spacing.xs,
+  },
+  inviteModalContent: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+  },
+  inviteModalTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    textAlign: "center",
+    marginBottom: Spacing.xs,
+  },
+  inviteModalSubtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: Spacing.lg,
+  },
+  inviteOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+    gap: Spacing.md,
+  },
+  inviteOptionIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  inviteOptionInfo: {
+    flex: 1,
+  },
+  inviteOptionTitle: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  inviteOptionDesc: {
+    fontSize: 13,
+    marginTop: 2,
+  },
+  inviteCancelButton: {
+    alignItems: "center",
+    paddingVertical: Spacing.md,
+    marginTop: Spacing.sm,
+  },
+  inviteCancelText: {
+    fontSize: 16,
   },
 });
