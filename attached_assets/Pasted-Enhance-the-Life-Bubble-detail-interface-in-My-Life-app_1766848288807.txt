@@ -1,0 +1,44 @@
+Enhance the Life Bubble detail interface in "My Life" app (Expo/React Native). Currently, bubble screens have tabs like Entries (tasks) and Calendar, with metrics at top and add buttons at bottom.
+
+New requirements:
+1. Tab Structure:
+   - Add two new tabs: "Dashboard" and "People" — resulting in four tabs: Entries, Calendar, Dashboard, People.
+   - Use a tab bar (e.g., @react-navigation/material-top-tabs or segmented control) at the top/bottom of the bubble detail screen for switching.
+
+2. Header Updates:
+   - Remove any dashboard metrics (e.g., total/done/active/pending) from the top of the screen.
+   - Expand the header section height to ~2x current size (e.g., 120-160px).
+   - Include the life bubble's icon/color from the home Life Wheel (centered or left-aligned in header).
+
+3. Buttons Relocation:
+   - Move "Add Entry" (for tasks) and "Schedule" (for events) buttons from the bottom to the header.
+   - Adjust their size/style: Make them smaller icon buttons (e.g., + icons with tooltips).
+   - Add a new "+ Person" button to the header: Opens the People add modal with the current Life Category auto-selected/tagged.
+
+4. Dashboard Tab:
+   - Content: Summaries grouped by task type (Goal, Objective, Project, Task, etc.).
+     - For each type: Display counts like "Total Open Entries," "Scheduled Today," "Scheduled This Week" (pull from linked scheduled events).
+   - Interactive: Tapping a type summary navigates to the Entries tab with that type pre-filtered.
+   - UI: Clean card layout (grid/list with type icons/colors); add subtle progress indicators if data available.
+
+5. People Tab:
+   - Content: List of people/pets tagged in this Life Bubble or associated via tasks/events in this category (use existing People data).
+     - Each person card: Avatar, name, relationship; expandable to show linked tasks/events (collapsible list with details).
+   - Sharing Controls: Per-person buttons to "Manage Share Access" (set permissions: View/Edit for this bubble's items) or "Invite More" (via email/SMS/app link).
+   - UI: Searchable list; placeholder if empty with "+ Add Person" CTA.
+
+Ensure consistency: Dark mode, animations for expands/tabs, performance for lists. Refactor shared components (e.g., for headers/tabs) to avoid duplication.
+
+Plan step-by-step:
+1. Update BubbleDetailScreen with new tabs and header layout.
+2. Remove top metrics and relocate/add buttons to header.
+3. Implement Dashboard tab with type summaries and navigation.
+4. Implement People tab with lists, expands, and sharing UI.
+5. Test integrations: Add a person via header → tag in bubble → see in People tab; share access.
+
+Demo in Expo preview:
+- Open a bubble → see expanded header with icon/buttons
+- Switch to Dashboard → tap a type → filters Entries
+- Switch to People → expand a person to see linked tasks; manage sharing
+- Confirm no old metrics/buttons in wrong places
+```​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
