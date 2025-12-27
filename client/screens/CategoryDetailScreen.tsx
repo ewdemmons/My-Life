@@ -16,7 +16,8 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
-import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent } from "@/types";
+import { SharePeopleModal } from "@/components/SharePeopleModal";
+import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
@@ -27,17 +28,23 @@ export default function CategoryDetailScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory, events, deleteEvent, deleteEventSeries } = useApp();
+  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories } = useApp();
 
-  const category = route.params.category;
+  const categoryFromState = categories.find(c => c.id === route.params.category.id) || route.params.category;
+  const category = categoryFromState;
   const [segment, setSegment] = useState<"tasks" | "calendar">("tasks");
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editingAsInstance, setEditingAsInstance] = useState(false);
   const categoryTasks = getTasksByCategory(category.id);
+
+  const handleUpdateSharing = async (shares: ShareRecord[]) => {
+    await updateCategory(category.id, { sharedWith: shares });
+  };
 
   const getEventTypeInfo = (type: string) => {
     return EVENT_TYPES.find(e => e.value === type) || EVENT_TYPES[0];
@@ -120,9 +127,14 @@ export default function CategoryDetailScreen() {
     navigation.setOptions({
       headerTitle: category.name,
       headerRight: () => (
-        <HeaderButton onPress={() => navigation.navigate("AddCategory", { category })}>
-          <Feather name="edit-2" size={20} color={theme.primary} />
-        </HeaderButton>
+        <View style={{ flexDirection: "row", gap: 8 }}>
+          <HeaderButton onPress={() => setShowShareModal(true)}>
+            <Feather name="share-2" size={20} color={theme.primary} />
+          </HeaderButton>
+          <HeaderButton onPress={() => navigation.navigate("AddCategory", { category })}>
+            <Feather name="edit-2" size={20} color={theme.primary} />
+          </HeaderButton>
+        </View>
       ),
     });
   }, [navigation, category, theme]);
@@ -352,6 +364,13 @@ export default function CategoryDetailScreen() {
         onEditSeries={handleEditSeries}
         onDeleteInstance={handleDeleteInstance}
         onDeleteSeries={handleDeleteSeriesEvent}
+      />
+      <SharePeopleModal
+        visible={showShareModal}
+        onClose={() => setShowShareModal(false)}
+        sharedWith={category.sharedWith || []}
+        onUpdateSharing={handleUpdateSharing}
+        itemTitle={category.name}
       />
     </View>
   );

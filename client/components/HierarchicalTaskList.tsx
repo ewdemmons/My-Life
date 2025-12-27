@@ -616,6 +616,15 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                       <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
                     </View>
                   ) : null}
+
+                  {task.sharedWith && task.sharedWith.length > 0 ? (
+                    <View style={[styles.sharedBadge, { backgroundColor: theme.primary + "20" }]}>
+                      <Feather name="share-2" size={10} color={theme.primary} />
+                      <ThemedText style={[styles.sharedBadgeText, { color: theme.primary }]}>
+                        {task.sharedWith.length}
+                      </ThemedText>
+                    </View>
+                  ) : null}
                 </View>
 
                 {isDragging ? (
@@ -840,6 +849,19 @@ const styles = StyleSheet.create({
   },
   assigneesContainer: {
     marginLeft: Spacing.sm,
+  },
+  sharedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    marginLeft: Spacing.xs,
+  },
+  sharedBadgeText: {
+    fontSize: 10,
+    fontWeight: "600",
   },
   metaText: {
     fontSize: 14,
