@@ -472,18 +472,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       id: Date.now().toString(),
       createdAt: Date.now(),
     };
-    const updated = [...people, newPerson];
-    setPeople(updated);
-    await savePeople(updated);
-  }, [people]);
+    const updatedPeople = [...people, newPerson];
+    setPeople(updatedPeople);
+    await savePeople(updatedPeople);
+
+    if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
+      const updatedCategories = categories.map((category) => {
+        if (newPerson.categoryIds!.includes(category.id)) {
+          const existingPeopleIds = category.peopleIds || [];
+          if (!existingPeopleIds.includes(newPerson.id)) {
+            return { ...category, peopleIds: [...existingPeopleIds, newPerson.id] };
+          }
+        }
+        return category;
+      });
+      setCategories(updatedCategories);
+      await saveCategories(updatedCategories);
+    }
+  }, [people, categories]);
 
   const updatePerson = useCallback(async (id: string, updates: Partial<Person>) => {
+    const existingPerson = people.find((p) => p.id === id);
+    const oldCategoryIds = existingPerson?.categoryIds || [];
+    const newCategoryIds = updates.categoryIds !== undefined ? updates.categoryIds : oldCategoryIds;
+
     const updated = people.map((person) =>
       person.id === id ? { ...person, ...updates } : person
     );
     setPeople(updated);
     await savePeople(updated);
-  }, [people]);
+
+    if (updates.categoryIds !== undefined) {
+      const addedCategories = newCategoryIds.filter((cid) => !oldCategoryIds.includes(cid));
+      const removedCategories = oldCategoryIds.filter((cid) => !newCategoryIds.includes(cid));
+
+      if (addedCategories.length > 0 || removedCategories.length > 0) {
+        const updatedCategories = categories.map((category) => {
+          const existingPeopleIds = category.peopleIds || [];
+          if (addedCategories.includes(category.id) && !existingPeopleIds.includes(id)) {
+            return { ...category, peopleIds: [...existingPeopleIds, id] };
+          }
+          if (removedCategories.includes(category.id)) {
+            return { ...category, peopleIds: existingPeopleIds.filter((pid) => pid !== id) };
+          }
+          return category;
+        });
+        setCategories(updatedCategories);
+        await saveCategories(updatedCategories);
+      }
+    }
+  }, [people, categories]);
 
   const deletePerson = useCallback(async (id: string) => {
     const updatedPeople = people.filter((person) => person.id !== id);
