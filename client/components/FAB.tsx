@@ -195,16 +195,19 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson }: FABPr
   );
 }
 
+const FAB_SIZE = 56;
+
 const styles = StyleSheet.create({
   fab: {
     position: "absolute",
     right: Spacing.lg,
-    width: Spacing.fabSize,
-    height: Spacing.fabSize,
-    borderRadius: BorderRadius.full,
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: FAB_SIZE / 2,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 100,
+    overflow: "hidden",
   },
   overlay: {
     flex: 1,
