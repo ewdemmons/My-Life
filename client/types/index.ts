@@ -1,5 +1,16 @@
 export type RelationshipType = "family" | "friend" | "colleague" | "pet" | "teammate" | "other";
 
+export type SharePermission = "view" | "edit" | "co-owner";
+
+export interface ShareRecord {
+  personId: string;
+  permission: SharePermission;
+  sharedAt: number;
+  inviteCode?: string;
+  inviteSentAt?: number;
+  inviteAccepted?: boolean;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -9,6 +20,9 @@ export interface Person {
   photoUri?: string;
   notes?: string;
   createdAt: number;
+  inviteCode?: string;
+  inviteSentAt?: number;
+  isAppUser?: boolean;
 }
 
 export const RELATIONSHIP_TYPES: { value: RelationshipType; label: string; icon: string }[] = [
@@ -28,6 +42,7 @@ export interface LifeCategory {
   icon: string;
   createdAt: number;
   peopleIds?: string[];
+  sharedWith?: ShareRecord[];
 }
 
 export type TaskType = 
@@ -54,6 +69,7 @@ export interface Task {
   createdAt: number;
   orderIndex?: number;
   assigneeIds?: string[];
+  sharedWith?: ShareRecord[];
 }
 
 export interface DeletedItem {
@@ -106,6 +122,7 @@ export interface CalendarEvent {
   isException?: boolean;
   originalDate?: string;
   attendeeIds?: string[];
+  sharedWith?: ShareRecord[];
 }
 
 export const EVENT_TYPES: { value: EventType; label: string; icon: string; color: string }[] = [
@@ -127,3 +144,9 @@ export const RECURRENCE_OPTIONS: { value: RecurrenceType; label: string }[] = [
 export function getEventTypeInfo(type: EventType) {
   return EVENT_TYPES.find((t) => t.value === type) || EVENT_TYPES[0];
 }
+
+export const SHARE_PERMISSIONS: { value: SharePermission; label: string; description: string; icon: string }[] = [
+  { value: "view", label: "View Only", description: "Can view but not edit", icon: "eye" },
+  { value: "edit", label: "Edit", description: "Can view and edit", icon: "edit-2" },
+  { value: "co-owner", label: "Co-Owner", description: "Full access including sharing", icon: "users" },
+];

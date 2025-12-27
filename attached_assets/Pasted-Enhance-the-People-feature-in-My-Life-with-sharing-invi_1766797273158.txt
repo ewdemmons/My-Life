@@ -1,0 +1,46 @@
+Enhance the "People" feature in "My Life" with sharing/inviting capabilities and contact import integration. Build on the existing People tab, add/edit modal, and tagging in bubbles/tasks/events.
+
+New requirements:
+1. Contact Import for Adding People:
+   - In the People add modal: Add a "Import from Contacts" button.
+   - On press: Use Expo Contacts API to request permission and fetch device contacts (Expo.Contacts.getContactsAsync).
+   - Show a searchable list of contacts; on select, auto-populate the modal fields: Name, Contact (email/phone), Photo (if available).
+   - For pets/non-humans: Allow manual add without import.
+   - Handle permissions gracefully (prompt user if denied).
+
+2. Share/Invite Functionality:
+   - From People profile screen: Add "Invite/Share" button.
+     - For non-users (no app link): Send invite via email/SMS (use Expo MailComposer or Linking for mailto/sms schemes) with app download link and unique invite code (generate via UUID).
+     - For existing users (match by username/email): Establish app link for real-time collaboration (use Firebase auth/database for user IDs and shared access).
+   - Per-item sharing: In bubble/task/event detail screens, add "Share with People" button.
+     - Select from added People list (multi-select).
+     - Set permissions: View Only, Edit, or Co-Owner (full access).
+     - On share: Notify selected people via push/email (Expo Notifications) and sync changes in real-time (e.g., shared task edits appear for all).
+   - Global sharing: From People tab, option to "Share Entire Life Wheel" with selected people (with warnings for privacy).
+
+3. Integration and UI Polish:
+   - When tagging people in bubbles/tasks/events: If tagged person is shared/invited, auto-notify them (e.g., "You've been added to a Family event").
+   - Display shared status: In lists/views, show "Shared with [avatars]" badges on shared items.
+   - Revoke sharing: From profile or item detail, "Remove Share" option.
+   - Privacy: All shares require user confirmation; default to private.
+
+4. Data and Sync:
+   - Store invites/shares in Firebase (user IDs, permissions, invite codes).
+   - Handle accepted invites: On app open with code, link users and sync shared data.
+   - Offline: Queue shares/notifications for sync.
+
+Plan step-by-step:
+1. Implement contact import in add modal (Expo Contacts).
+2. Add invite logic to People profiles (email/SMS for non-users, Firebase link for users).
+3. Add sharing UI/buttons to item details (bubbles/tasks/events) with permission selectors.
+4. Update rendering to show shared badges and notifications.
+5. Test end-to-end: Import contact → add person → invite → share a task → confirm sync/notifications.
+
+Demo in Expo preview:
+- Import a contact → auto-fill add modal
+- Invite a non-user via email
+- Share a task with a person → see badge and notification
+- Simulate accepted invite → edit shared item from "linked" user perspective
+
+Ensure no breakage to existing People tagging, tasks, bubbles, or events. Use secure practices for contacts/permissions.
+```​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
