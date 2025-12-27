@@ -203,7 +203,7 @@ const styles = StyleSheet.create({
     right: Spacing.lg,
     width: FAB_SIZE,
     height: FAB_SIZE,
-    borderRadius: FAB_SIZE / 2,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 100,
