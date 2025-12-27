@@ -453,6 +453,24 @@ export default function CategoryDetailScreen() {
     const linkedItems = getPersonLinkedItems(item.id);
     const hasLinkedItems = linkedItems.tasks.length > 0 || linkedItems.events.length > 0;
 
+    const categoryInvite = item.categoryInvites?.find(inv => inv.categoryId === category.id);
+    const getStatusColor = (status: string) => {
+      switch (status) {
+        case "accepted": return theme.success;
+        case "pending": return theme.warning;
+        case "declined": return theme.error;
+        default: return theme.textSecondary;
+      }
+    };
+    const getPermissionLabel = (permission: string) => {
+      switch (permission) {
+        case "co-owner": return "Co-owner";
+        case "edit": return "Can edit";
+        case "view": return "View only";
+        default: return permission;
+      }
+    };
+
     return (
       <View style={[styles.personCard, { backgroundColor: theme.backgroundDefault }]}>
         <Pressable
@@ -469,7 +487,21 @@ export default function CategoryDetailScreen() {
             </View>
           )}
           <View style={styles.personInfo}>
-            <ThemedText style={styles.personName}>{item.name}</ThemedText>
+            <View style={styles.personNameRow}>
+              <ThemedText style={styles.personName}>{item.name}</ThemedText>
+              {categoryInvite ? (
+                <View style={[styles.sharedBadge, { backgroundColor: getStatusColor(categoryInvite.status) + "20" }]}>
+                  <Feather 
+                    name={categoryInvite.status === "accepted" ? "check" : categoryInvite.status === "pending" ? "clock" : "x"} 
+                    size={10} 
+                    color={getStatusColor(categoryInvite.status)} 
+                  />
+                  <ThemedText style={[styles.sharedBadgeText, { color: getStatusColor(categoryInvite.status) }]}>
+                    {getPermissionLabel(categoryInvite.permission)}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </View>
             <ThemedText style={[styles.personRelationship, { color: theme.textSecondary }]}>
               {getRelationshipLabel(item.relationship)}
             </ThemedText>
@@ -966,6 +998,23 @@ const styles = StyleSheet.create({
   personRelationship: {
     fontSize: 13,
     marginTop: 2,
+  },
+  personNameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  sharedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.full,
+  },
+  sharedBadgeText: {
+    fontSize: 10,
+    fontWeight: "500",
   },
   personLinkedItems: {
     paddingHorizontal: Spacing.md,
