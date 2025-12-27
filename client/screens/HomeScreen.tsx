@@ -65,10 +65,6 @@ export default function HomeScreen() {
     }
   };
 
-  const handleAddPress = () => {
-    navigation.navigate("AddCategory", {});
-  };
-
   if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
@@ -110,13 +106,6 @@ export default function HomeScreen() {
             </ThemedText>
           </View>
         )}
-
-        <Pressable
-          style={[styles.fab, { backgroundColor: theme.primary }]}
-          onPress={handleAddPress}
-        >
-          <Feather name="plus" size={28} color="#FFFFFF" />
-        </Pressable>
       </View>
 
       <View style={{ height: tabBarHeight }} />
@@ -230,21 +219,6 @@ const styles = StyleSheet.create({
   emptySubtitle: {
     fontSize: 14,
     textAlign: "center",
-  },
-  fab: {
-    position: "absolute",
-    bottom: Spacing.xl,
-    right: Spacing.xl,
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    alignItems: "center",
-    justifyContent: "center",
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
   },
   overlay: {
     flex: 1,
