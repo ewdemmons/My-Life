@@ -24,6 +24,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { Person, RelationshipType, RELATIONSHIP_TYPES } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { InviteModal } from "@/components/InviteModal";
 
 export default function PeopleScreen() {
   const insets = useSafeAreaInsets();
@@ -44,6 +45,8 @@ export default function PeopleScreen() {
   const [notes, setNotes] = useState("");
   const [showRelationshipPicker, setShowRelationshipPicker] = useState(false);
   const [showInviteModal, setShowInviteModal] = useState(false);
+  const [personToInvite, setPersonToInvite] = useState<Person | null>(null);
+  const [showNewInviteModal, setShowNewInviteModal] = useState(false);
 
   const generateInviteCode = () => {
     return 'MYLIFE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -279,7 +282,22 @@ export default function PeopleScreen() {
               </ThemedText>
             ) : null}
           </View>
-          <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+          <View style={styles.personActions}>
+            <Pressable
+              style={[styles.inviteButton, { backgroundColor: theme.primary + "15" }]}
+              onPress={(e) => {
+                e.stopPropagation();
+                setPersonToInvite(item);
+                setShowNewInviteModal(true);
+              }}
+            >
+              <Feather name="send" size={14} color={theme.primary} />
+              <ThemedText style={[styles.inviteButtonText, { color: theme.primary }]}>
+                Invite
+              </ThemedText>
+            </Pressable>
+            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+          </View>
         </View>
       </Pressable>
     );
@@ -445,11 +463,11 @@ export default function PeopleScreen() {
             {editingPerson ? (
               <View style={styles.actionButtons}>
                 <Pressable
-                  style={[styles.inviteButton, { backgroundColor: theme.primary + "15", borderColor: theme.primary }]}
+                  style={[styles.formInviteButton, { backgroundColor: theme.primary + "15", borderColor: theme.primary }]}
                   onPress={() => setShowInviteModal(true)}
                 >
                   <Feather name="send" size={18} color={theme.primary} />
-                  <ThemedText style={[styles.inviteButtonText, { color: theme.primary }]}>
+                  <ThemedText style={[styles.formInviteButtonText, { color: theme.primary }]}>
                     {editingPerson.inviteSentAt ? "Resend Invite" : "Invite to App"}
                   </ThemedText>
                 </Pressable>
@@ -580,6 +598,18 @@ export default function PeopleScreen() {
           </Pressable>
         </Modal>
       </Modal>
+
+      {personToInvite ? (
+        <InviteModal
+          visible={showNewInviteModal}
+          onClose={() => {
+            setShowNewInviteModal(false);
+            setPersonToInvite(null);
+          }}
+          person={personToInvite}
+          preSelectedCategoryIds={personToInvite.categoryIds}
+        />
+      ) : null}
     </View>
   );
 }
@@ -654,6 +684,23 @@ const styles = StyleSheet.create({
   contactText: {
     fontSize: 12,
     marginTop: 2,
+  },
+  personActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  inviteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: 4,
+  },
+  inviteButtonText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
   emptyState: {
     alignItems: "center",
@@ -823,7 +870,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.lg,
     gap: Spacing.sm,
   },
-  inviteButton: {
+  formInviteButton: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
@@ -832,7 +879,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.xs,
     borderWidth: 1,
   },
-  inviteButtonText: {
+  formInviteButtonText: {
     fontSize: 16,
     fontWeight: "500",
   },
