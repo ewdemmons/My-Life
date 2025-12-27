@@ -127,10 +127,21 @@ client/
 - **Relationship types**: Family, Friend, Colleague, Pet, Teammate, Other
 - **Photo support**: Upload photos via expo-image-picker with 1:1 aspect ratio
 - **People tab**: 5th tab in navigation with searchable list and add/edit modal
+- **Category linking**: 
+  - People can be linked to multiple Life Categories via categoryIds
+  - AddPersonModal includes multi-select Life Category dropdown
+  - CategoryDetailScreen '+Person' pre-selects current category
+  - Bi-directional sync: person.categoryIds ↔ category.peopleIds
 - **Linking to entities**: 
   - Categories can tag people (peopleIds)
   - Tasks can assign people (assigneeIds)
   - Events can add attendees (attendeeIds)
+- **Invitation system**:
+  - InviteModal for email/SMS invitations via expo-mail-composer and expo-sms
+  - Access rights: View only, Can edit, Co-owner permissions
+  - CategoryInvite tracks per-category sharing with status (pending/accepted/declined)
+  - Shared status badges in CategoryDetailScreen People tab
+  - Invite button on PeopleScreen person cards
 - **Avatar display**: Stacked avatars with initials (when no photo) on task cards and event views
 - **Cascading deletion**: Deleting a person removes their ID from all linked categories, tasks, and events
 - **Defensive handling**: Missing person IDs are gracefully ignored in UI
