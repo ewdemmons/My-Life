@@ -11,6 +11,14 @@ export interface ShareRecord {
   inviteAccepted?: boolean;
 }
 
+export interface CategoryInvite {
+  categoryId: string;
+  permission: SharePermission;
+  status: "pending" | "accepted" | "declined";
+  invitedAt: number;
+  acceptedAt?: number;
+}
+
 export interface Person {
   id: string;
   name: string;
@@ -20,6 +28,8 @@ export interface Person {
   photoUri?: string;
   notes?: string;
   createdAt: number;
+  categoryIds?: string[];
+  categoryInvites?: CategoryInvite[];
   inviteCode?: string;
   inviteSentAt?: number;
   isAppUser?: boolean;

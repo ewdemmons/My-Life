@@ -20,12 +20,13 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
-import { RelationshipType, RELATIONSHIP_TYPES } from "@/types";
+import { RelationshipType, RELATIONSHIP_TYPES, LifeCategory } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 
 interface AddPersonModalProps {
   visible: boolean;
   onClose: () => void;
+  preSelectedCategoryId?: string;
 }
 
 interface ContactItem {
@@ -36,10 +37,10 @@ interface ContactItem {
   imageUri?: string;
 }
 
-export function AddPersonModal({ visible, onClose }: AddPersonModalProps) {
+export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddPersonModalProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { addPerson } = useApp();
+  const { addPerson, categories, updatePerson } = useApp();
 
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState<RelationshipType>("friend");
@@ -47,11 +48,21 @@ export function AddPersonModal({ visible, onClose }: AddPersonModalProps) {
   const [phone, setPhone] = useState("");
   const [photoUri, setPhotoUri] = useState("");
   const [notes, setNotes] = useState("");
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [showRelationshipPicker, setShowRelationshipPicker] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [showContactPicker, setShowContactPicker] = useState(false);
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
+
+  React.useEffect(() => {
+    if (visible && preSelectedCategoryId) {
+      setSelectedCategoryIds((prev) => 
+        prev.includes(preSelectedCategoryId) ? prev : [...prev, preSelectedCategoryId]
+      );
+    }
+  }, [visible, preSelectedCategoryId]);
 
   const resetForm = () => {
     setName("");
@@ -60,6 +71,7 @@ export function AddPersonModal({ visible, onClose }: AddPersonModalProps) {
     setPhone("");
     setPhotoUri("");
     setNotes("");
+    setSelectedCategoryIds([]);
   };
 
   const handleSave = async () => {
@@ -75,11 +87,29 @@ export function AddPersonModal({ visible, onClose }: AddPersonModalProps) {
       phone: phone.trim() || undefined,
       photoUri: photoUri || undefined,
       notes: notes.trim() || undefined,
+      categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
     };
 
     await addPerson(personData);
     resetForm();
     onClose();
+  };
+
+  const toggleCategorySelection = (categoryId: string) => {
+    setSelectedCategoryIds((prev) =>
+      prev.includes(categoryId)
+        ? prev.filter((id) => id !== categoryId)
+        : [...prev, categoryId]
+    );
+  };
+
+  const getSelectedCategoriesDisplay = () => {
+    if (selectedCategoryIds.length === 0) return "None selected";
+    if (selectedCategoryIds.length === 1) {
+      const cat = categories.find((c) => c.id === selectedCategoryIds[0]);
+      return cat?.name || "1 selected";
+    }
+    return `${selectedCategoryIds.length} selected`;
   };
 
   const handleClose = () => {
@@ -362,6 +392,44 @@ export function AddPersonModal({ visible, onClose }: AddPersonModalProps) {
               textAlignVertical="top"
             />
           </View>
+
+          <View style={styles.inputGroup}>
+            <ThemedText style={styles.label}>Life Categories</ThemedText>
+            <Pressable
+              style={[
+                styles.selector,
+                { backgroundColor: theme.backgroundRoot, borderColor: theme.border },
+              ]}
+              onPress={() => setShowCategoryPicker(true)}
+            >
+              <Feather name="grid" size={18} color={theme.primary} />
+              <ThemedText style={[styles.selectorText, { color: theme.text }]}>
+                {getSelectedCategoriesDisplay()}
+              </ThemedText>
+              <Feather name="chevron-down" size={18} color={theme.textSecondary} />
+            </Pressable>
+            {selectedCategoryIds.length > 0 ? (
+              <View style={styles.selectedCategoriesContainer}>
+                {selectedCategoryIds.map((catId) => {
+                  const cat = categories.find((c) => c.id === catId);
+                  if (!cat) return null;
+                  return (
+                    <Pressable
+                      key={catId}
+                      style={[styles.categoryChip, { backgroundColor: cat.color + "20" }]}
+                      onPress={() => toggleCategorySelection(catId)}
+                    >
+                      <View style={[styles.categoryChipDot, { backgroundColor: cat.color }]} />
+                      <ThemedText style={[styles.categoryChipText, { color: cat.color }]}>
+                        {cat.name}
+                      </ThemedText>
+                      <Feather name="x" size={14} color={cat.color} />
+                    </Pressable>
+                  );
+                })}
+              </View>
+            ) : null}
+          </View>
         </KeyboardAwareScrollViewCompat>
 
         <Modal
@@ -395,6 +463,59 @@ export function AddPersonModal({ visible, onClose }: AddPersonModalProps) {
                   ) : null}
                 </Pressable>
               ))}
+            </View>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={showCategoryPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCategoryPicker(false)}
+        >
+          <Pressable
+            style={styles.pickerOverlay}
+            onPress={() => setShowCategoryPicker(false)}
+          >
+            <View style={[styles.pickerContainer, { backgroundColor: theme.backgroundDefault, maxHeight: 400 }]}>
+              <ThemedText style={styles.pickerTitle}>Select Life Categories</ThemedText>
+              <ThemedText style={[styles.pickerSubtitle, { color: theme.textSecondary }]}>
+                Tag this person to categories
+              </ThemedText>
+              {categories.length === 0 ? (
+                <View style={styles.emptyCategories}>
+                  <ThemedText style={{ color: theme.textSecondary }}>
+                    No categories created yet
+                  </ThemedText>
+                </View>
+              ) : (
+                <FlatList
+                  data={categories}
+                  keyExtractor={(item) => item.id}
+                  renderItem={({ item }) => (
+                    <Pressable
+                      style={[
+                        styles.pickerOption,
+                        selectedCategoryIds.includes(item.id) && { backgroundColor: item.color + "15" },
+                      ]}
+                      onPress={() => toggleCategorySelection(item.id)}
+                    >
+                      <View style={[styles.categoryColorDot, { backgroundColor: item.color }]} />
+                      <ThemedText style={styles.pickerOptionText}>{item.name}</ThemedText>
+                      {selectedCategoryIds.includes(item.id) ? (
+                        <Feather name="check" size={18} color={item.color} />
+                      ) : null}
+                    </Pressable>
+                  )}
+                  style={{ maxHeight: 280 }}
+                />
+              )}
+              <Pressable
+                style={[styles.pickerDoneButton, { backgroundColor: theme.primary }]}
+                onPress={() => setShowCategoryPicker(false)}
+              >
+                <ThemedText style={styles.pickerDoneText}>Done</ThemedText>
+              </Pressable>
             </View>
           </Pressable>
         </Modal>
@@ -648,5 +769,53 @@ const styles = StyleSheet.create({
   emptyList: {
     padding: Spacing.xl,
     alignItems: "center",
+  },
+  selectedCategoriesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    gap: 4,
+  },
+  categoryChipDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  categoryColorDot: {
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+  },
+  pickerSubtitle: {
+    fontSize: 13,
+    textAlign: "center",
+    marginBottom: Spacing.md,
+  },
+  emptyCategories: {
+    paddingVertical: Spacing.xl,
+    alignItems: "center",
+  },
+  pickerDoneButton: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+  },
+  pickerDoneText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

@@ -1,0 +1,42 @@
+Enhance the "People" feature in "My Life" to better integrate with Life Bubbles, including improved adding, tagging, and inviting with shared access. Build on the existing People tab, add/edit form, tagging, and sharing/invite basics.
+
+New requirements:
+1. Add Person Form Updates:
+   - In the People add/edit modal: Add a multi-select dropdown for tagging Life Categories (list all user-created bubbles).
+   - On save: Automatically add the person to the selected Life Bubbles (e.g., show in the bubble's People tab, enable tagging in tasks/events within those bubbles).
+   - Keep existing fields (name, relationship, contact, photo, notes).
+
+2. Add Person from Life Bubble:
+   - The "+ Person" button in Life Bubble header: Opens the same add modal, with the current Life Category auto-selected in the multi-select dropdown (user can add more if desired).
+
+3. Invite Button in People List:
+   - In the People tab list (and bubble-specific People tabs): Add an "Invite" button next to each person card.
+   - On press: Open a modal to select Life Bubbles to share (multi-select, default to tagged ones) and set access rights (View Only, Edit, Co-Owner).
+   - Send invite: Use Expo Notifications or Firebase Cloud Messaging to notify the invitee (via email/phone if non-user, or in-app push if existing user).
+   - Upon acceptance (e.g., via invite code/link): Grant shared access to the selected Life Bubbles — invitee sees the bubble in their app with permissions applied (real-time sync via Firebase).
+
+4. Notification System for User-to-User Connections:
+   - Implement a basic in-app notification system if not already present (e.g., new "Notifications" tab or bell icon in profile/header).
+   - Use Firebase for backend: Store notifications (e.g., "You've been invited to share [bubble name] by [user]") and mark as read.
+   - For linkage: When invite accepted, create a user-to-user connection (store in Firebase users collection) for ongoing sharing/sync.
+   - Handle declines/deletions: Notify owner if invite rejected.
+
+5. UI and Integration Polish:
+   - In People tabs: Show shared status (e.g., "Shared: View Only" badge) and access controls.
+   - Auto-update: Tagging a person in a bubble adds them to the People tab if not already listed.
+   - Privacy: Require confirmation for invites; log connections for revoke.
+
+Use Firebase for auth, database (shares/notifications), and messaging. Ensure offline queueing for notifications.
+
+Plan step-by-step:
+1. Update People add/edit modal with Life Category multi-select and auto-tagging logic.
+2. Modify Life Bubble "+ Person" button to pre-select category.
+3. Add Invite button and modal to People lists; implement invite sending and acceptance flow.
+4. Build basic notification system (tab/icon, Firebase storage).
+5. Test user-to-user linkage: Simulate invite/accept → shared bubble access.
+
+Demo in Expo preview:
+- From Life Bubble: Add Person with auto-select → see in People tab
+- Invite a person to a bubble → simulate notification and acceptance
+- Confirm shared access: Edit from "invitee" view syncs to owner
+```​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​​
