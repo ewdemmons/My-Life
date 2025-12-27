@@ -641,7 +641,7 @@ export default function CategoryDetailScreen() {
           </Pressable>
           <Pressable
             style={[styles.headerActionBtn, { backgroundColor: theme.primary }]}
-            onPress={() => navigation.navigate("People" as any)}
+            onPress={() => setShowAddPersonModal(true)}
           >
             <Feather name="user-plus" size={18} color="#FFFFFF" />
           </Pressable>
