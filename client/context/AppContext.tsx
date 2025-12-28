@@ -1,15 +1,25 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { 
+  collection, 
+  doc, 
+  getDocs, 
+  setDoc, 
+  deleteDoc, 
+  onSnapshot,
+  query,
+  writeBatch,
+  Unsubscribe
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
+import { useAuth } from "@/context/AuthContext";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
 import { CategoryColors } from "@/constants/theme";
 import { generateRecurringInstances } from "@/utils/recurrence";
 
-const CATEGORIES_KEY = "@mylife_categories";
-const TASKS_KEY = "@mylife_tasks";
-const EVENTS_KEY = "@mylife_events";
-const PEOPLE_KEY = "@mylife_people";
-const RECYCLE_BIN_KEY = "@mylife_recycle_bin";
 const RECYCLE_BIN_RETENTION_DAYS = 30;
+
+const getUserStorageKey = (userId: string, key: string) => `@mylife_${userId}_${key}`;
 
 interface AppContextType {
   categories: LifeCategory[];
@@ -47,41 +57,38 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const defaultCategories: LifeCategory[] = [
-  { id: "1", name: "Family", description: "Family time and relationships", color: CategoryColors[0], icon: "heart", createdAt: Date.now() },
-  { id: "2", name: "Health", description: "Physical and mental wellness", color: CategoryColors[2], icon: "activity", createdAt: Date.now() },
-  { id: "3", name: "Work", description: "Career and professional growth", color: CategoryColors[3], icon: "briefcase", createdAt: Date.now() },
-  { id: "4", name: "Hobbies", description: "Fun activities and interests", color: CategoryColors[4], icon: "star", createdAt: Date.now() },
-  { id: "5", name: "Finance", description: "Money and investments", color: CategoryColors[5], icon: "dollar-sign", createdAt: Date.now() },
-  { id: "6", name: "Learning", description: "Education and skills", color: CategoryColors[6], icon: "book", createdAt: Date.now() },
-];
-
-const defaultTasks: Task[] = [
-  { id: "t1", title: "Call Mom", description: "Weekly check-in call", type: "task", categoryId: "1", parentId: null, priority: "high", status: "pending", createdAt: Date.now() },
-  { id: "t2", title: "Get Fit This Year", description: "Annual health and fitness goal", type: "goal", categoryId: "2", parentId: null, priority: "high", status: "in_progress", createdAt: Date.now() },
-  { id: "t2a", title: "Build Running Habit", description: "Run 3x per week", type: "objective", categoryId: "2", parentId: "t2", priority: "high", status: "in_progress", createdAt: Date.now() + 1 },
-  { id: "t2b", title: "Morning Jog Routine", description: "30 min run each session", type: "project", categoryId: "2", parentId: "t2a", priority: "medium", status: "in_progress", createdAt: Date.now() + 2 },
-  { id: "t2c", title: "Today's Run", description: "30 minute jog around the park", type: "task", categoryId: "2", parentId: "t2b", priority: "medium", status: "pending", createdAt: Date.now() + 3 },
-  { id: "t2d", title: "Warm up stretches", description: "5 min dynamic stretching", type: "subtask", categoryId: "2", parentId: "t2c", priority: "low", status: "pending", createdAt: Date.now() + 4 },
-  { id: "t3", title: "Q4 Business Review", description: "Quarterly review project", type: "project", categoryId: "3", parentId: null, priority: "high", status: "in_progress", createdAt: Date.now() },
-  { id: "t3a", title: "Prepare Slides", description: "Create presentation deck", type: "task", categoryId: "3", parentId: "t3", priority: "high", status: "pending", createdAt: Date.now() + 1 },
-  { id: "t3b", title: "Gather Sales Data", description: "Pull Q4 numbers from CRM", type: "subtask", categoryId: "3", parentId: "t3a", priority: "medium", status: "pending", createdAt: Date.now() + 2 },
-  { id: "t4", title: "New App Feature Ideas", description: "Brainstorm ideas for the mobile app", type: "list", categoryId: "3", parentId: null, priority: "low", status: "pending", createdAt: Date.now() },
-  { id: "t4a", title: "Dark mode improvements", description: "Better contrast ratios. See Apple guidelines: https://developer.apple.com/design/human-interface-guidelines/color", type: "idea", categoryId: "3", parentId: "t4", priority: "low", status: "pending", createdAt: Date.now() + 1 },
-  { id: "t4b", title: "Push notifications", description: "Task reminders", type: "idea", categoryId: "3", parentId: "t4", priority: "medium", status: "pending", createdAt: Date.now() + 2 },
-  { id: "t5", title: "Doctor Appointment", description: "Annual checkup", type: "appointment", categoryId: "2", parentId: null, priority: "high", status: "pending", createdAt: Date.now() },
+const defaultCategories: Omit<LifeCategory, "id" | "createdAt">[] = [
+  { name: "Family", description: "Family time and relationships", color: CategoryColors[0], icon: "heart" },
+  { name: "Health", description: "Physical and mental wellness", color: CategoryColors[2], icon: "activity" },
+  { name: "Work", description: "Career and professional growth", color: CategoryColors[3], icon: "briefcase" },
+  { name: "Hobbies", description: "Fun activities and interests", color: CategoryColors[4], icon: "star" },
+  { name: "Finance", description: "Money and investments", color: CategoryColors[5], icon: "dollar-sign" },
+  { name: "Learning", description: "Education and skills", color: CategoryColors[6], icon: "book" },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { user, isAuthenticated } = useAuth();
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  
+  const unsubscribesRef = useRef<Unsubscribe[]>([]);
+  const currentUserIdRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    loadData();
+  const cleanupListeners = useCallback(() => {
+    unsubscribesRef.current.forEach(unsub => unsub());
+    unsubscribesRef.current = [];
+  }, []);
+
+  const clearLocalData = useCallback(() => {
+    setCategories([]);
+    setTasks([]);
+    setEvents([]);
+    setPeople([]);
+    setRecycleBin([]);
   }, []);
 
   const cleanupExpiredItems = (items: DeletedItem[]): DeletedItem[] => {
@@ -90,104 +97,173 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return items.filter((item) => item.deletedAt > cutoff);
   };
 
-  const loadData = async () => {
+  const getUserCollection = useCallback((collectionName: string) => {
+    if (!user?.uid) throw new Error("User not authenticated");
+    return collection(db, "users", user.uid, collectionName);
+  }, [user?.uid]);
+
+  const getUserDocRef = useCallback((collectionName: string, docId: string) => {
+    if (!user?.uid) throw new Error("User not authenticated");
+    return doc(db, "users", user.uid, collectionName, docId);
+  }, [user?.uid]);
+
+  const loadUserData = useCallback(async (userId: string) => {
+    console.log("Loading data for user:", userId);
+    setIsLoading(true);
+    cleanupListeners();
+    currentUserIdRef.current = userId;
+
     try {
-      const [categoriesData, tasksData, eventsData, peopleData, recycleBinData] = await Promise.all([
-        AsyncStorage.getItem(CATEGORIES_KEY),
-        AsyncStorage.getItem(TASKS_KEY),
-        AsyncStorage.getItem(EVENTS_KEY),
-        AsyncStorage.getItem(PEOPLE_KEY),
-        AsyncStorage.getItem(RECYCLE_BIN_KEY),
+      const categoriesCol = collection(db, "users", userId, "bubbles");
+      const tasksCol = collection(db, "users", userId, "tasks");
+      const eventsCol = collection(db, "users", userId, "events");
+      const peopleCol = collection(db, "users", userId, "people");
+
+      const [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await Promise.all([
+        getDocs(categoriesCol),
+        getDocs(tasksCol),
+        getDocs(eventsCol),
+        getDocs(peopleCol),
       ]);
-      
-      if (categoriesData) {
-        setCategories(JSON.parse(categoriesData));
-      } else {
-        setCategories(defaultCategories);
-        await AsyncStorage.setItem(CATEGORIES_KEY, JSON.stringify(defaultCategories));
-      }
-      
-      if (tasksData) {
-        const parsed = JSON.parse(tasksData);
-        const migrated = parsed.map((task: any) => {
-          const { dueDate, ...rest } = task;
-          return {
-            ...rest,
-            type: task.type || "task",
+
+      const loadedCategories = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as LifeCategory));
+      const loadedTasks = tasksSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+      const loadedEvents = eventsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CalendarEvent));
+      const loadedPeople = peopleSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Person));
+
+      if (loadedCategories.length === 0) {
+        console.log("New user detected - creating default bubbles");
+        const batch = writeBatch(db);
+        const newCategories: LifeCategory[] = [];
+        
+        defaultCategories.forEach((cat, index) => {
+          const id = `default_${Date.now()}_${index}`;
+          const newCategory: LifeCategory = {
+            ...cat,
+            id,
+            createdAt: Date.now(),
           };
+          newCategories.push(newCategory);
+          const docRef = doc(db, "users", userId, "bubbles", id);
+          batch.set(docRef, newCategory);
         });
-        setTasks(migrated);
-        await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(migrated));
+
+        await batch.commit();
+        setCategories(newCategories);
+        console.log("Default bubbles created for new user");
       } else {
-        setTasks(defaultTasks);
-        await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(defaultTasks));
+        setCategories(loadedCategories);
       }
 
-      if (eventsData) {
-        setEvents(JSON.parse(eventsData));
-      }
+      setTasks(loadedTasks);
+      setEvents(loadedEvents);
+      setPeople(loadedPeople);
 
-      if (peopleData) {
-        setPeople(JSON.parse(peopleData));
-      }
-
+      const recycleBinKey = getUserStorageKey(userId, "recycle_bin");
+      const recycleBinData = await AsyncStorage.getItem(recycleBinKey);
       if (recycleBinData) {
         const parsed = JSON.parse(recycleBinData);
         const cleaned = cleanupExpiredItems(parsed);
         setRecycleBin(cleaned);
         if (cleaned.length !== parsed.length) {
-          await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(cleaned));
+          await AsyncStorage.setItem(recycleBinKey, JSON.stringify(cleaned));
         }
+      } else {
+        setRecycleBin([]);
       }
+
+      const unsubCategories = onSnapshot(query(categoriesCol), (snapshot) => {
+        if (currentUserIdRef.current !== userId) return;
+        const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LifeCategory));
+        setCategories(cats);
+      });
+
+      const unsubTasks = onSnapshot(query(tasksCol), (snapshot) => {
+        if (currentUserIdRef.current !== userId) return;
+        const t = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+        setTasks(t);
+      });
+
+      const unsubEvents = onSnapshot(query(eventsCol), (snapshot) => {
+        if (currentUserIdRef.current !== userId) return;
+        const e = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CalendarEvent));
+        setEvents(e);
+      });
+
+      const unsubPeople = onSnapshot(query(peopleCol), (snapshot) => {
+        if (currentUserIdRef.current !== userId) return;
+        const p = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Person));
+        setPeople(p);
+      });
+
+      unsubscribesRef.current = [unsubCategories, unsubTasks, unsubEvents, unsubPeople];
+
     } catch (error) {
-      console.error("Error loading data:", error);
-      setCategories(defaultCategories);
-      setTasks(defaultTasks);
+      console.error("Error loading user data:", error);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [cleanupListeners]);
 
-  const saveCategories = async (newCategories: LifeCategory[]) => {
-    await AsyncStorage.setItem(CATEGORIES_KEY, JSON.stringify(newCategories));
-  };
+  const clearUserData = useCallback(async () => {
+    console.log("Clearing user data on logout");
+    cleanupListeners();
+    currentUserIdRef.current = null;
+    clearLocalData();
+    setIsLoading(false);
+  }, [cleanupListeners, clearLocalData]);
 
-  const saveTasks = async (newTasks: Task[]) => {
-    await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(newTasks));
-  };
+  useEffect(() => {
+    if (isAuthenticated && user?.uid) {
+      if (currentUserIdRef.current !== user.uid) {
+        loadUserData(user.uid);
+      }
+    } else {
+      if (currentUserIdRef.current !== null) {
+        clearUserData();
+      } else {
+        setIsLoading(false);
+      }
+    }
+
+    return () => {
+      cleanupListeners();
+    };
+  }, [isAuthenticated, user?.uid, loadUserData, clearUserData, cleanupListeners]);
 
   const saveRecycleBin = async (items: DeletedItem[]) => {
-    await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(items));
-  };
-
-  const saveEvents = async (newEvents: CalendarEvent[]) => {
-    await AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(newEvents));
-  };
-
-  const savePeople = async (newPeople: Person[]) => {
-    await AsyncStorage.setItem(PEOPLE_KEY, JSON.stringify(newPeople));
+    if (!user?.uid) return;
+    const key = getUserStorageKey(user.uid, "recycle_bin");
+    await AsyncStorage.setItem(key, JSON.stringify(items));
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
+    if (!user?.uid) return;
+    
+    const id = Date.now().toString();
     const newCategory: LifeCategory = {
       ...category,
-      id: Date.now().toString(),
+      id,
       createdAt: Date.now(),
     };
-    const updated = [...categories, newCategory];
-    setCategories(updated);
-    await saveCategories(updated);
-  }, [categories]);
+    
+    const docRef = getUserDocRef("bubbles", id);
+    await setDoc(docRef, newCategory);
+  }, [user?.uid, getUserDocRef]);
 
   const updateCategory = useCallback(async (id: string, updates: Partial<LifeCategory>) => {
-    const updated = categories.map((cat) =>
-      cat.id === id ? { ...cat, ...updates } : cat
-    );
-    setCategories(updated);
-    await saveCategories(updated);
-  }, [categories]);
+    if (!user?.uid) return;
+    
+    const category = categories.find(c => c.id === id);
+    if (!category) return;
+    
+    const docRef = getUserDocRef("bubbles", id);
+    await setDoc(docRef, { ...category, ...updates }, { merge: true });
+  }, [user?.uid, categories, getUserDocRef]);
 
   const deleteCategory = useCallback(async (id: string) => {
+    if (!user?.uid) return;
+    
     const categoryToDelete = categories.find((cat) => cat.id === id);
     if (!categoryToDelete) return;
 
@@ -201,41 +277,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deletedAt: Date.now(),
     };
 
-    const updatedCategories = categories.filter((cat) => cat.id !== id);
-    const updatedTasks = tasks.filter((task) => task.categoryId !== id);
+    const batch = writeBatch(db);
+    
+    batch.delete(getUserDocRef("bubbles", id));
+    
+    relatedTasks.forEach(task => {
+      batch.delete(getUserDocRef("tasks", task.id));
+    });
+
+    await batch.commit();
+
     const updatedRecycleBin = [...recycleBin, deletedItem];
-
-    setCategories(updatedCategories);
-    setTasks(updatedTasks);
     setRecycleBin(updatedRecycleBin);
-
-    await Promise.all([
-      saveCategories(updatedCategories),
-      saveTasks(updatedTasks),
-      saveRecycleBin(updatedRecycleBin),
-    ]);
-  }, [categories, tasks, recycleBin]);
+    await saveRecycleBin(updatedRecycleBin);
+  }, [user?.uid, categories, tasks, recycleBin, getUserDocRef]);
 
   const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">) => {
+    if (!user?.uid) return;
+    
+    const id = Date.now().toString();
     const newTask: Task = {
       ...task,
-      id: Date.now().toString(),
+      id,
       createdAt: Date.now(),
     };
-    const updated = [...tasks, newTask];
-    setTasks(updated);
-    await saveTasks(updated);
-  }, [tasks]);
+    
+    const docRef = getUserDocRef("tasks", id);
+    await setDoc(docRef, newTask);
+  }, [user?.uid, getUserDocRef]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
-    const updated = tasks.map((task) =>
-      task.id === id ? { ...task, ...updates } : task
-    );
-    setTasks(updated);
-    await saveTasks(updated);
-  }, [tasks]);
+    if (!user?.uid) return;
+    
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    
+    const docRef = getUserDocRef("tasks", id);
+    await setDoc(docRef, { ...task, ...updates }, { merge: true });
+  }, [user?.uid, tasks, getUserDocRef]);
 
   const deleteTask = useCallback(async (id: string) => {
+    if (!user?.uid) return;
+    
     const taskToDelete = tasks.find((t) => t.id === id);
     if (!taskToDelete) return;
 
@@ -246,7 +329,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const descendants = getDescendants(id);
     const allDeletedTasks = [taskToDelete, ...descendants];
-    const idsToDelete = allDeletedTasks.map((t) => t.id);
 
     const deletedItem: DeletedItem = {
       id: Date.now().toString(),
@@ -256,31 +338,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deletedAt: Date.now(),
     };
 
-    const updatedTasks = tasks.filter((task) => !idsToDelete.includes(task.id));
+    const batch = writeBatch(db);
+    allDeletedTasks.forEach(task => {
+      batch.delete(getUserDocRef("tasks", task.id));
+    });
+    await batch.commit();
+
     const updatedRecycleBin = [...recycleBin, deletedItem];
-
-    setTasks(updatedTasks);
     setRecycleBin(updatedRecycleBin);
-
-    await Promise.all([
-      saveTasks(updatedTasks),
-      saveRecycleBin(updatedRecycleBin),
-    ]);
-  }, [tasks, recycleBin]);
+    await saveRecycleBin(updatedRecycleBin);
+  }, [user?.uid, tasks, recycleBin, getUserDocRef]);
 
   const reorderTasks = useCallback(async (taskIds: string[], parentId: string | null) => {
-    const updated = tasks.map((task) => {
-      const index = taskIds.indexOf(task.id);
-      if (index !== -1 && task.parentId === parentId) {
-        return { ...task, orderIndex: index };
+    if (!user?.uid) return;
+    
+    const batch = writeBatch(db);
+    
+    taskIds.forEach((taskId, index) => {
+      const task = tasks.find(t => t.id === taskId);
+      if (task && task.parentId === parentId) {
+        const docRef = getUserDocRef("tasks", taskId);
+        batch.update(docRef, { orderIndex: index });
       }
-      return task;
     });
-    setTasks(updated);
-    await saveTasks(updated);
-  }, [tasks]);
+    
+    await batch.commit();
+  }, [user?.uid, tasks, getUserDocRef]);
 
   const moveTaskToParent = useCallback(async (taskId: string, newParentId: string | null, newCategoryId?: string) => {
+    if (!user?.uid) return;
+    
     const taskToMove = tasks.find((t) => t.id === taskId);
     if (!taskToMove) return;
 
@@ -292,56 +379,51 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const categoryId = newCategoryId || (newParentId ? tasks.find((t) => t.id === newParentId)?.categoryId : taskToMove.categoryId) || taskToMove.categoryId;
 
-    const updated = tasks.map((task) => {
-      if (task.id === taskId) {
-        return { ...task, parentId: newParentId, categoryId, orderIndex: Date.now() };
-      }
-      if (descendants.find((d) => d.id === task.id)) {
-        return { ...task, categoryId };
-      }
-      return task;
+    const batch = writeBatch(db);
+    
+    const taskDocRef = getUserDocRef("tasks", taskId);
+    batch.update(taskDocRef, { parentId: newParentId, categoryId, orderIndex: Date.now() });
+    
+    descendants.forEach(desc => {
+      const descDocRef = getUserDocRef("tasks", desc.id);
+      batch.update(descDocRef, { categoryId });
     });
-    setTasks(updated);
-    await saveTasks(updated);
-  }, [tasks]);
+    
+    await batch.commit();
+  }, [user?.uid, tasks, getUserDocRef]);
 
   const restoreFromRecycleBin = useCallback(async (id: string) => {
+    if (!user?.uid) return;
+    
     const item = recycleBin.find((i) => i.id === id);
     if (!item) return;
+
+    const batch = writeBatch(db);
 
     if (item.type === "category") {
       const category = item.data as LifeCategory;
       const relatedTasks = item.relatedTasks || [];
       
-      const updatedCategories = [...categories, category];
-      const updatedTasks = [...tasks, ...relatedTasks];
-      const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
-
-      setCategories(updatedCategories);
-      setTasks(updatedTasks);
-      setRecycleBin(updatedRecycleBin);
-
-      await Promise.all([
-        saveCategories(updatedCategories),
-        saveTasks(updatedTasks),
-        saveRecycleBin(updatedRecycleBin),
-      ]);
+      batch.set(getUserDocRef("bubbles", category.id), category);
+      relatedTasks.forEach(task => {
+        batch.set(getUserDocRef("tasks", task.id), task);
+      });
     } else {
       const task = item.data as Task;
       const relatedTasks = item.relatedTasks || [];
       
-      const updatedTasks = [...tasks, task, ...relatedTasks];
-      const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
-
-      setTasks(updatedTasks);
-      setRecycleBin(updatedRecycleBin);
-
-      await Promise.all([
-        saveTasks(updatedTasks),
-        saveRecycleBin(updatedRecycleBin),
-      ]);
+      batch.set(getUserDocRef("tasks", task.id), task);
+      relatedTasks.forEach(t => {
+        batch.set(getUserDocRef("tasks", t.id), t);
+      });
     }
-  }, [categories, tasks, recycleBin]);
+
+    await batch.commit();
+
+    const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
+    setRecycleBin(updatedRecycleBin);
+    await saveRecycleBin(updatedRecycleBin);
+  }, [user?.uid, recycleBin, getUserDocRef]);
 
   const permanentlyDelete = useCallback(async (id: string) => {
     const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
@@ -360,96 +442,101 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
+    if (!user?.uid) return;
+    
     const baseTimestamp = Date.now();
     
     if (event.recurrence && event.recurrence !== "none") {
       const seriesId = baseTimestamp.toString();
       const instances = generateRecurringInstances(event, seriesId);
       
-      const newEvents: CalendarEvent[] = instances.map((instance, index) => ({
-        ...instance,
-        id: (baseTimestamp + index).toString(),
-        createdAt: baseTimestamp,
-      }));
-      
-      const updated = [...events, ...newEvents];
-      setEvents(updated);
-      await saveEvents(updated);
+      const batch = writeBatch(db);
+      instances.forEach((instance, index) => {
+        const id = (baseTimestamp + index).toString();
+        const newEvent: CalendarEvent = {
+          ...instance,
+          id,
+          createdAt: baseTimestamp,
+        };
+        batch.set(getUserDocRef("events", id), newEvent);
+      });
+      await batch.commit();
     } else {
+      const id = baseTimestamp.toString();
       const newEvent: CalendarEvent = {
         ...event,
-        id: baseTimestamp.toString(),
+        id,
         createdAt: baseTimestamp,
         seriesId: null,
       };
-      const updated = [...events, newEvent];
-      setEvents(updated);
-      await saveEvents(updated);
+      const docRef = getUserDocRef("events", id);
+      await setDoc(docRef, newEvent);
     }
-  }, [events]);
+  }, [user?.uid, getUserDocRef]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
-    const updated = events.map((event) =>
-      event.id === id ? { ...event, ...updates } : event
-    );
-    setEvents(updated);
-    await saveEvents(updated);
-  }, [events]);
+    if (!user?.uid) return;
+    
+    const event = events.find(e => e.id === id);
+    if (!event) return;
+    
+    const docRef = getUserDocRef("events", id);
+    await setDoc(docRef, { ...event, ...updates }, { merge: true });
+  }, [user?.uid, events, getUserDocRef]);
 
   const deleteEvent = useCallback(async (id: string) => {
-    const updated = events.filter((event) => event.id !== id);
-    setEvents(updated);
-    await saveEvents(updated);
-  }, [events]);
+    if (!user?.uid) return;
+    
+    const docRef = getUserDocRef("events", id);
+    await deleteDoc(docRef);
+  }, [user?.uid, getUserDocRef]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>) => {
+    if (!user?.uid) return;
+    
     const seriesEvents = events.filter(e => e.seriesId === seriesId && !e.isException);
     if (seriesEvents.length === 0) return;
     
     const firstEvent = seriesEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
     
-    const updated = events.map((event) => {
-      if (event.seriesId === seriesId && !event.isException) {
-        const eventUpdates = { ...updates };
-        
-        if (updates.startTime !== undefined) {
-          eventUpdates.startTime = updates.startTime;
-        }
-        if (updates.endTime !== undefined) {
-          eventUpdates.endTime = updates.endTime;
-        }
-        
-        if (updates.startDate !== undefined && event.id === firstEvent.id) {
-          eventUpdates.startDate = updates.startDate;
-          if (updates.endDate !== undefined) {
-            eventUpdates.endDate = updates.endDate;
-          }
-        } else {
-          delete eventUpdates.startDate;
-          delete eventUpdates.endDate;
-        }
-        
-        return { ...event, ...eventUpdates };
+    const batch = writeBatch(db);
+    
+    seriesEvents.forEach(event => {
+      const eventUpdates = { ...updates };
+      
+      if (updates.startDate !== undefined && event.id !== firstEvent.id) {
+        delete eventUpdates.startDate;
+        delete eventUpdates.endDate;
       }
-      return event;
+      
+      const docRef = getUserDocRef("events", event.id);
+      batch.update(docRef, eventUpdates);
     });
-    setEvents(updated);
-    await saveEvents(updated);
-  }, [events]);
+    
+    await batch.commit();
+  }, [user?.uid, events, getUserDocRef]);
 
   const deleteEventSeries = useCallback(async (seriesId: string) => {
-    const updated = events.filter((event) => event.seriesId !== seriesId);
-    setEvents(updated);
-    await saveEvents(updated);
-  }, [events]);
+    if (!user?.uid) return;
+    
+    const seriesEvents = events.filter(e => e.seriesId === seriesId);
+    
+    const batch = writeBatch(db);
+    seriesEvents.forEach(event => {
+      batch.delete(getUserDocRef("events", event.id));
+    });
+    await batch.commit();
+  }, [user?.uid, events, getUserDocRef]);
 
   const updateEventInstance = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
-    const updated = events.map((event) =>
-      event.id === id ? { ...event, ...updates, isException: true } : event
-    );
-    setEvents(updated);
-    await saveEvents(updated);
-  }, [events]);
+    if (!user?.uid) return;
+    
+    const event = events.find(e => e.id === id);
+    if (!event) return;
+    
+    const docRef = getUserDocRef("events", id);
+    await setDoc(docRef, { ...event, ...updates, isException: true }, { merge: true });
+  }, [user?.uid, events, getUserDocRef]);
 
   const getEventsByDate = useCallback(
     (date: string) => events.filter((event) => event.startDate === date),
@@ -467,88 +554,97 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addPerson = useCallback(async (person: Omit<Person, "id" | "createdAt">) => {
+    if (!user?.uid) return;
+    
+    const id = Date.now().toString();
     const newPerson: Person = {
       ...person,
-      id: Date.now().toString(),
+      id,
       createdAt: Date.now(),
     };
-    const updatedPeople = [...people, newPerson];
-    setPeople(updatedPeople);
-    await savePeople(updatedPeople);
+    
+    const docRef = getUserDocRef("people", id);
+    await setDoc(docRef, newPerson);
 
     if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
-      const updatedCategories = categories.map((category) => {
+      const batch = writeBatch(db);
+      categories.forEach(category => {
         if (newPerson.categoryIds!.includes(category.id)) {
           const existingPeopleIds = category.peopleIds || [];
           if (!existingPeopleIds.includes(newPerson.id)) {
-            return { ...category, peopleIds: [...existingPeopleIds, newPerson.id] };
+            const catDocRef = getUserDocRef("bubbles", category.id);
+            batch.update(catDocRef, { peopleIds: [...existingPeopleIds, newPerson.id] });
           }
         }
-        return category;
       });
-      setCategories(updatedCategories);
-      await saveCategories(updatedCategories);
+      await batch.commit();
     }
-  }, [people, categories]);
+  }, [user?.uid, categories, getUserDocRef]);
 
   const updatePerson = useCallback(async (id: string, updates: Partial<Person>) => {
+    if (!user?.uid) return;
+    
     const existingPerson = people.find((p) => p.id === id);
-    const oldCategoryIds = existingPerson?.categoryIds || [];
+    if (!existingPerson) return;
+    
+    const oldCategoryIds = existingPerson.categoryIds || [];
     const newCategoryIds = updates.categoryIds !== undefined ? updates.categoryIds : oldCategoryIds;
 
-    const updated = people.map((person) =>
-      person.id === id ? { ...person, ...updates } : person
-    );
-    setPeople(updated);
-    await savePeople(updated);
+    const docRef = getUserDocRef("people", id);
+    await setDoc(docRef, { ...existingPerson, ...updates }, { merge: true });
 
     if (updates.categoryIds !== undefined) {
       const addedCategories = newCategoryIds.filter((cid) => !oldCategoryIds.includes(cid));
       const removedCategories = oldCategoryIds.filter((cid) => !newCategoryIds.includes(cid));
 
       if (addedCategories.length > 0 || removedCategories.length > 0) {
-        const updatedCategories = categories.map((category) => {
+        const batch = writeBatch(db);
+        categories.forEach(category => {
           const existingPeopleIds = category.peopleIds || [];
           if (addedCategories.includes(category.id) && !existingPeopleIds.includes(id)) {
-            return { ...category, peopleIds: [...existingPeopleIds, id] };
+            const catDocRef = getUserDocRef("bubbles", category.id);
+            batch.update(catDocRef, { peopleIds: [...existingPeopleIds, id] });
           }
           if (removedCategories.includes(category.id)) {
-            return { ...category, peopleIds: existingPeopleIds.filter((pid) => pid !== id) };
+            const catDocRef = getUserDocRef("bubbles", category.id);
+            batch.update(catDocRef, { peopleIds: existingPeopleIds.filter((pid) => pid !== id) });
           }
-          return category;
         });
-        setCategories(updatedCategories);
-        await saveCategories(updatedCategories);
+        await batch.commit();
       }
     }
-  }, [people, categories]);
+  }, [user?.uid, people, categories, getUserDocRef]);
 
   const deletePerson = useCallback(async (id: string) => {
-    const updatedPeople = people.filter((person) => person.id !== id);
-    setPeople(updatedPeople);
-    await savePeople(updatedPeople);
+    if (!user?.uid) return;
     
-    const updatedCategories = categories.map((category) => ({
-      ...category,
-      peopleIds: category.peopleIds?.filter((pid) => pid !== id),
-    }));
-    setCategories(updatedCategories);
-    await saveCategories(updatedCategories);
+    await deleteDoc(getUserDocRef("people", id));
     
-    const updatedTasks = tasks.map((task) => ({
-      ...task,
-      assigneeIds: task.assigneeIds?.filter((pid) => pid !== id),
-    }));
-    setTasks(updatedTasks);
-    await saveTasks(updatedTasks);
+    const batch = writeBatch(db);
     
-    const updatedEvents = events.map((event) => ({
-      ...event,
-      attendeeIds: event.attendeeIds?.filter((pid) => pid !== id),
-    }));
-    setEvents(updatedEvents);
-    await saveEvents(updatedEvents);
-  }, [people, categories, tasks, events]);
+    categories.forEach(category => {
+      if (category.peopleIds?.includes(id)) {
+        const catDocRef = getUserDocRef("bubbles", category.id);
+        batch.update(catDocRef, { peopleIds: category.peopleIds.filter(pid => pid !== id) });
+      }
+    });
+    
+    tasks.forEach(task => {
+      if (task.assigneeIds?.includes(id)) {
+        const taskDocRef = getUserDocRef("tasks", task.id);
+        batch.update(taskDocRef, { assigneeIds: task.assigneeIds.filter(pid => pid !== id) });
+      }
+    });
+    
+    events.forEach(event => {
+      if (event.attendeeIds?.includes(id)) {
+        const eventDocRef = getUserDocRef("events", event.id);
+        batch.update(eventDocRef, { attendeeIds: event.attendeeIds.filter(pid => pid !== id) });
+      }
+    });
+    
+    await batch.commit();
+  }, [user?.uid, categories, tasks, events, getUserDocRef]);
 
   const getPersonById = useCallback(
     (id: string) => people.find((person) => person.id === id),
@@ -598,8 +694,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 export function useApp() {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error("useApp must be used within AppProvider");
+  if (context === undefined) {
+    throw new Error("useApp must be used within an AppProvider");
   }
   return context;
 }
