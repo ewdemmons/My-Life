@@ -185,26 +185,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       console.log(`Setting up real-time listeners for user: ${userId}`);
       
-      let isFirstBubblesSnapshot = true;
+      let hasReceivedServerData = false;
       
       const unsubCategories = onSnapshot(
         query(categoriesCol), 
         async (snapshot) => {
           if (currentUserIdRef.current !== userId) return;
-          console.log(`Firestore snapshot received for bubbles: ${snapshot.docs.length} docs`);
+          
+          const fromCache = snapshot.metadata.fromCache;
+          const hasPendingWrites = snapshot.metadata.hasPendingWrites;
+          
+          console.log(`Firestore snapshot for bubbles: ${snapshot.docs.length} docs (fromCache: ${fromCache}, pending: ${hasPendingWrites})`);
           
           const cats = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as LifeCategory));
           
-          if (isFirstBubblesSnapshot && cats.length === 0) {
-            console.log("First snapshot shows 0 bubbles - new user, creating defaults");
-            await createDefaultBubbles(userId);
-          } else if (cats.length > 0) {
+          if (cats.length > 0) {
             hasInitializedForUserRef.current = userId;
             setCategories(cats);
+            hasReceivedServerData = true;
+            setIsLoading(false);
+          } else if (!fromCache && !hasReceivedServerData) {
+            console.log("Server confirms 0 bubbles - new user, creating defaults");
+            await createDefaultBubbles(userId);
+            hasReceivedServerData = true;
+            setIsLoading(false);
+          } else if (fromCache && !hasReceivedServerData) {
+            console.log("Received empty cache, waiting for server data...");
           }
-          
-          isFirstBubblesSnapshot = false;
-          setIsLoading(false);
         },
         (error) => {
           console.log(`Firestore listener error (bubbles): ${error.code} - ${error.message}`);
