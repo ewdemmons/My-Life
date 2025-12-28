@@ -142,6 +142,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let categoriesSnap, tasksSnap, eventsSnap, peopleSnap;
       
       try {
+        console.log("Attempting Firestore fetch...");
         [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
           Promise.all([
             getDocs(categoriesCol),
@@ -151,8 +152,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           ]),
           5000
         );
+        console.log("Firestore fetch successful, categories:", categoriesSnap.docs.length);
       } catch (networkError: any) {
         console.log("Firestore fetch failed:", networkError?.code || networkError?.message || networkError);
+        console.log("Full error:", JSON.stringify(networkError, null, 2));
         try {
           [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
             Promise.all([
