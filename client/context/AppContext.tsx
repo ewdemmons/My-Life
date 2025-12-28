@@ -152,7 +152,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           5000
         );
       } catch (networkError: any) {
-        console.log("Firestore fetch failed, trying cache or creating local profile");
+        console.log("Firestore fetch failed:", networkError?.code || networkError?.message || networkError);
         try {
           [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
             Promise.all([

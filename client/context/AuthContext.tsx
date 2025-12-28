@@ -15,6 +15,15 @@ import * as WebBrowser from "expo-web-browser";
 
 WebBrowser.maybeCompleteAuthSession();
 
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error('Timeout')), ms)
+    )
+  ]);
+};
+
 export interface UserProfile {
   uid: string;
   email: string | null;
@@ -79,7 +88,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const userRef = doc(db, "users", firebaseUser.uid);
     
     try {
-      const userSnap = await getDoc(userRef);
+      const userSnap = await withTimeout(getDoc(userRef), 3000);
 
       if (userSnap.exists()) {
         return userSnap.data() as UserProfile;
@@ -94,13 +103,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         updatedAt: serverTimestamp(),
       };
 
-      await setDoc(userRef, newProfile);
+      try {
+        await withTimeout(setDoc(userRef, newProfile), 3000);
+      } catch {
+      }
       return newProfile;
     } catch (error: any) {
-      console.log("Firestore fetch failed, trying cache or creating local profile");
+      console.log("Auth profile fetch failed, using local profile");
       
       try {
-        const cachedSnap = await getDocFromCache(userRef);
+        const cachedSnap = await withTimeout(getDocFromCache(userRef), 1000);
         if (cachedSnap.exists()) {
           return cachedSnap.data() as UserProfile;
         }
