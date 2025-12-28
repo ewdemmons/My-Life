@@ -313,12 +313,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
     
+    // Optimistic update first - update local state immediately
+    console.log("addCategory: Adding to local state first (optimistic)", id);
+    setCategories(prev => [...prev, newCategory]);
+    
     try {
       const docRef = getUserDocRef("bubbles", id);
+      console.log("addCategory: Writing to Firestore...");
       await setDoc(docRef, newCategory);
-      setCategories(prev => [...prev, newCategory]);
+      console.log("addCategory: Firestore write complete");
     } catch (error: any) {
       console.error("Error adding category:", error);
+      // Rollback optimistic update on failure
+      setCategories(prev => prev.filter(c => c.id !== id));
       showError("Failed to save category. Please check your internet connection and Firestore settings.");
     }
   }, [user?.uid, getUserDocRef]);
@@ -329,12 +336,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const category = categories.find(c => c.id === id);
     if (!category) return;
     
+    const originalCategory = { ...category };
+    
+    // Optimistic update first
+    console.log("updateCategory: Updating local state first (optimistic)", id);
+    setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    
     try {
       const docRef = getUserDocRef("bubbles", id);
+      console.log("updateCategory: Writing to Firestore...");
       await setDoc(docRef, { ...category, ...updates }, { merge: true });
-      setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+      console.log("updateCategory: Firestore write complete");
     } catch (error: any) {
       console.error("Error updating category:", error);
+      // Rollback optimistic update on failure
+      setCategories(prev => prev.map(c => c.id === id ? originalCategory : c));
       showError("Failed to update category. Please try again.");
     }
   }, [user?.uid, categories, getUserDocRef]);
@@ -383,12 +399,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
     
+    // Optimistic update first
+    console.log("addTask: Adding to local state first (optimistic)", id);
+    setTasks(prev => [...prev, newTask]);
+    
     try {
       const docRef = getUserDocRef("tasks", id);
+      console.log("addTask: Writing to Firestore...");
       await setDoc(docRef, newTask);
-      setTasks(prev => [...prev, newTask]);
+      console.log("addTask: Firestore write complete");
     } catch (error: any) {
       console.error("Error adding task:", error);
+      // Rollback optimistic update on failure
+      setTasks(prev => prev.filter(t => t.id !== id));
       showError("Failed to save task. Please try again.");
     }
   }, [user?.uid, getUserDocRef]);
@@ -399,8 +422,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const task = tasks.find(t => t.id === id);
     if (!task) return;
     
-    const docRef = getUserDocRef("tasks", id);
-    await setDoc(docRef, { ...task, ...updates }, { merge: true });
+    const originalTask = { ...task };
+    
+    // Optimistic update first
+    console.log("updateTask: Updating local state first (optimistic)", id);
+    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
+    
+    try {
+      const docRef = getUserDocRef("tasks", id);
+      console.log("updateTask: Writing to Firestore...");
+      await setDoc(docRef, { ...task, ...updates }, { merge: true });
+      console.log("updateTask: Firestore write complete");
+    } catch (error: any) {
+      console.error("Error updating task:", error);
+      // Rollback optimistic update on failure
+      setTasks(prev => prev.map(t => t.id === id ? originalTask : t));
+      showError("Failed to update task. Please try again.");
+    }
   }, [user?.uid, tasks, getUserDocRef]);
 
   const deleteTask = useCallback(async (id: string) => {
@@ -537,7 +575,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const seriesId = baseTimestamp.toString();
       const instances = generateRecurringInstances(event, seriesId);
       
-      const batch = writeBatch(db);
+      const newEvents: CalendarEvent[] = [];
       instances.forEach((instance, index) => {
         const id = (baseTimestamp + index).toString();
         const newEvent: CalendarEvent = {
@@ -545,9 +583,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           id,
           createdAt: baseTimestamp,
         };
-        batch.set(getUserDocRef("events", id), newEvent);
+        newEvents.push(newEvent);
       });
-      await batch.commit();
+      
+      // Optimistic update first
+      console.log("addEvent (recurring): Adding to local state first (optimistic)");
+      setEvents(prev => [...prev, ...newEvents]);
+      
+      try {
+        const batch = writeBatch(db);
+        newEvents.forEach(evt => {
+          batch.set(getUserDocRef("events", evt.id), evt);
+        });
+        console.log("addEvent (recurring): Writing to Firestore...");
+        await batch.commit();
+        console.log("addEvent (recurring): Firestore write complete");
+      } catch (error: any) {
+        console.error("Error adding recurring events:", error);
+        // Rollback
+        const idsToRemove = newEvents.map(e => e.id);
+        setEvents(prev => prev.filter(e => !idsToRemove.includes(e.id)));
+        showError("Failed to save event. Please try again.");
+      }
     } else {
       const id = baseTimestamp.toString();
       const newEvent: CalendarEvent = {
@@ -556,8 +613,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         createdAt: baseTimestamp,
         seriesId: null,
       };
-      const docRef = getUserDocRef("events", id);
-      await setDoc(docRef, newEvent);
+      
+      // Optimistic update first
+      console.log("addEvent: Adding to local state first (optimistic)", id);
+      setEvents(prev => [...prev, newEvent]);
+      
+      try {
+        const docRef = getUserDocRef("events", id);
+        console.log("addEvent: Writing to Firestore...");
+        await setDoc(docRef, newEvent);
+        console.log("addEvent: Firestore write complete");
+      } catch (error: any) {
+        console.error("Error adding event:", error);
+        // Rollback
+        setEvents(prev => prev.filter(e => e.id !== id));
+        showError("Failed to save event. Please try again.");
+      }
     }
   }, [user?.uid, getUserDocRef]);
 
@@ -567,8 +638,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const event = events.find(e => e.id === id);
     if (!event) return;
     
-    const docRef = getUserDocRef("events", id);
-    await setDoc(docRef, { ...event, ...updates }, { merge: true });
+    const originalEvent = { ...event };
+    
+    // Optimistic update first
+    console.log("updateEvent: Updating local state first (optimistic)", id);
+    setEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+    
+    try {
+      const docRef = getUserDocRef("events", id);
+      console.log("updateEvent: Writing to Firestore...");
+      await setDoc(docRef, { ...event, ...updates }, { merge: true });
+      console.log("updateEvent: Firestore write complete");
+    } catch (error: any) {
+      console.error("Error updating event:", error);
+      // Rollback
+      setEvents(prev => prev.map(e => e.id === id ? originalEvent : e));
+      showError("Failed to update event. Please try again.");
+    }
   }, [user?.uid, events, getUserDocRef]);
 
   const deleteEvent = useCallback(async (id: string) => {
@@ -650,21 +736,34 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
     
-    const docRef = getUserDocRef("people", id);
-    await setDoc(docRef, newPerson);
+    // Optimistic update first
+    console.log("addPerson: Adding to local state first (optimistic)", id);
+    setPeople(prev => [...prev, newPerson]);
+    
+    try {
+      const docRef = getUserDocRef("people", id);
+      console.log("addPerson: Writing to Firestore...");
+      await setDoc(docRef, newPerson);
+      console.log("addPerson: Firestore write complete");
 
-    if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
-      const batch = writeBatch(db);
-      categories.forEach(category => {
-        if (newPerson.categoryIds!.includes(category.id)) {
-          const existingPeopleIds = category.peopleIds || [];
-          if (!existingPeopleIds.includes(newPerson.id)) {
-            const catDocRef = getUserDocRef("bubbles", category.id);
-            batch.update(catDocRef, { peopleIds: [...existingPeopleIds, newPerson.id] });
+      if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
+        const batch = writeBatch(db);
+        categories.forEach(category => {
+          if (newPerson.categoryIds!.includes(category.id)) {
+            const existingPeopleIds = category.peopleIds || [];
+            if (!existingPeopleIds.includes(newPerson.id)) {
+              const catDocRef = getUserDocRef("bubbles", category.id);
+              batch.update(catDocRef, { peopleIds: [...existingPeopleIds, newPerson.id] });
+            }
           }
-        }
-      });
-      await batch.commit();
+        });
+        await batch.commit();
+      }
+    } catch (error: any) {
+      console.error("Error adding person:", error);
+      // Rollback
+      setPeople(prev => prev.filter(p => p.id !== id));
+      showError("Failed to save person. Please try again.");
     }
   }, [user?.uid, categories, getUserDocRef]);
 
