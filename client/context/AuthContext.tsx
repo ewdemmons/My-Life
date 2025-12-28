@@ -180,7 +180,9 @@ function getAuthErrorMessage(errorCode: string): string {
     case "auth/invalid-email":
       return "Please enter a valid email address.";
     case "auth/operation-not-allowed":
-      return "Email/password sign in is not enabled.";
+      return "Email/password sign in is not enabled. Please enable it in Firebase Console.";
+    case "auth/configuration-not-found":
+      return "Authentication is not configured. Please enable Email/Password in Firebase Console.";
     case "auth/weak-password":
       return "Password should be at least 6 characters.";
     case "auth/user-disabled":
