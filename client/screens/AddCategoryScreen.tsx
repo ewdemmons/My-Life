@@ -41,26 +41,37 @@ export default function AddCategoryScreen() {
   const isValid = name.trim().length > 0;
 
   const handleSave = useCallback(async () => {
-    if (!name.trim()) return;
-    
-    if (isEditing && editingCategory) {
-      await updateCategory(editingCategory.id, {
-        name: name.trim(),
-        description: description.trim(),
-        color,
-        icon,
-        peopleIds,
-      });
-    } else {
-      await addCategory({
-        name: name.trim(),
-        description: description.trim(),
-        color,
-        icon,
-        peopleIds,
-      });
+    console.log("handleSave called, name:", name.trim());
+    if (!name.trim()) {
+      console.log("Name is empty, returning");
+      return;
     }
-    navigation.goBack();
+    
+    try {
+      if (isEditing && editingCategory) {
+        console.log("Updating category:", editingCategory.id);
+        await updateCategory(editingCategory.id, {
+          name: name.trim(),
+          description: description.trim(),
+          color,
+          icon,
+          peopleIds,
+        });
+      } else {
+        console.log("Adding new category");
+        await addCategory({
+          name: name.trim(),
+          description: description.trim(),
+          color,
+          icon,
+          peopleIds,
+        });
+      }
+      console.log("Save successful, going back");
+      navigation.goBack();
+    } catch (error) {
+      console.error("Error in handleSave:", error);
+    }
   }, [name, description, color, icon, peopleIds, isEditing, editingCategory, addCategory, updateCategory, navigation]);
 
   useLayoutEffect(() => {
