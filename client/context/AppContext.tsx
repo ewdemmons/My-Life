@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { Alert, Platform } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { 
   collection, 
@@ -17,6 +18,15 @@ import { useAuth } from "@/context/AuthContext";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
 import { CategoryColors } from "@/constants/theme";
 import { generateRecurringInstances } from "@/utils/recurrence";
+
+const showError = (message: string) => {
+  if (Platform.OS === "web") {
+    console.error(message);
+    window.alert(message);
+  } else {
+    Alert.alert("Error", message);
+  }
+};
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
@@ -269,7 +279,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      showError("You must be signed in to add a category.");
+      return;
+    }
     
     const id = Date.now().toString();
     const newCategory: LifeCategory = {
@@ -278,8 +291,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
     
-    const docRef = getUserDocRef("bubbles", id);
-    await setDoc(docRef, newCategory);
+    try {
+      const docRef = getUserDocRef("bubbles", id);
+      await setDoc(docRef, newCategory);
+      setCategories(prev => [...prev, newCategory]);
+    } catch (error: any) {
+      console.error("Error adding category:", error);
+      showError("Failed to save category. Please check your internet connection and Firestore settings.");
+    }
   }, [user?.uid, getUserDocRef]);
 
   const updateCategory = useCallback(async (id: string, updates: Partial<LifeCategory>) => {
@@ -288,8 +307,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const category = categories.find(c => c.id === id);
     if (!category) return;
     
-    const docRef = getUserDocRef("bubbles", id);
-    await setDoc(docRef, { ...category, ...updates }, { merge: true });
+    try {
+      const docRef = getUserDocRef("bubbles", id);
+      await setDoc(docRef, { ...category, ...updates }, { merge: true });
+      setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+    } catch (error: any) {
+      console.error("Error updating category:", error);
+      showError("Failed to update category. Please try again.");
+    }
   }, [user?.uid, categories, getUserDocRef]);
 
   const deleteCategory = useCallback(async (id: string) => {
@@ -324,7 +349,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [user?.uid, categories, tasks, recycleBin, getUserDocRef]);
 
   const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">) => {
-    if (!user?.uid) return;
+    if (!user?.uid) {
+      showError("You must be signed in to add a task.");
+      return;
+    }
     
     const id = Date.now().toString();
     const newTask: Task = {
@@ -333,8 +361,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       createdAt: Date.now(),
     };
     
-    const docRef = getUserDocRef("tasks", id);
-    await setDoc(docRef, newTask);
+    try {
+      const docRef = getUserDocRef("tasks", id);
+      await setDoc(docRef, newTask);
+      setTasks(prev => [...prev, newTask]);
+    } catch (error: any) {
+      console.error("Error adding task:", error);
+      showError("Failed to save task. Please try again.");
+    }
   }, [user?.uid, getUserDocRef]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
