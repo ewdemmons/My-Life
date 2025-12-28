@@ -114,12 +114,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       setError(null);
       setIsLoading(true);
+      console.log("Attempting to create user with email:", email);
       const userCredential = await createUserWithEmailAndPassword(auth, email, password);
+      console.log("User created successfully:", userCredential.user.uid);
       
       await updateProfile(userCredential.user, { displayName });
+      console.log("Profile updated with display name");
       
       await fetchOrCreateUserProfile(userCredential.user);
+      console.log("User profile created in Firestore");
     } catch (err: any) {
+      console.error("SignUp error:", err.code, err.message);
       const errorMessage = getAuthErrorMessage(err.code);
       setError(errorMessage);
       throw new Error(errorMessage);
