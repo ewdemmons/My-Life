@@ -5,13 +5,16 @@
 
 ## Current State
 MVP implementation with core features:
+- **Firebase Authentication**: Email/password and Google Sign-In with auth persistence
+- Protected routes requiring authentication to access main app
+- Auto-create Firestore user document on signup (/users/{uid})
 - Minimalist Home screen with "Balance Your World" headline
 - Life Wheel dashboard with interactive category bubbles (10% enlarged)
 - Central wheel hub with soft glow effect for interactive appearance
 - Add/Edit Life Categories with name, description, color, and icon
 - Hierarchical task management with 10 entry types
 - Calendar view with event scheduling (Reminder, Due Date, Appointment, Meeting)
-- Profile screen with stats, settings, and Recycle Bin
+- Profile screen with user info, stats, settings, Recycle Bin, and Sign Out
 - Local data persistence with AsyncStorage
 - Dark mode support (follows system settings)
 - Feature parity between bubble calendars and global calendar
@@ -21,6 +24,8 @@ MVP implementation with core features:
 ### Frontend (client/)
 - **Expo + React Native** with TypeScript
 - **React Navigation 7** for navigation
+- **Firebase Authentication** with email/password and Google Sign-In
+- **Firestore** for user profile storage
 - **AsyncStorage** for local data persistence
 - **react-native-calendars** for calendar views
 - **react-native-svg** for Life Wheel visualization
@@ -31,22 +36,30 @@ MVP implementation with core features:
 - Prepared for future Firebase/API integration
 
 ### State Management
-- React Context API (AppContext) for global state
+- React Context API (AppContext) for global app state
+- React Context API (AuthContext) for authentication state
 - Local storage with AsyncStorage for persistence
+- Firebase Auth persistence across app restarts
 
 ## Project Structure
 ```
 client/
 ├── App.tsx                 # App entry point
 ├── context/
-│   └── AppContext.tsx      # Global state management
+│   ├── AppContext.tsx      # Global app state management
+│   └── AuthContext.tsx     # Firebase authentication state
+├── lib/
+│   └── firebase.ts         # Firebase configuration
 ├── types/
 │   └── index.ts            # TypeScript types
 ├── screens/
+│   ├── WelcomeScreen.tsx   # Auth landing page
+│   ├── SignInScreen.tsx    # Email/password sign in
+│   ├── SignUpScreen.tsx    # Account creation
 │   ├── HomeScreen.tsx      # Life Wheel dashboard
 │   ├── TasksScreen.tsx     # All tasks view
 │   ├── CalendarScreen.tsx  # Calendar with tasks
-│   ├── ProfileScreen.tsx   # Settings & stats
+│   ├── ProfileScreen.tsx   # User info, stats, settings, sign out
 │   ├── PeopleScreen.tsx    # People management
 │   ├── CategoryDetailScreen.tsx
 │   ├── AddCategoryScreen.tsx
@@ -61,7 +74,8 @@ client/
 ├── utils/
 │   └── recurrence.ts       # Recurrence generation utilities
 ├── navigation/
-│   ├── RootStackNavigator.tsx
+│   ├── RootStackNavigator.tsx  # Main navigation with auth guard
+│   ├── AuthNavigator.tsx       # Auth flow navigation
 │   └── MainTabNavigator.tsx
 └── constants/
     └── theme.ts            # Design system tokens

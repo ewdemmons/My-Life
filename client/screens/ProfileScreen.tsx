@@ -1,5 +1,5 @@
 import React from "react";
-import { View, StyleSheet, Pressable, Alert, ScrollView, FlatList } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ScrollView, Image } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -9,6 +9,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { DeletedItem, Task, LifeCategory, getTaskTypeInfo } from "@/types";
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
@@ -19,6 +20,7 @@ export default function ProfileScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin } = useApp();
+  const { user, signOut } = useAuth();
 
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
   const totalTasks = tasks.length;
@@ -48,6 +50,22 @@ export default function ProfileScreen() {
         },
       ]
     );
+  };
+
+  const handleSignOut = () => {
+    Alert.alert(
+      "Sign Out",
+      "Are you sure you want to sign out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Sign Out", style: "destructive", onPress: signOut },
+      ]
+    );
+  };
+
+  const getInitials = (name: string | null | undefined): string => {
+    if (!name) return "?";
+    return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
 
   const handleRestore = (item: DeletedItem) => {
@@ -159,12 +177,20 @@ export default function ProfileScreen() {
       scrollIndicatorInsets={{ bottom: insets.bottom }}
     >
       <View style={styles.profileSection}>
-        <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-          <Feather name="user" size={40} color="#FFFFFF" />
-        </View>
-        <ThemedText style={styles.profileName}>My Life User</ThemedText>
+        {user?.photoURL ? (
+          <Image source={{ uri: user.photoURL }} style={styles.avatarImage} />
+        ) : (
+          <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
+            <ThemedText style={styles.avatarText}>
+              {getInitials(user?.displayName || user?.email)}
+            </ThemedText>
+          </View>
+        )}
+        <ThemedText style={styles.profileName}>
+          {user?.displayName || "My Life User"}
+        </ThemedText>
         <ThemedText style={[styles.profileSubtitle, { color: theme.textSecondary }]}>
-          Organizing life, one task at a time
+          {user?.email || "Organizing life, one task at a time"}
         </ThemedText>
       </View>
 
@@ -296,6 +322,26 @@ export default function ProfileScreen() {
           </View>
         </View>
       </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.sectionTitle}>Account</ThemedText>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <Pressable
+            style={({ pressed }) => [styles.settingRow, pressed && { opacity: 0.7 }]}
+            onPress={handleSignOut}
+          >
+            <View style={styles.settingInfo}>
+              <View style={[styles.settingIcon, { backgroundColor: theme.error + "20" }]}>
+                <Feather name="log-out" size={20} color={theme.error} />
+              </View>
+              <ThemedText style={[styles.settingText, { color: theme.error }]}>
+                Sign Out
+              </ThemedText>
+            </View>
+            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+          </Pressable>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -312,6 +358,17 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
     marginBottom: Spacing.md,
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: BorderRadius.full,
+    marginBottom: Spacing.md,
+  },
+  avatarText: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   profileName: {
     fontSize: 24,
