@@ -7,7 +7,14 @@ import {
 } from "firebase/auth";
 //@ts-ignore - React Native persistence import
 import { getReactNativePersistence } from "firebase/auth";
-import { getFirestore, Firestore } from "firebase/firestore";
+import { 
+  getFirestore, 
+  Firestore,
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  CACHE_SIZE_UNLIMITED,
+} from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
 
@@ -22,22 +29,30 @@ const firebaseConfig = {
 
 let app: FirebaseApp;
 let auth: Auth;
+let db: Firestore;
 
 if (getApps().length === 0) {
   app = initializeApp(firebaseConfig);
   if (Platform.OS === "web") {
     auth = getAuth(app);
+    db = initializeFirestore(app, {
+      localCache: persistentLocalCache({
+        tabManager: persistentMultipleTabManager(),
+        cacheSizeBytes: CACHE_SIZE_UNLIMITED,
+      }),
+    });
   } else {
     auth = initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage),
     });
+    db = getFirestore(app);
   }
 } else {
   app = getApp();
   auth = getAuth(app);
+  db = getFirestore(app);
 }
 
-const db: Firestore = getFirestore(app);
 const googleProvider = new GoogleAuthProvider();
 
 export { app, auth, db, googleProvider };

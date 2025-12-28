@@ -9,7 +9,7 @@ import {
   GoogleAuthProvider,
   signInWithCredential,
 } from "firebase/auth";
-import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
+import { doc, setDoc, getDoc, getDocFromCache, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
 import * as WebBrowser from "expo-web-browser";
 
@@ -77,23 +77,45 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const fetchOrCreateUserProfile = async (firebaseUser: User): Promise<UserProfile> => {
     const userRef = doc(db, "users", firebaseUser.uid);
-    const userSnap = await getDoc(userRef);
+    
+    try {
+      const userSnap = await getDoc(userRef);
 
-    if (userSnap.exists()) {
-      return userSnap.data() as UserProfile;
+      if (userSnap.exists()) {
+        return userSnap.data() as UserProfile;
+      }
+
+      const newProfile: UserProfile = {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        displayName: firebaseUser.displayName,
+        photoURL: firebaseUser.photoURL,
+        createdAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      };
+
+      await setDoc(userRef, newProfile);
+      return newProfile;
+    } catch (error: any) {
+      console.log("Firestore fetch failed, trying cache or creating local profile");
+      
+      try {
+        const cachedSnap = await getDocFromCache(userRef);
+        if (cachedSnap.exists()) {
+          return cachedSnap.data() as UserProfile;
+        }
+      } catch {
+      }
+      
+      return {
+        uid: firebaseUser.uid,
+        email: firebaseUser.email,
+        displayName: firebaseUser.displayName,
+        photoURL: firebaseUser.photoURL,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      };
     }
-
-    const newProfile: UserProfile = {
-      uid: firebaseUser.uid,
-      email: firebaseUser.email,
-      displayName: firebaseUser.displayName,
-      photoURL: firebaseUser.photoURL,
-      createdAt: serverTimestamp(),
-      updatedAt: serverTimestamp(),
-    };
-
-    await setDoc(userRef, newProfile);
-    return newProfile;
   };
 
   const signIn = async (email: string, password: string) => {

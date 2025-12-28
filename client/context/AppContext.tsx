@@ -4,6 +4,7 @@ import {
   collection, 
   doc, 
   getDocs, 
+  getDocsFromCache,
   setDoc, 
   deleteDoc, 
   onSnapshot,
@@ -119,38 +120,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const eventsCol = collection(db, "users", userId, "events");
       const peopleCol = collection(db, "users", userId, "people");
 
-      const [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await Promise.all([
-        getDocs(categoriesCol),
-        getDocs(tasksCol),
-        getDocs(eventsCol),
-        getDocs(peopleCol),
-      ]);
+      let categoriesSnap, tasksSnap, eventsSnap, peopleSnap;
+      
+      try {
+        [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await Promise.all([
+          getDocs(categoriesCol),
+          getDocs(tasksCol),
+          getDocs(eventsCol),
+          getDocs(peopleCol),
+        ]);
+      } catch (networkError) {
+        console.log("Network error, trying cache:", networkError);
+        try {
+          [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await Promise.all([
+            getDocsFromCache(categoriesCol),
+            getDocsFromCache(tasksCol),
+            getDocsFromCache(eventsCol),
+            getDocsFromCache(peopleCol),
+          ]);
+        } catch (cacheError) {
+          console.log("Cache also failed, starting fresh");
+          categoriesSnap = { docs: [] };
+          tasksSnap = { docs: [] };
+          eventsSnap = { docs: [] };
+          peopleSnap = { docs: [] };
+        }
+      }
 
-      const loadedCategories = categoriesSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as LifeCategory));
-      const loadedTasks = tasksSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
-      const loadedEvents = eventsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as CalendarEvent));
-      const loadedPeople = peopleSnap.docs.map(doc => ({ id: doc.id, ...doc.data() } as Person));
+      const loadedCategories = categoriesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as LifeCategory));
+      const loadedTasks = tasksSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Task));
+      const loadedEvents = eventsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as CalendarEvent));
+      const loadedPeople = peopleSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Person));
 
       if (loadedCategories.length === 0) {
         console.log("New user detected - creating default bubbles");
-        const batch = writeBatch(db);
-        const newCategories: LifeCategory[] = [];
-        
-        defaultCategories.forEach((cat, index) => {
-          const id = `default_${Date.now()}_${index}`;
-          const newCategory: LifeCategory = {
-            ...cat,
-            id,
-            createdAt: Date.now(),
-          };
-          newCategories.push(newCategory);
-          const docRef = doc(db, "users", userId, "bubbles", id);
-          batch.set(docRef, newCategory);
-        });
+        try {
+          const batch = writeBatch(db);
+          const newCategories: LifeCategory[] = [];
+          
+          defaultCategories.forEach((cat, index) => {
+            const id = `default_${Date.now()}_${index}`;
+            const newCategory: LifeCategory = {
+              ...cat,
+              id,
+              createdAt: Date.now(),
+            };
+            newCategories.push(newCategory);
+            const docRef = doc(db, "users", userId, "bubbles", id);
+            batch.set(docRef, newCategory);
+          });
 
-        await batch.commit();
-        setCategories(newCategories);
-        console.log("Default bubbles created for new user");
+          await batch.commit();
+          setCategories(newCategories);
+          console.log("Default bubbles created for new user");
+        } catch (batchError) {
+          console.log("Failed to create default bubbles in Firestore, using local defaults");
+          const newCategories: LifeCategory[] = defaultCategories.map((cat, index) => ({
+            ...cat,
+            id: `default_${Date.now()}_${index}`,
+            createdAt: Date.now(),
+          }));
+          setCategories(newCategories);
+        }
       } else {
         setCategories(loadedCategories);
       }
