@@ -11,7 +11,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Colors, Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { useAuth } from "@/context/AuthContext";
 
-const appIcon = require("../../attached_assets/app-icon.png");
+const appIcon = require("../../assets/images/icon.png");
 
 type AuthStackParamList = {
   Welcome: undefined;
