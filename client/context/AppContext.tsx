@@ -4,8 +4,6 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { 
   collection, 
   doc, 
-  getDocs, 
-  getDocsFromCache,
   setDoc, 
   deleteDoc, 
   onSnapshot,
@@ -26,15 +24,6 @@ const showError = (message: string) => {
   } else {
     Alert.alert("Error", message);
   }
-};
-
-const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => 
-      setTimeout(() => reject(new Error('Firestore timeout')), ms)
-    )
-  ]);
 };
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
@@ -127,6 +116,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return doc(db, "users", user.uid, collectionName, docId);
   }, [user?.uid]);
 
+  const hasInitializedForUserRef = useRef<string | null>(null);
+
+  const createDefaultBubbles = useCallback(async (userId: string) => {
+    if (hasInitializedForUserRef.current === userId) {
+      console.log("Default bubbles already created for this user, skipping");
+      return;
+    }
+    
+    hasInitializedForUserRef.current = userId;
+    console.log("Creating default bubbles for new user");
+    
+    try {
+      const batch = writeBatch(db);
+      const newCategories: LifeCategory[] = [];
+      
+      defaultCategories.forEach((cat, index) => {
+        const id = `default_${Date.now()}_${index}`;
+        const newCategory: LifeCategory = {
+          ...cat,
+          id,
+          createdAt: Date.now(),
+        };
+        newCategories.push(newCategory);
+        const docRef = doc(db, "users", userId, "bubbles", id);
+        batch.set(docRef, newCategory);
+      });
+
+      await batch.commit();
+      console.log("Default bubbles created successfully");
+    } catch (batchError) {
+      console.log("Failed to create default bubbles in Firestore:", batchError);
+      hasInitializedForUserRef.current = null;
+    }
+  }, []);
+
   const loadUserData = useCallback(async (userId: string) => {
     console.log("Loading data for user:", userId);
     setIsLoading(true);
@@ -146,84 +170,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const eventsCol = collection(db, "users", userId, "events");
       const peopleCol = collection(db, "users", userId, "people");
 
-      let categoriesSnap, tasksSnap, eventsSnap, peopleSnap;
-      
-      try {
-        console.log("Attempting Firestore fetch...");
-        [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
-          Promise.all([
-            getDocs(categoriesCol),
-            getDocs(tasksCol),
-            getDocs(eventsCol),
-            getDocs(peopleCol),
-          ]),
-          5000
-        );
-        console.log("Firestore fetch successful, categories:", categoriesSnap.docs.length);
-      } catch (networkError: any) {
-        console.log("Firestore fetch failed:", networkError?.code || networkError?.message || networkError);
-        console.log("Full error:", JSON.stringify(networkError, null, 2));
-        try {
-          [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
-            Promise.all([
-              getDocsFromCache(categoriesCol),
-              getDocsFromCache(tasksCol),
-              getDocsFromCache(eventsCol),
-              getDocsFromCache(peopleCol),
-            ]),
-            2000
-          );
-        } catch (cacheError) {
-          categoriesSnap = { docs: [] };
-          tasksSnap = { docs: [] };
-          eventsSnap = { docs: [] };
-          peopleSnap = { docs: [] };
-        }
-      }
-
-      const loadedCategories = categoriesSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as LifeCategory));
-      const loadedTasks = tasksSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Task));
-      const loadedEvents = eventsSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as CalendarEvent));
-      const loadedPeople = peopleSnap.docs.map((d: any) => ({ id: d.id, ...d.data() } as Person));
-
-      if (loadedCategories.length === 0) {
-        console.log("New user detected - creating default bubbles");
-        try {
-          const batch = writeBatch(db);
-          const newCategories: LifeCategory[] = [];
-          
-          defaultCategories.forEach((cat, index) => {
-            const id = `default_${Date.now()}_${index}`;
-            const newCategory: LifeCategory = {
-              ...cat,
-              id,
-              createdAt: Date.now(),
-            };
-            newCategories.push(newCategory);
-            const docRef = doc(db, "users", userId, "bubbles", id);
-            batch.set(docRef, newCategory);
-          });
-
-          await batch.commit();
-          setCategories(newCategories);
-          console.log("Default bubbles created for new user");
-        } catch (batchError) {
-          console.log("Failed to create default bubbles in Firestore, using local defaults");
-          const newCategories: LifeCategory[] = defaultCategories.map((cat, index) => ({
-            ...cat,
-            id: `default_${Date.now()}_${index}`,
-            createdAt: Date.now(),
-          }));
-          setCategories(newCategories);
-        }
-      } else {
-        setCategories(loadedCategories);
-      }
-
-      setTasks(loadedTasks);
-      setEvents(loadedEvents);
-      setPeople(loadedPeople);
-
       const recycleBinKey = getUserStorageKey(userId, "recycle_bin");
       const recycleBinData = await AsyncStorage.getItem(recycleBinKey);
       if (recycleBinData) {
@@ -237,19 +183,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setRecycleBin([]);
       }
 
-      console.log(`Setting up listeners for paths: users/${userId}/bubbles, users/${userId}/tasks, users/${userId}/events, users/${userId}/people`);
+      console.log(`Setting up real-time listeners for user: ${userId}`);
+      
+      let isFirstBubblesSnapshot = true;
       
       const unsubCategories = onSnapshot(
         query(categoriesCol), 
-        (snapshot) => {
+        async (snapshot) => {
           if (currentUserIdRef.current !== userId) return;
           console.log(`Firestore snapshot received for bubbles: ${snapshot.docs.length} docs`);
-          const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LifeCategory));
-          setCategories(cats);
+          
+          const cats = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as LifeCategory));
+          
+          if (isFirstBubblesSnapshot && cats.length === 0) {
+            console.log("First snapshot shows 0 bubbles - new user, creating defaults");
+            await createDefaultBubbles(userId);
+          } else if (cats.length > 0) {
+            hasInitializedForUserRef.current = userId;
+            setCategories(cats);
+          }
+          
+          isFirstBubblesSnapshot = false;
+          setIsLoading(false);
         },
         (error) => {
           console.log(`Firestore listener error (bubbles): ${error.code} - ${error.message}`);
-          showError(`Firestore error: ${error.message}`);
+          showError(`Unable to load data. Please check your connection.`);
+          setIsLoading(false);
         }
       );
 
@@ -258,7 +218,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (snapshot) => {
           if (currentUserIdRef.current !== userId) return;
           console.log(`Firestore snapshot received for tasks: ${snapshot.docs.length} docs`);
-          const t = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+          const t = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Task));
           setTasks(t);
         },
         (error) => {
@@ -271,7 +231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (snapshot) => {
           if (currentUserIdRef.current !== userId) return;
           console.log(`Firestore snapshot received for events: ${snapshot.docs.length} docs`);
-          const e = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CalendarEvent));
+          const e = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as CalendarEvent));
           setEvents(e);
         },
         (error) => {
@@ -284,7 +244,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (snapshot) => {
           if (currentUserIdRef.current !== userId) return;
           console.log(`Firestore snapshot received for people: ${snapshot.docs.length} docs`);
-          const p = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Person));
+          const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Person));
           setPeople(p);
         },
         (error) => {
@@ -296,15 +256,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     } catch (error) {
       console.error("Error loading user data:", error);
-    } finally {
       setIsLoading(false);
     }
-  }, [cleanupListeners]);
+  }, [cleanupListeners, createDefaultBubbles]);
 
   const clearUserData = useCallback(async () => {
     console.log("Clearing user data on logout");
     cleanupListeners();
     currentUserIdRef.current = null;
+    hasInitializedForUserRef.current = null;
     clearLocalData();
     setIsLoading(false);
   }, [cleanupListeners, clearLocalData]);
