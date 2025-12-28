@@ -28,6 +28,15 @@ const showError = (message: string) => {
   }
 };
 
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => 
+      setTimeout(() => reject(new Error('Firestore timeout')), ms)
+    )
+  ]);
+};
+
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
 const getUserStorageKey = (userId: string, key: string) => `@mylife_${userId}_${key}`;
@@ -133,23 +142,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       let categoriesSnap, tasksSnap, eventsSnap, peopleSnap;
       
       try {
-        [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await Promise.all([
-          getDocs(categoriesCol),
-          getDocs(tasksCol),
-          getDocs(eventsCol),
-          getDocs(peopleCol),
-        ]);
-      } catch (networkError) {
-        console.log("Network error, trying cache:", networkError);
+        [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
+          Promise.all([
+            getDocs(categoriesCol),
+            getDocs(tasksCol),
+            getDocs(eventsCol),
+            getDocs(peopleCol),
+          ]),
+          5000
+        );
+      } catch (networkError: any) {
+        console.log("Firestore fetch failed, trying cache or creating local profile");
         try {
-          [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await Promise.all([
-            getDocsFromCache(categoriesCol),
-            getDocsFromCache(tasksCol),
-            getDocsFromCache(eventsCol),
-            getDocsFromCache(peopleCol),
-          ]);
+          [categoriesSnap, tasksSnap, eventsSnap, peopleSnap] = await withTimeout(
+            Promise.all([
+              getDocsFromCache(categoriesCol),
+              getDocsFromCache(tasksCol),
+              getDocsFromCache(eventsCol),
+              getDocsFromCache(peopleCol),
+            ]),
+            2000
+          );
         } catch (cacheError) {
-          console.log("Cache also failed, starting fresh");
           categoriesSnap = { docs: [] };
           tasksSnap = { docs: [] };
           eventsSnap = { docs: [] };
