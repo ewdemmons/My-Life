@@ -23,7 +23,7 @@ export default function WelcomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<AuthStackParamList>>();
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
-  const { signInWithGoogle, isLoading, error } = useAuth();
+  const { signInWithGoogle, isLoading, error, isGoogleSignInAvailable } = useAuth();
 
   const handleGoogleSignIn = async () => {
     await signInWithGoogle();
@@ -82,29 +82,33 @@ export default function WelcomeScreen() {
           </ThemedText>
         </Pressable>
 
-        <View style={styles.divider}>
-          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-          <ThemedText style={[styles.dividerText, { color: theme.textSecondary }]}>or</ThemedText>
-          <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
-        </View>
+        {isGoogleSignInAvailable ? (
+          <>
+            <View style={styles.divider}>
+              <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+              <ThemedText style={[styles.dividerText, { color: theme.textSecondary }]}>or</ThemedText>
+              <View style={[styles.dividerLine, { backgroundColor: theme.border }]} />
+            </View>
 
-        <Pressable
-          style={({ pressed }) => [
-            styles.googleButton,
-            { 
-              backgroundColor: isDark ? "#FFFFFF" : "#FFFFFF",
-              borderColor: theme.border,
-              opacity: pressed ? 0.8 : 1 
-            },
-          ]}
-          onPress={handleGoogleSignIn}
-          disabled={isLoading}
-        >
-          <View style={styles.googleIconContainer}>
-            <Feather name="search" size={20} color="#4285F4" />
-          </View>
-          <ThemedText style={styles.googleButtonText}>Continue with Google</ThemedText>
-        </Pressable>
+            <Pressable
+              style={({ pressed }) => [
+                styles.googleButton,
+                { 
+                  backgroundColor: isDark ? "#FFFFFF" : "#FFFFFF",
+                  borderColor: theme.border,
+                  opacity: pressed ? 0.8 : 1 
+                },
+              ]}
+              onPress={handleGoogleSignIn}
+              disabled={isLoading}
+            >
+              <View style={styles.googleIconContainer}>
+                <Feather name="search" size={20} color="#4285F4" />
+              </View>
+              <ThemedText style={styles.googleButtonText}>Continue with Google</ThemedText>
+            </Pressable>
+          </>
+        ) : null}
       </View>
     </View>
   );

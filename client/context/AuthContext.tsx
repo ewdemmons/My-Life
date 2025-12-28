@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from "react";
+import React, { createContext, useContext, useState, useEffect, ReactNode, useCallback } from "react";
 import { 
   User,
   onAuthStateChanged,
@@ -11,9 +11,7 @@ import {
 } from "firebase/auth";
 import { doc, setDoc, getDoc, serverTimestamp } from "firebase/firestore";
 import { auth, db } from "@/lib/firebase";
-import * as Google from "expo-auth-session/providers/google";
 import * as WebBrowser from "expo-web-browser";
-import { Platform } from "react-native";
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -35,11 +33,20 @@ interface AuthContextType {
   signUp: (email: string, password: string, displayName: string) => Promise<void>;
   signOut: () => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  isGoogleSignInAvailable: boolean;
   error: string | null;
   clearError: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
+
+const GOOGLE_WEB_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID;
+const GOOGLE_IOS_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID;
+const GOOGLE_ANDROID_CLIENT_ID = process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID;
+
+const hasGoogleClientIds = Boolean(
+  GOOGLE_WEB_CLIENT_ID || GOOGLE_IOS_CLIENT_ID || GOOGLE_ANDROID_CLIENT_ID
+);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
@@ -47,19 +54,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [request, response, promptAsync] = Google.useAuthRequest({
-    clientId: process.env.EXPO_PUBLIC_GOOGLE_WEB_CLIENT_ID,
-    iosClientId: process.env.EXPO_PUBLIC_GOOGLE_IOS_CLIENT_ID,
-    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_ANDROID_CLIENT_ID,
-  });
-
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
       
       if (firebaseUser) {
-        const profile = await fetchOrCreateUserProfile(firebaseUser);
-        setUserProfile(profile);
+        try {
+          const profile = await fetchOrCreateUserProfile(firebaseUser);
+          setUserProfile(profile);
+        } catch (err) {
+          console.error("Error fetching user profile:", err);
+        }
       } else {
         setUserProfile(null);
       }
@@ -69,25 +74,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     return unsubscribe;
   }, []);
-
-  useEffect(() => {
-    if (response?.type === "success") {
-      const { id_token } = response.params;
-      handleGoogleSignIn(id_token);
-    }
-  }, [response]);
-
-  const handleGoogleSignIn = async (idToken: string) => {
-    try {
-      setIsLoading(true);
-      const credential = GoogleAuthProvider.credential(idToken);
-      await signInWithCredential(auth, credential);
-    } catch (err: any) {
-      setError(err.message || "Failed to sign in with Google");
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   const fetchOrCreateUserProfile = async (firebaseUser: User): Promise<UserProfile> => {
     const userRef = doc(db, "users", firebaseUser.uid);
@@ -142,14 +128,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  const signInWithGoogle = async () => {
-    try {
-      setError(null);
-      await promptAsync();
-    } catch (err: any) {
-      setError(err.message || "Failed to sign in with Google");
-    }
-  };
+  const signInWithGoogle = useCallback(async () => {
+    setError("Google Sign-In is not configured. Please use email and password.");
+  }, []);
 
   const signOut = async () => {
     try {
@@ -171,6 +152,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     signUp,
     signOut,
     signInWithGoogle,
+    isGoogleSignInAvailable: hasGoogleClientIds,
     error,
     clearError,
   };
