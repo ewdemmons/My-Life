@@ -14,6 +14,7 @@ import {
   persistentLocalCache,
   persistentMultipleTabManager,
   CACHE_SIZE_UNLIMITED,
+  memoryLocalCache,
 } from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Platform } from "react-native";
@@ -26,6 +27,10 @@ const firebaseConfig = {
   messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
   appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
 };
+
+console.log("Firebase config loaded - projectId:", firebaseConfig.projectId ? "SET" : "MISSING");
+console.log("Firebase config - apiKey:", firebaseConfig.apiKey ? "SET" : "MISSING");
+console.log("Firebase config - authDomain:", firebaseConfig.authDomain ? "SET" : "MISSING");
 
 let app: FirebaseApp;
 let auth: Auth;
@@ -45,7 +50,11 @@ if (getApps().length === 0) {
     auth = initializeAuth(app, {
       persistence: getReactNativePersistence(AsyncStorage),
     });
-    db = getFirestore(app);
+    db = initializeFirestore(app, {
+      experimentalForceLongPolling: true,
+      localCache: memoryLocalCache(),
+    } as any);
+    console.log("Firestore initialized with long polling for React Native");
   }
 } else {
   app = getApp();

@@ -134,6 +134,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     currentUserIdRef.current = userId;
 
     try {
+      const bubblesPath = `users/${userId}/bubbles`;
+      const tasksPath = `users/${userId}/tasks`;
+      const eventsPath = `users/${userId}/events`;
+      const peoplePath = `users/${userId}/people`;
+      
+      console.log(`Querying Firestore paths: ${bubblesPath}, ${tasksPath}, ${eventsPath}, ${peoplePath}`);
+      
       const categoriesCol = collection(db, "users", userId, "bubbles");
       const tasksCol = collection(db, "users", userId, "tasks");
       const eventsCol = collection(db, "users", userId, "events");
@@ -230,29 +237,60 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setRecycleBin([]);
       }
 
-      const unsubCategories = onSnapshot(query(categoriesCol), (snapshot) => {
-        if (currentUserIdRef.current !== userId) return;
-        const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LifeCategory));
-        setCategories(cats);
-      });
+      console.log(`Setting up listeners for paths: users/${userId}/bubbles, users/${userId}/tasks, users/${userId}/events, users/${userId}/people`);
+      
+      const unsubCategories = onSnapshot(
+        query(categoriesCol), 
+        (snapshot) => {
+          if (currentUserIdRef.current !== userId) return;
+          console.log(`Firestore snapshot received for bubbles: ${snapshot.docs.length} docs`);
+          const cats = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as LifeCategory));
+          setCategories(cats);
+        },
+        (error) => {
+          console.log(`Firestore listener error (bubbles): ${error.code} - ${error.message}`);
+          showError(`Firestore error: ${error.message}`);
+        }
+      );
 
-      const unsubTasks = onSnapshot(query(tasksCol), (snapshot) => {
-        if (currentUserIdRef.current !== userId) return;
-        const t = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
-        setTasks(t);
-      });
+      const unsubTasks = onSnapshot(
+        query(tasksCol), 
+        (snapshot) => {
+          if (currentUserIdRef.current !== userId) return;
+          console.log(`Firestore snapshot received for tasks: ${snapshot.docs.length} docs`);
+          const t = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Task));
+          setTasks(t);
+        },
+        (error) => {
+          console.log(`Firestore listener error (tasks): ${error.code} - ${error.message}`);
+        }
+      );
 
-      const unsubEvents = onSnapshot(query(eventsCol), (snapshot) => {
-        if (currentUserIdRef.current !== userId) return;
-        const e = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CalendarEvent));
-        setEvents(e);
-      });
+      const unsubEvents = onSnapshot(
+        query(eventsCol), 
+        (snapshot) => {
+          if (currentUserIdRef.current !== userId) return;
+          console.log(`Firestore snapshot received for events: ${snapshot.docs.length} docs`);
+          const e = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as CalendarEvent));
+          setEvents(e);
+        },
+        (error) => {
+          console.log(`Firestore listener error (events): ${error.code} - ${error.message}`);
+        }
+      );
 
-      const unsubPeople = onSnapshot(query(peopleCol), (snapshot) => {
-        if (currentUserIdRef.current !== userId) return;
-        const p = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Person));
-        setPeople(p);
-      });
+      const unsubPeople = onSnapshot(
+        query(peopleCol), 
+        (snapshot) => {
+          if (currentUserIdRef.current !== userId) return;
+          console.log(`Firestore snapshot received for people: ${snapshot.docs.length} docs`);
+          const p = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Person));
+          setPeople(p);
+        },
+        (error) => {
+          console.log(`Firestore listener error (people): ${error.code} - ${error.message}`);
+        }
+      );
 
       unsubscribesRef.current = [unsubCategories, unsubTasks, unsubEvents, unsubPeople];
 
