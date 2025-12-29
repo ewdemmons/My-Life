@@ -160,6 +160,17 @@ client/
 - **Environment Variables**: Also available via EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY
 - **Note**: The anon key is a public key by design (safe to expose in client code); row-level security (RLS) on Supabase protects data
 
+### Authentication
+- **Email/Password Auth**: Using Supabase Auth with signUp and signInWithPassword
+- **Auth Screens**: 
+  - WelcomeScreen: Landing page with Sign Up and Sign In buttons
+  - SignUpScreen: Email, password, confirm password fields with validation
+  - SignInScreen: Email and password fields
+- **AuthContext**: Manages session state with onAuthStateChange listener
+- **Route Protection**: RootStackNavigator shows AuthNavigator if no session, MainAppNavigator if authenticated
+- **Logout**: Available in ProfileScreen Account section with confirmation dialog
+- **Profile Auto-creation**: On signup, automatically creates/upserts row in `profiles` table (id, email, created_at)
+
 ## Development
 
 ### Running the App

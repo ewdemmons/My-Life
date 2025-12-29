@@ -1,10 +1,14 @@
 import React from "react";
+import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
+import AuthNavigator from "@/navigation/AuthNavigator";
 import CategoryDetailScreen from "@/screens/CategoryDetailScreen";
 import AddCategoryScreen from "@/screens/AddCategoryScreen";
 import AddTaskScreen from "@/screens/AddTaskScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
+import { useAuth } from "@/context/AuthContext";
+import { useTheme } from "@/hooks/useTheme";
 import { LifeCategory, Task } from "@/types";
 
 export type RootStackParamList = {
@@ -16,7 +20,7 @@ export type RootStackParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-export default function RootStackNavigator() {
+function MainAppNavigator() {
   const screenOptions = useScreenOptions();
 
   return (
@@ -50,3 +54,26 @@ export default function RootStackNavigator() {
     </Stack.Navigator>
   );
 }
+
+export default function RootStackNavigator() {
+  const { session, isLoading } = useAuth();
+  const { theme } = useTheme();
+
+  if (isLoading) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    );
+  }
+
+  return session ? <MainAppNavigator /> : <AuthNavigator />;
+}
+
+const styles = StyleSheet.create({
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+});

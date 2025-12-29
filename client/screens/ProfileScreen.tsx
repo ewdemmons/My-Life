@@ -9,6 +9,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { DeletedItem, Task, LifeCategory, getTaskTypeInfo } from "@/types";
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
@@ -19,6 +20,7 @@ export default function ProfileScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin } = useApp();
+  const { user, signOut } = useAuth();
 
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
   const totalTasks = tasks.length;
@@ -45,6 +47,21 @@ export default function ProfileScreen() {
             await AsyncStorage.multiRemove(["@mylife_categories", "@mylife_tasks", "@mylife_recycle_bin"]);
             Alert.alert("Done", "All data has been cleared. Please restart the app.");
           },
+        },
+      ]
+    );
+  };
+
+  const handleLogout = () => {
+    Alert.alert(
+      "Sign Out",
+      "Are you sure you want to sign out?",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Sign Out",
+          style: "destructive",
+          onPress: signOut,
         },
       ]
     );
@@ -162,9 +179,9 @@ export default function ProfileScreen() {
         <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
           <Feather name="user" size={40} color="#FFFFFF" />
         </View>
-        <ThemedText style={styles.profileName}>My Life User</ThemedText>
+        <ThemedText style={styles.profileName}>My Life</ThemedText>
         <ThemedText style={[styles.profileSubtitle, { color: theme.textSecondary }]}>
-          Organizing life, one task at a time
+          {user?.email || "Organizing life, one task at a time"}
         </ThemedText>
       </View>
 
@@ -294,6 +311,33 @@ export default function ProfileScreen() {
               React Native + Expo
             </ThemedText>
           </View>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.sectionTitle}>Account</ThemedText>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.aboutRow}>
+            <ThemedText style={styles.aboutLabel}>Email</ThemedText>
+            <ThemedText style={[styles.aboutValue, { color: theme.textSecondary }]} numberOfLines={1}>
+              {user?.email || "Not signed in"}
+            </ThemedText>
+          </View>
+          <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+          <Pressable
+            style={({ pressed }) => [styles.settingRow, pressed && { opacity: 0.7 }]}
+            onPress={handleLogout}
+          >
+            <View style={styles.settingInfo}>
+              <View style={[styles.settingIcon, { backgroundColor: theme.error + "20" }]}>
+                <Feather name="log-out" size={20} color={theme.error} />
+              </View>
+              <ThemedText style={[styles.settingText, { color: theme.error }]}>
+                Sign Out
+              </ThemedText>
+            </View>
+            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+          </Pressable>
         </View>
       </View>
     </ScrollView>
