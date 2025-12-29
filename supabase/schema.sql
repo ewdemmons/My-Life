@@ -33,10 +33,10 @@ CREATE TABLE IF NOT EXISTS tasks (
   type TEXT NOT NULL DEFAULT 'task',
   title TEXT NOT NULL,
   description TEXT,
-  is_completed BOOLEAN DEFAULT FALSE,
-  due_date TIMESTAMPTZ,
-  priority INTEGER DEFAULT 0,
-  sort_order INTEGER DEFAULT 0,
+  status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'in_progress', 'completed'
+  priority TEXT NOT NULL DEFAULT 'medium', -- 'low', 'medium', 'high'
+  order_index INTEGER DEFAULT 0,
+  assignee_ids UUID[],
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -46,17 +46,18 @@ CREATE TABLE IF NOT EXISTS events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   bubble_id UUID REFERENCES life_bubbles(id) ON DELETE SET NULL,
-  task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
-  type TEXT NOT NULL DEFAULT 'event',
+  linked_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
+  event_type TEXT NOT NULL DEFAULT 'reminder', -- 'reminder', 'appointment', 'meeting', 'due_date'
   title TEXT NOT NULL,
   description TEXT,
-  start_time TIMESTAMPTZ NOT NULL,
-  end_time TIMESTAMPTZ,
-  all_day BOOLEAN DEFAULT FALSE,
-  recurrence_rule TEXT,
-  recurrence_exception BOOLEAN DEFAULT FALSE,
-  series_id UUID,
-  location TEXT,
+  start_date TEXT NOT NULL, -- YYYY-MM-DD format
+  start_time TEXT NOT NULL, -- HH:MM format
+  end_date TEXT NOT NULL,
+  end_time TEXT NOT NULL,
+  recurrence TEXT NOT NULL DEFAULT 'none', -- 'none', 'daily', 'weekly', 'biweekly', 'monthly', 'yearly'
+  series_id TEXT,
+  is_exception BOOLEAN DEFAULT FALSE,
+  original_date TEXT,
   attendee_ids UUID[],
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -67,15 +68,24 @@ CREATE TABLE IF NOT EXISTS people (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  relationship TEXT,
+  relationship TEXT NOT NULL DEFAULT 'other', -- 'family', 'friend', 'colleague', 'pet', 'teammate', 'other'
   email TEXT,
   phone TEXT,
-  contact_info TEXT,
-  photo_url TEXT,
+  photo_uri TEXT,
   notes TEXT,
-  bubble_ids UUID[],
+  category_ids UUID[],
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- 6. RECYCLE BIN TABLE (soft-deleted items)
+CREATE TABLE IF NOT EXISTS recycle_bin (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  item_type TEXT NOT NULL, -- 'task', 'category', 'event', 'person'
+  item_data JSONB NOT NULL, -- Serialized original item data
+  related_items JSONB, -- Related tasks/children that were deleted together
+  deleted_at TIMESTAMPTZ DEFAULT NOW()
 );
 
 -- ============================================
@@ -154,6 +164,22 @@ CREATE POLICY "Users can update own people" ON people
 CREATE POLICY "Users can delete own people" ON people
   FOR DELETE USING (auth.uid() = user_id);
 
+-- Enable RLS on recycle_bin
+ALTER TABLE recycle_bin ENABLE ROW LEVEL SECURITY;
+
+-- RECYCLE_BIN policies
+CREATE POLICY "Users can view own recycle bin" ON recycle_bin
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own recycle bin" ON recycle_bin
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own recycle bin" ON recycle_bin
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own recycle bin" ON recycle_bin
+  FOR DELETE USING (auth.uid() = user_id);
+
 -- ============================================
 -- INDEXES for better query performance
 -- ============================================
@@ -165,6 +191,8 @@ CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
 CREATE INDEX IF NOT EXISTS idx_events_user_id ON events(user_id);
 CREATE INDEX IF NOT EXISTS idx_events_start_time ON events(start_time);
 CREATE INDEX IF NOT EXISTS idx_people_user_id ON people(user_id);
+CREATE INDEX IF NOT EXISTS idx_recycle_bin_user_id ON recycle_bin(user_id);
+CREATE INDEX IF NOT EXISTS idx_recycle_bin_deleted_at ON recycle_bin(deleted_at);
 
 -- ============================================
 -- TRIGGER: Auto-update updated_at timestamp

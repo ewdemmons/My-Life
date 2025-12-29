@@ -1,0 +1,34 @@
+Complete the Supabase migration for Tasks, Events, People, and Recycle Bin in "My Life".
+
+Current status:
+- Life Bubbles are fully on Supabase with user isolation and realtime.
+- Tasks, Events, People, and Recycle Bin are still using local storage — tables are empty or not fully populated in Supabase.
+
+Requirements:
+1. Switch all operations to Supabase:
+   - Tasks: supabase.from('tasks') with .eq('user_id', uid)
+   - Events: supabase.from('events') with .eq('user_id', uid)
+   - People: supabase.from('people') with .eq('user_id', uid)
+   - Recycle Bin: Use the existing recycle bin structure (likely a flag or separate table/collection) — migrate it to Supabase (e.g., add is_deleted boolean to relevant tables OR create a recycle_bin table with item_type, item_id, user_id, deleted_at)
+2. All creates/updates/deletes/soft-deletes: Use Supabase with correct user_id and foreign keys.
+3. Realtime: Add .on('INSERT/UPDATE/DELETE') listeners for each table (including recycle bin changes) to update UI instantly.
+4. One-time migration:
+   - On login, if local data exists for tasks/events/people/recycle bin, upload to Supabase (preserve IDs, relationships, deleted status).
+   - After successful upload, clear local copies.
+5. Remove all local storage references for these entities.
+6. Ensure hierarchies (parent_id), links (bubble_id, task_id), and recycle bin functionality (soft-delete, restore, permanent delete) are preserved.
+
+Plan step-by-step:
+1. Refactor task/event/people/recycle bin data hooks to Supabase queries.
+2. Add realtime subscriptions in relevant screens.
+3. Implement migration logic on login (handle recycle bin items).
+4. Clean up old local code.
+5. Test thoroughly with existing data.
+
+Demo:
+- Existing local tasks/events/people/recycle bin items → after login, appear in Supabase tables with correct user_id
+- Add new task/event/person → saves to Supabase, realtime update
+- Soft-delete item → moves to recycle bin in Supabase
+- Restore from recycle bin → back to active
+- Multi-account test: All data remains isolated
+- Check Supabase tables → fully populated correctly
