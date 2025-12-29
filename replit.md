@@ -151,6 +151,15 @@ client/
 - Default sample categories and tasks on first launch
 - Export and clear data options
 
+### Supabase Integration
+- **Backend**: Supabase configured as the cloud backend for future data sync
+- **Client**: `client/lib/supabase.ts` exports the initialized Supabase client
+- **Configuration**: Credentials stored in `app.json` under `expo.extra` section
+  - `supabaseUrl`: Supabase project URL
+  - `supabaseAnonKey`: Supabase anon (public) key
+- **Environment Variables**: Also available via EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY
+- **Note**: The anon key is a public key by design (safe to expose in client code); row-level security (RLS) on Supabase protects data
+
 ## Development
 
 ### Running the App
