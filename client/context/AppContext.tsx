@@ -1,34 +1,15 @@
-import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
-import { Alert, Platform } from "react-native";
+import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  deleteDoc, 
-  onSnapshot,
-  query,
-  writeBatch,
-  Unsubscribe
-} from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { useAuth } from "@/context/AuthContext";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
 import { CategoryColors } from "@/constants/theme";
 import { generateRecurringInstances } from "@/utils/recurrence";
 
-const showError = (message: string) => {
-  if (Platform.OS === "web") {
-    console.error(message);
-    window.alert(message);
-  } else {
-    Alert.alert("Error", message);
-  }
-};
-
+const CATEGORIES_KEY = "@mylife_categories";
+const TASKS_KEY = "@mylife_tasks";
+const EVENTS_KEY = "@mylife_events";
+const PEOPLE_KEY = "@mylife_people";
+const RECYCLE_BIN_KEY = "@mylife_recycle_bin";
 const RECYCLE_BIN_RETENTION_DAYS = 30;
-
-const getUserStorageKey = (userId: string, key: string) => `@mylife_${userId}_${key}`;
 
 interface AppContextType {
   categories: LifeCategory[];
@@ -66,38 +47,41 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const defaultCategories: Omit<LifeCategory, "id" | "createdAt">[] = [
-  { name: "Family", description: "Family time and relationships", color: CategoryColors[0], icon: "heart" },
-  { name: "Health", description: "Physical and mental wellness", color: CategoryColors[2], icon: "activity" },
-  { name: "Work", description: "Career and professional growth", color: CategoryColors[3], icon: "briefcase" },
-  { name: "Hobbies", description: "Fun activities and interests", color: CategoryColors[4], icon: "star" },
-  { name: "Finance", description: "Money and investments", color: CategoryColors[5], icon: "dollar-sign" },
-  { name: "Learning", description: "Education and skills", color: CategoryColors[6], icon: "book" },
+const defaultCategories: LifeCategory[] = [
+  { id: "1", name: "Family", description: "Family time and relationships", color: CategoryColors[0], icon: "heart", createdAt: Date.now() },
+  { id: "2", name: "Health", description: "Physical and mental wellness", color: CategoryColors[2], icon: "activity", createdAt: Date.now() },
+  { id: "3", name: "Work", description: "Career and professional growth", color: CategoryColors[3], icon: "briefcase", createdAt: Date.now() },
+  { id: "4", name: "Hobbies", description: "Fun activities and interests", color: CategoryColors[4], icon: "star", createdAt: Date.now() },
+  { id: "5", name: "Finance", description: "Money and investments", color: CategoryColors[5], icon: "dollar-sign", createdAt: Date.now() },
+  { id: "6", name: "Learning", description: "Education and skills", color: CategoryColors[6], icon: "book", createdAt: Date.now() },
+];
+
+const defaultTasks: Task[] = [
+  { id: "t1", title: "Call Mom", description: "Weekly check-in call", type: "task", categoryId: "1", parentId: null, priority: "high", status: "pending", createdAt: Date.now() },
+  { id: "t2", title: "Get Fit This Year", description: "Annual health and fitness goal", type: "goal", categoryId: "2", parentId: null, priority: "high", status: "in_progress", createdAt: Date.now() },
+  { id: "t2a", title: "Build Running Habit", description: "Run 3x per week", type: "objective", categoryId: "2", parentId: "t2", priority: "high", status: "in_progress", createdAt: Date.now() + 1 },
+  { id: "t2b", title: "Morning Jog Routine", description: "30 min run each session", type: "project", categoryId: "2", parentId: "t2a", priority: "medium", status: "in_progress", createdAt: Date.now() + 2 },
+  { id: "t2c", title: "Today's Run", description: "30 minute jog around the park", type: "task", categoryId: "2", parentId: "t2b", priority: "medium", status: "pending", createdAt: Date.now() + 3 },
+  { id: "t2d", title: "Warm up stretches", description: "5 min dynamic stretching", type: "subtask", categoryId: "2", parentId: "t2c", priority: "low", status: "pending", createdAt: Date.now() + 4 },
+  { id: "t3", title: "Q4 Business Review", description: "Quarterly review project", type: "project", categoryId: "3", parentId: null, priority: "high", status: "in_progress", createdAt: Date.now() },
+  { id: "t3a", title: "Prepare Slides", description: "Create presentation deck", type: "task", categoryId: "3", parentId: "t3", priority: "high", status: "pending", createdAt: Date.now() + 1 },
+  { id: "t3b", title: "Gather Sales Data", description: "Pull Q4 numbers from CRM", type: "subtask", categoryId: "3", parentId: "t3a", priority: "medium", status: "pending", createdAt: Date.now() + 2 },
+  { id: "t4", title: "New App Feature Ideas", description: "Brainstorm ideas for the mobile app", type: "list", categoryId: "3", parentId: null, priority: "low", status: "pending", createdAt: Date.now() },
+  { id: "t4a", title: "Dark mode improvements", description: "Better contrast ratios. See Apple guidelines: https://developer.apple.com/design/human-interface-guidelines/color", type: "idea", categoryId: "3", parentId: "t4", priority: "low", status: "pending", createdAt: Date.now() + 1 },
+  { id: "t4b", title: "Push notifications", description: "Task reminders", type: "idea", categoryId: "3", parentId: "t4", priority: "medium", status: "pending", createdAt: Date.now() + 2 },
+  { id: "t5", title: "Doctor Appointment", description: "Annual checkup", type: "appointment", categoryId: "2", parentId: null, priority: "high", status: "pending", createdAt: Date.now() },
 ];
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
-  const { user, isAuthenticated } = useAuth();
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  
-  const unsubscribesRef = useRef<Unsubscribe[]>([]);
-  const currentUserIdRef = useRef<string | null>(null);
 
-  const cleanupListeners = useCallback(() => {
-    unsubscribesRef.current.forEach(unsub => unsub());
-    unsubscribesRef.current = [];
-  }, []);
-
-  const clearLocalData = useCallback(() => {
-    setCategories([]);
-    setTasks([]);
-    setEvents([]);
-    setPeople([]);
-    setRecycleBin([]);
+  useEffect(() => {
+    loadData();
   }, []);
 
   const cleanupExpiredItems = (items: DeletedItem[]): DeletedItem[] => {
@@ -106,258 +90,104 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return items.filter((item) => item.deletedAt > cutoff);
   };
 
-  const getUserCollection = useCallback((collectionName: string) => {
-    if (!user?.uid) throw new Error("User not authenticated");
-    return collection(db, "users", user.uid, collectionName);
-  }, [user?.uid]);
-
-  const getUserDocRef = useCallback((collectionName: string, docId: string) => {
-    if (!user?.uid) throw new Error("User not authenticated");
-    return doc(db, "users", user.uid, collectionName, docId);
-  }, [user?.uid]);
-
-  const hasInitializedForUserRef = useRef<string | null>(null);
-
-  const createDefaultBubbles = useCallback(async (userId: string) => {
-    if (hasInitializedForUserRef.current === userId) {
-      console.log("Default bubbles already created for this user, skipping");
-      return;
-    }
-    
-    hasInitializedForUserRef.current = userId;
-    console.log("Creating default bubbles for new user");
-    
+  const loadData = async () => {
     try {
-      const batch = writeBatch(db);
-      const newCategories: LifeCategory[] = [];
+      const [categoriesData, tasksData, eventsData, peopleData, recycleBinData] = await Promise.all([
+        AsyncStorage.getItem(CATEGORIES_KEY),
+        AsyncStorage.getItem(TASKS_KEY),
+        AsyncStorage.getItem(EVENTS_KEY),
+        AsyncStorage.getItem(PEOPLE_KEY),
+        AsyncStorage.getItem(RECYCLE_BIN_KEY),
+      ]);
       
-      defaultCategories.forEach((cat, index) => {
-        const id = `default_${Date.now()}_${index}`;
-        const newCategory: LifeCategory = {
-          ...cat,
-          id,
-          createdAt: Date.now(),
-        };
-        newCategories.push(newCategory);
-        const docRef = doc(db, "users", userId, "bubbles", id);
-        batch.set(docRef, newCategory);
-      });
-
-      await batch.commit();
-      console.log("Default bubbles created successfully");
-    } catch (batchError) {
-      console.log("Failed to create default bubbles in Firestore:", batchError);
-      hasInitializedForUserRef.current = null;
-    }
-  }, []);
-
-  const loadUserData = useCallback(async (userId: string) => {
-    console.log("Loading data for user:", userId);
-    setIsLoading(true);
-    cleanupListeners();
-    currentUserIdRef.current = userId;
-
-    try {
-      const bubblesPath = `users/${userId}/bubbles`;
-      const tasksPath = `users/${userId}/tasks`;
-      const eventsPath = `users/${userId}/events`;
-      const peoplePath = `users/${userId}/people`;
+      if (categoriesData) {
+        setCategories(JSON.parse(categoriesData));
+      } else {
+        setCategories(defaultCategories);
+        await AsyncStorage.setItem(CATEGORIES_KEY, JSON.stringify(defaultCategories));
+      }
       
-      console.log(`Querying Firestore paths: ${bubblesPath}, ${tasksPath}, ${eventsPath}, ${peoplePath}`);
-      
-      const categoriesCol = collection(db, "users", userId, "bubbles");
-      const tasksCol = collection(db, "users", userId, "tasks");
-      const eventsCol = collection(db, "users", userId, "events");
-      const peopleCol = collection(db, "users", userId, "people");
+      if (tasksData) {
+        const parsed = JSON.parse(tasksData);
+        const migrated = parsed.map((task: any) => {
+          const { dueDate, ...rest } = task;
+          return {
+            ...rest,
+            type: task.type || "task",
+          };
+        });
+        setTasks(migrated);
+        await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(migrated));
+      } else {
+        setTasks(defaultTasks);
+        await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(defaultTasks));
+      }
 
-      const recycleBinKey = getUserStorageKey(userId, "recycle_bin");
-      const recycleBinData = await AsyncStorage.getItem(recycleBinKey);
+      if (eventsData) {
+        setEvents(JSON.parse(eventsData));
+      }
+
+      if (peopleData) {
+        setPeople(JSON.parse(peopleData));
+      }
+
       if (recycleBinData) {
         const parsed = JSON.parse(recycleBinData);
         const cleaned = cleanupExpiredItems(parsed);
         setRecycleBin(cleaned);
         if (cleaned.length !== parsed.length) {
-          await AsyncStorage.setItem(recycleBinKey, JSON.stringify(cleaned));
+          await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(cleaned));
         }
-      } else {
-        setRecycleBin([]);
       }
-
-      console.log(`Setting up real-time listeners for user: ${userId}`);
-      
-      let hasReceivedServerData = false;
-      
-      const unsubCategories = onSnapshot(
-        query(categoriesCol), 
-        async (snapshot) => {
-          if (currentUserIdRef.current !== userId) return;
-          
-          const fromCache = snapshot.metadata.fromCache;
-          const hasPendingWrites = snapshot.metadata.hasPendingWrites;
-          
-          console.log(`Firestore snapshot for bubbles: ${snapshot.docs.length} docs (fromCache: ${fromCache}, pending: ${hasPendingWrites})`);
-          
-          const cats = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as LifeCategory));
-          
-          if (cats.length > 0) {
-            hasInitializedForUserRef.current = userId;
-            setCategories(cats);
-            hasReceivedServerData = true;
-            setIsLoading(false);
-          } else if (!fromCache && !hasReceivedServerData) {
-            console.log("Server confirms 0 bubbles - new user, creating defaults");
-            await createDefaultBubbles(userId);
-            hasReceivedServerData = true;
-            setIsLoading(false);
-          } else if (fromCache && !hasReceivedServerData) {
-            console.log("Received empty cache, waiting for server data...");
-          }
-        },
-        (error) => {
-          console.log(`Firestore listener error (bubbles): ${error.code} - ${error.message}`);
-          showError(`Unable to load data. Please check your connection.`);
-          setIsLoading(false);
-        }
-      );
-
-      const unsubTasks = onSnapshot(
-        query(tasksCol), 
-        (snapshot) => {
-          if (currentUserIdRef.current !== userId) return;
-          console.log(`Firestore snapshot received for tasks: ${snapshot.docs.length} docs`);
-          const t = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Task));
-          setTasks(t);
-        },
-        (error) => {
-          console.log(`Firestore listener error (tasks): ${error.code} - ${error.message}`);
-        }
-      );
-
-      const unsubEvents = onSnapshot(
-        query(eventsCol), 
-        (snapshot) => {
-          if (currentUserIdRef.current !== userId) return;
-          console.log(`Firestore snapshot received for events: ${snapshot.docs.length} docs`);
-          const e = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as CalendarEvent));
-          setEvents(e);
-        },
-        (error) => {
-          console.log(`Firestore listener error (events): ${error.code} - ${error.message}`);
-        }
-      );
-
-      const unsubPeople = onSnapshot(
-        query(peopleCol), 
-        (snapshot) => {
-          if (currentUserIdRef.current !== userId) return;
-          console.log(`Firestore snapshot received for people: ${snapshot.docs.length} docs`);
-          const p = snapshot.docs.map(d => ({ id: d.id, ...d.data() } as Person));
-          setPeople(p);
-        },
-        (error) => {
-          console.log(`Firestore listener error (people): ${error.code} - ${error.message}`);
-        }
-      );
-
-      unsubscribesRef.current = [unsubCategories, unsubTasks, unsubEvents, unsubPeople];
-
     } catch (error) {
-      console.error("Error loading user data:", error);
+      console.error("Error loading data:", error);
+      setCategories(defaultCategories);
+      setTasks(defaultTasks);
+    } finally {
       setIsLoading(false);
     }
-  }, [cleanupListeners, createDefaultBubbles]);
+  };
 
-  const clearUserData = useCallback(async () => {
-    console.log("Clearing user data on logout");
-    cleanupListeners();
-    currentUserIdRef.current = null;
-    hasInitializedForUserRef.current = null;
-    clearLocalData();
-    setIsLoading(false);
-  }, [cleanupListeners, clearLocalData]);
+  const saveCategories = async (newCategories: LifeCategory[]) => {
+    await AsyncStorage.setItem(CATEGORIES_KEY, JSON.stringify(newCategories));
+  };
 
-  useEffect(() => {
-    if (isAuthenticated && user?.uid) {
-      if (currentUserIdRef.current !== user.uid) {
-        loadUserData(user.uid);
-      }
-    } else {
-      if (currentUserIdRef.current !== null) {
-        clearUserData();
-      } else {
-        setIsLoading(false);
-      }
-    }
-
-    return () => {
-      cleanupListeners();
-    };
-  }, [isAuthenticated, user?.uid, loadUserData, clearUserData, cleanupListeners]);
+  const saveTasks = async (newTasks: Task[]) => {
+    await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(newTasks));
+  };
 
   const saveRecycleBin = async (items: DeletedItem[]) => {
-    if (!user?.uid) return;
-    const key = getUserStorageKey(user.uid, "recycle_bin");
-    await AsyncStorage.setItem(key, JSON.stringify(items));
+    await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(items));
+  };
+
+  const saveEvents = async (newEvents: CalendarEvent[]) => {
+    await AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(newEvents));
+  };
+
+  const savePeople = async (newPeople: Person[]) => {
+    await AsyncStorage.setItem(PEOPLE_KEY, JSON.stringify(newPeople));
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
-    if (!user?.uid) {
-      showError("You must be signed in to add a category.");
-      return;
-    }
-    
-    const id = Date.now().toString();
     const newCategory: LifeCategory = {
       ...category,
-      id,
+      id: Date.now().toString(),
       createdAt: Date.now(),
     };
-    
-    // Optimistic update first - update local state immediately
-    console.log("addCategory: Adding to local state first (optimistic)", id);
-    setCategories(prev => [...prev, newCategory]);
-    
-    try {
-      const docRef = getUserDocRef("bubbles", id);
-      console.log("addCategory: Writing to Firestore...");
-      await setDoc(docRef, newCategory);
-      console.log("addCategory: Firestore write complete");
-    } catch (error: any) {
-      console.error("Error adding category:", error);
-      // Rollback optimistic update on failure
-      setCategories(prev => prev.filter(c => c.id !== id));
-      showError("Failed to save category. Please check your internet connection and Firestore settings.");
-    }
-  }, [user?.uid, getUserDocRef]);
+    const updated = [...categories, newCategory];
+    setCategories(updated);
+    await saveCategories(updated);
+  }, [categories]);
 
   const updateCategory = useCallback(async (id: string, updates: Partial<LifeCategory>) => {
-    if (!user?.uid) return;
-    
-    const category = categories.find(c => c.id === id);
-    if (!category) return;
-    
-    const originalCategory = { ...category };
-    
-    // Optimistic update first
-    console.log("updateCategory: Updating local state first (optimistic)", id);
-    setCategories(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
-    
-    try {
-      const docRef = getUserDocRef("bubbles", id);
-      console.log("updateCategory: Writing to Firestore...");
-      await setDoc(docRef, { ...category, ...updates }, { merge: true });
-      console.log("updateCategory: Firestore write complete");
-    } catch (error: any) {
-      console.error("Error updating category:", error);
-      // Rollback optimistic update on failure
-      setCategories(prev => prev.map(c => c.id === id ? originalCategory : c));
-      showError("Failed to update category. Please try again.");
-    }
-  }, [user?.uid, categories, getUserDocRef]);
+    const updated = categories.map((cat) =>
+      cat.id === id ? { ...cat, ...updates } : cat
+    );
+    setCategories(updated);
+    await saveCategories(updated);
+  }, [categories]);
 
   const deleteCategory = useCallback(async (id: string) => {
-    if (!user?.uid) return;
-    
     const categoryToDelete = categories.find((cat) => cat.id === id);
     if (!categoryToDelete) return;
 
@@ -371,79 +201,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deletedAt: Date.now(),
     };
 
-    const batch = writeBatch(db);
-    
-    batch.delete(getUserDocRef("bubbles", id));
-    
-    relatedTasks.forEach(task => {
-      batch.delete(getUserDocRef("tasks", task.id));
-    });
-
-    await batch.commit();
-
+    const updatedCategories = categories.filter((cat) => cat.id !== id);
+    const updatedTasks = tasks.filter((task) => task.categoryId !== id);
     const updatedRecycleBin = [...recycleBin, deletedItem];
+
+    setCategories(updatedCategories);
+    setTasks(updatedTasks);
     setRecycleBin(updatedRecycleBin);
-    await saveRecycleBin(updatedRecycleBin);
-  }, [user?.uid, categories, tasks, recycleBin, getUserDocRef]);
+
+    await Promise.all([
+      saveCategories(updatedCategories),
+      saveTasks(updatedTasks),
+      saveRecycleBin(updatedRecycleBin),
+    ]);
+  }, [categories, tasks, recycleBin]);
 
   const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">) => {
-    if (!user?.uid) {
-      showError("You must be signed in to add a task.");
-      return;
-    }
-    
-    const id = Date.now().toString();
     const newTask: Task = {
       ...task,
-      id,
+      id: Date.now().toString(),
       createdAt: Date.now(),
     };
-    
-    // Optimistic update first
-    console.log("addTask: Adding to local state first (optimistic)", id);
-    setTasks(prev => [...prev, newTask]);
-    
-    try {
-      const docRef = getUserDocRef("tasks", id);
-      console.log("addTask: Writing to Firestore...");
-      await setDoc(docRef, newTask);
-      console.log("addTask: Firestore write complete");
-    } catch (error: any) {
-      console.error("Error adding task:", error);
-      // Rollback optimistic update on failure
-      setTasks(prev => prev.filter(t => t.id !== id));
-      showError("Failed to save task. Please try again.");
-    }
-  }, [user?.uid, getUserDocRef]);
+    const updated = [...tasks, newTask];
+    setTasks(updated);
+    await saveTasks(updated);
+  }, [tasks]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
-    if (!user?.uid) return;
-    
-    const task = tasks.find(t => t.id === id);
-    if (!task) return;
-    
-    const originalTask = { ...task };
-    
-    // Optimistic update first
-    console.log("updateTask: Updating local state first (optimistic)", id);
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t));
-    
-    try {
-      const docRef = getUserDocRef("tasks", id);
-      console.log("updateTask: Writing to Firestore...");
-      await setDoc(docRef, { ...task, ...updates }, { merge: true });
-      console.log("updateTask: Firestore write complete");
-    } catch (error: any) {
-      console.error("Error updating task:", error);
-      // Rollback optimistic update on failure
-      setTasks(prev => prev.map(t => t.id === id ? originalTask : t));
-      showError("Failed to update task. Please try again.");
-    }
-  }, [user?.uid, tasks, getUserDocRef]);
+    const updated = tasks.map((task) =>
+      task.id === id ? { ...task, ...updates } : task
+    );
+    setTasks(updated);
+    await saveTasks(updated);
+  }, [tasks]);
 
   const deleteTask = useCallback(async (id: string) => {
-    if (!user?.uid) return;
-    
     const taskToDelete = tasks.find((t) => t.id === id);
     if (!taskToDelete) return;
 
@@ -454,6 +246,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const descendants = getDescendants(id);
     const allDeletedTasks = [taskToDelete, ...descendants];
+    const idsToDelete = allDeletedTasks.map((t) => t.id);
 
     const deletedItem: DeletedItem = {
       id: Date.now().toString(),
@@ -463,36 +256,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       deletedAt: Date.now(),
     };
 
-    const batch = writeBatch(db);
-    allDeletedTasks.forEach(task => {
-      batch.delete(getUserDocRef("tasks", task.id));
-    });
-    await batch.commit();
-
+    const updatedTasks = tasks.filter((task) => !idsToDelete.includes(task.id));
     const updatedRecycleBin = [...recycleBin, deletedItem];
+
+    setTasks(updatedTasks);
     setRecycleBin(updatedRecycleBin);
-    await saveRecycleBin(updatedRecycleBin);
-  }, [user?.uid, tasks, recycleBin, getUserDocRef]);
+
+    await Promise.all([
+      saveTasks(updatedTasks),
+      saveRecycleBin(updatedRecycleBin),
+    ]);
+  }, [tasks, recycleBin]);
 
   const reorderTasks = useCallback(async (taskIds: string[], parentId: string | null) => {
-    if (!user?.uid) return;
-    
-    const batch = writeBatch(db);
-    
-    taskIds.forEach((taskId, index) => {
-      const task = tasks.find(t => t.id === taskId);
-      if (task && task.parentId === parentId) {
-        const docRef = getUserDocRef("tasks", taskId);
-        batch.update(docRef, { orderIndex: index });
+    const updated = tasks.map((task) => {
+      const index = taskIds.indexOf(task.id);
+      if (index !== -1 && task.parentId === parentId) {
+        return { ...task, orderIndex: index };
       }
+      return task;
     });
-    
-    await batch.commit();
-  }, [user?.uid, tasks, getUserDocRef]);
+    setTasks(updated);
+    await saveTasks(updated);
+  }, [tasks]);
 
   const moveTaskToParent = useCallback(async (taskId: string, newParentId: string | null, newCategoryId?: string) => {
-    if (!user?.uid) return;
-    
     const taskToMove = tasks.find((t) => t.id === taskId);
     if (!taskToMove) return;
 
@@ -504,51 +292,56 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const categoryId = newCategoryId || (newParentId ? tasks.find((t) => t.id === newParentId)?.categoryId : taskToMove.categoryId) || taskToMove.categoryId;
 
-    const batch = writeBatch(db);
-    
-    const taskDocRef = getUserDocRef("tasks", taskId);
-    batch.update(taskDocRef, { parentId: newParentId, categoryId, orderIndex: Date.now() });
-    
-    descendants.forEach(desc => {
-      const descDocRef = getUserDocRef("tasks", desc.id);
-      batch.update(descDocRef, { categoryId });
+    const updated = tasks.map((task) => {
+      if (task.id === taskId) {
+        return { ...task, parentId: newParentId, categoryId, orderIndex: Date.now() };
+      }
+      if (descendants.find((d) => d.id === task.id)) {
+        return { ...task, categoryId };
+      }
+      return task;
     });
-    
-    await batch.commit();
-  }, [user?.uid, tasks, getUserDocRef]);
+    setTasks(updated);
+    await saveTasks(updated);
+  }, [tasks]);
 
   const restoreFromRecycleBin = useCallback(async (id: string) => {
-    if (!user?.uid) return;
-    
     const item = recycleBin.find((i) => i.id === id);
     if (!item) return;
-
-    const batch = writeBatch(db);
 
     if (item.type === "category") {
       const category = item.data as LifeCategory;
       const relatedTasks = item.relatedTasks || [];
       
-      batch.set(getUserDocRef("bubbles", category.id), category);
-      relatedTasks.forEach(task => {
-        batch.set(getUserDocRef("tasks", task.id), task);
-      });
+      const updatedCategories = [...categories, category];
+      const updatedTasks = [...tasks, ...relatedTasks];
+      const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
+
+      setCategories(updatedCategories);
+      setTasks(updatedTasks);
+      setRecycleBin(updatedRecycleBin);
+
+      await Promise.all([
+        saveCategories(updatedCategories),
+        saveTasks(updatedTasks),
+        saveRecycleBin(updatedRecycleBin),
+      ]);
     } else {
       const task = item.data as Task;
       const relatedTasks = item.relatedTasks || [];
       
-      batch.set(getUserDocRef("tasks", task.id), task);
-      relatedTasks.forEach(t => {
-        batch.set(getUserDocRef("tasks", t.id), t);
-      });
+      const updatedTasks = [...tasks, task, ...relatedTasks];
+      const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
+
+      setTasks(updatedTasks);
+      setRecycleBin(updatedRecycleBin);
+
+      await Promise.all([
+        saveTasks(updatedTasks),
+        saveRecycleBin(updatedRecycleBin),
+      ]);
     }
-
-    await batch.commit();
-
-    const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
-    setRecycleBin(updatedRecycleBin);
-    await saveRecycleBin(updatedRecycleBin);
-  }, [user?.uid, recycleBin, getUserDocRef]);
+  }, [categories, tasks, recycleBin]);
 
   const permanentlyDelete = useCallback(async (id: string) => {
     const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
@@ -567,149 +360,96 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
-    if (!user?.uid) return;
-    
     const baseTimestamp = Date.now();
     
     if (event.recurrence && event.recurrence !== "none") {
       const seriesId = baseTimestamp.toString();
       const instances = generateRecurringInstances(event, seriesId);
       
-      const newEvents: CalendarEvent[] = [];
-      instances.forEach((instance, index) => {
-        const id = (baseTimestamp + index).toString();
-        const newEvent: CalendarEvent = {
-          ...instance,
-          id,
-          createdAt: baseTimestamp,
-        };
-        newEvents.push(newEvent);
-      });
+      const newEvents: CalendarEvent[] = instances.map((instance, index) => ({
+        ...instance,
+        id: (baseTimestamp + index).toString(),
+        createdAt: baseTimestamp,
+      }));
       
-      // Optimistic update first
-      console.log("addEvent (recurring): Adding to local state first (optimistic)");
-      setEvents(prev => [...prev, ...newEvents]);
-      
-      try {
-        const batch = writeBatch(db);
-        newEvents.forEach(evt => {
-          batch.set(getUserDocRef("events", evt.id), evt);
-        });
-        console.log("addEvent (recurring): Writing to Firestore...");
-        await batch.commit();
-        console.log("addEvent (recurring): Firestore write complete");
-      } catch (error: any) {
-        console.error("Error adding recurring events:", error);
-        // Rollback
-        const idsToRemove = newEvents.map(e => e.id);
-        setEvents(prev => prev.filter(e => !idsToRemove.includes(e.id)));
-        showError("Failed to save event. Please try again.");
-      }
+      const updated = [...events, ...newEvents];
+      setEvents(updated);
+      await saveEvents(updated);
     } else {
-      const id = baseTimestamp.toString();
       const newEvent: CalendarEvent = {
         ...event,
-        id,
+        id: baseTimestamp.toString(),
         createdAt: baseTimestamp,
         seriesId: null,
       };
-      
-      // Optimistic update first
-      console.log("addEvent: Adding to local state first (optimistic)", id);
-      setEvents(prev => [...prev, newEvent]);
-      
-      try {
-        const docRef = getUserDocRef("events", id);
-        console.log("addEvent: Writing to Firestore...");
-        await setDoc(docRef, newEvent);
-        console.log("addEvent: Firestore write complete");
-      } catch (error: any) {
-        console.error("Error adding event:", error);
-        // Rollback
-        setEvents(prev => prev.filter(e => e.id !== id));
-        showError("Failed to save event. Please try again.");
-      }
+      const updated = [...events, newEvent];
+      setEvents(updated);
+      await saveEvents(updated);
     }
-  }, [user?.uid, getUserDocRef]);
+  }, [events]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
-    if (!user?.uid) return;
-    
-    const event = events.find(e => e.id === id);
-    if (!event) return;
-    
-    const originalEvent = { ...event };
-    
-    // Optimistic update first
-    console.log("updateEvent: Updating local state first (optimistic)", id);
-    setEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
-    
-    try {
-      const docRef = getUserDocRef("events", id);
-      console.log("updateEvent: Writing to Firestore...");
-      await setDoc(docRef, { ...event, ...updates }, { merge: true });
-      console.log("updateEvent: Firestore write complete");
-    } catch (error: any) {
-      console.error("Error updating event:", error);
-      // Rollback
-      setEvents(prev => prev.map(e => e.id === id ? originalEvent : e));
-      showError("Failed to update event. Please try again.");
-    }
-  }, [user?.uid, events, getUserDocRef]);
+    const updated = events.map((event) =>
+      event.id === id ? { ...event, ...updates } : event
+    );
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
 
   const deleteEvent = useCallback(async (id: string) => {
-    if (!user?.uid) return;
-    
-    const docRef = getUserDocRef("events", id);
-    await deleteDoc(docRef);
-  }, [user?.uid, getUserDocRef]);
+    const updated = events.filter((event) => event.id !== id);
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>) => {
-    if (!user?.uid) return;
-    
     const seriesEvents = events.filter(e => e.seriesId === seriesId && !e.isException);
     if (seriesEvents.length === 0) return;
     
     const firstEvent = seriesEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
     
-    const batch = writeBatch(db);
-    
-    seriesEvents.forEach(event => {
-      const eventUpdates = { ...updates };
-      
-      if (updates.startDate !== undefined && event.id !== firstEvent.id) {
-        delete eventUpdates.startDate;
-        delete eventUpdates.endDate;
+    const updated = events.map((event) => {
+      if (event.seriesId === seriesId && !event.isException) {
+        const eventUpdates = { ...updates };
+        
+        if (updates.startTime !== undefined) {
+          eventUpdates.startTime = updates.startTime;
+        }
+        if (updates.endTime !== undefined) {
+          eventUpdates.endTime = updates.endTime;
+        }
+        
+        if (updates.startDate !== undefined && event.id === firstEvent.id) {
+          eventUpdates.startDate = updates.startDate;
+          if (updates.endDate !== undefined) {
+            eventUpdates.endDate = updates.endDate;
+          }
+        } else {
+          delete eventUpdates.startDate;
+          delete eventUpdates.endDate;
+        }
+        
+        return { ...event, ...eventUpdates };
       }
-      
-      const docRef = getUserDocRef("events", event.id);
-      batch.update(docRef, eventUpdates);
+      return event;
     });
-    
-    await batch.commit();
-  }, [user?.uid, events, getUserDocRef]);
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
 
   const deleteEventSeries = useCallback(async (seriesId: string) => {
-    if (!user?.uid) return;
-    
-    const seriesEvents = events.filter(e => e.seriesId === seriesId);
-    
-    const batch = writeBatch(db);
-    seriesEvents.forEach(event => {
-      batch.delete(getUserDocRef("events", event.id));
-    });
-    await batch.commit();
-  }, [user?.uid, events, getUserDocRef]);
+    const updated = events.filter((event) => event.seriesId !== seriesId);
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
 
   const updateEventInstance = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
-    if (!user?.uid) return;
-    
-    const event = events.find(e => e.id === id);
-    if (!event) return;
-    
-    const docRef = getUserDocRef("events", id);
-    await setDoc(docRef, { ...event, ...updates, isException: true }, { merge: true });
-  }, [user?.uid, events, getUserDocRef]);
+    const updated = events.map((event) =>
+      event.id === id ? { ...event, ...updates, isException: true } : event
+    );
+    setEvents(updated);
+    await saveEvents(updated);
+  }, [events]);
 
   const getEventsByDate = useCallback(
     (date: string) => events.filter((event) => event.startDate === date),
@@ -727,110 +467,88 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   );
 
   const addPerson = useCallback(async (person: Omit<Person, "id" | "createdAt">) => {
-    if (!user?.uid) return;
-    
-    const id = Date.now().toString();
     const newPerson: Person = {
       ...person,
-      id,
+      id: Date.now().toString(),
       createdAt: Date.now(),
     };
-    
-    // Optimistic update first
-    console.log("addPerson: Adding to local state first (optimistic)", id);
-    setPeople(prev => [...prev, newPerson]);
-    
-    try {
-      const docRef = getUserDocRef("people", id);
-      console.log("addPerson: Writing to Firestore...");
-      await setDoc(docRef, newPerson);
-      console.log("addPerson: Firestore write complete");
+    const updatedPeople = [...people, newPerson];
+    setPeople(updatedPeople);
+    await savePeople(updatedPeople);
 
-      if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
-        const batch = writeBatch(db);
-        categories.forEach(category => {
-          if (newPerson.categoryIds!.includes(category.id)) {
-            const existingPeopleIds = category.peopleIds || [];
-            if (!existingPeopleIds.includes(newPerson.id)) {
-              const catDocRef = getUserDocRef("bubbles", category.id);
-              batch.update(catDocRef, { peopleIds: [...existingPeopleIds, newPerson.id] });
-            }
+    if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
+      const updatedCategories = categories.map((category) => {
+        if (newPerson.categoryIds!.includes(category.id)) {
+          const existingPeopleIds = category.peopleIds || [];
+          if (!existingPeopleIds.includes(newPerson.id)) {
+            return { ...category, peopleIds: [...existingPeopleIds, newPerson.id] };
           }
-        });
-        await batch.commit();
-      }
-    } catch (error: any) {
-      console.error("Error adding person:", error);
-      // Rollback
-      setPeople(prev => prev.filter(p => p.id !== id));
-      showError("Failed to save person. Please try again.");
+        }
+        return category;
+      });
+      setCategories(updatedCategories);
+      await saveCategories(updatedCategories);
     }
-  }, [user?.uid, categories, getUserDocRef]);
+  }, [people, categories]);
 
   const updatePerson = useCallback(async (id: string, updates: Partial<Person>) => {
-    if (!user?.uid) return;
-    
     const existingPerson = people.find((p) => p.id === id);
-    if (!existingPerson) return;
-    
-    const oldCategoryIds = existingPerson.categoryIds || [];
+    const oldCategoryIds = existingPerson?.categoryIds || [];
     const newCategoryIds = updates.categoryIds !== undefined ? updates.categoryIds : oldCategoryIds;
 
-    const docRef = getUserDocRef("people", id);
-    await setDoc(docRef, { ...existingPerson, ...updates }, { merge: true });
+    const updated = people.map((person) =>
+      person.id === id ? { ...person, ...updates } : person
+    );
+    setPeople(updated);
+    await savePeople(updated);
 
     if (updates.categoryIds !== undefined) {
       const addedCategories = newCategoryIds.filter((cid) => !oldCategoryIds.includes(cid));
       const removedCategories = oldCategoryIds.filter((cid) => !newCategoryIds.includes(cid));
 
       if (addedCategories.length > 0 || removedCategories.length > 0) {
-        const batch = writeBatch(db);
-        categories.forEach(category => {
+        const updatedCategories = categories.map((category) => {
           const existingPeopleIds = category.peopleIds || [];
           if (addedCategories.includes(category.id) && !existingPeopleIds.includes(id)) {
-            const catDocRef = getUserDocRef("bubbles", category.id);
-            batch.update(catDocRef, { peopleIds: [...existingPeopleIds, id] });
+            return { ...category, peopleIds: [...existingPeopleIds, id] };
           }
           if (removedCategories.includes(category.id)) {
-            const catDocRef = getUserDocRef("bubbles", category.id);
-            batch.update(catDocRef, { peopleIds: existingPeopleIds.filter((pid) => pid !== id) });
+            return { ...category, peopleIds: existingPeopleIds.filter((pid) => pid !== id) };
           }
+          return category;
         });
-        await batch.commit();
+        setCategories(updatedCategories);
+        await saveCategories(updatedCategories);
       }
     }
-  }, [user?.uid, people, categories, getUserDocRef]);
+  }, [people, categories]);
 
   const deletePerson = useCallback(async (id: string) => {
-    if (!user?.uid) return;
+    const updatedPeople = people.filter((person) => person.id !== id);
+    setPeople(updatedPeople);
+    await savePeople(updatedPeople);
     
-    await deleteDoc(getUserDocRef("people", id));
+    const updatedCategories = categories.map((category) => ({
+      ...category,
+      peopleIds: category.peopleIds?.filter((pid) => pid !== id),
+    }));
+    setCategories(updatedCategories);
+    await saveCategories(updatedCategories);
     
-    const batch = writeBatch(db);
+    const updatedTasks = tasks.map((task) => ({
+      ...task,
+      assigneeIds: task.assigneeIds?.filter((pid) => pid !== id),
+    }));
+    setTasks(updatedTasks);
+    await saveTasks(updatedTasks);
     
-    categories.forEach(category => {
-      if (category.peopleIds?.includes(id)) {
-        const catDocRef = getUserDocRef("bubbles", category.id);
-        batch.update(catDocRef, { peopleIds: category.peopleIds.filter(pid => pid !== id) });
-      }
-    });
-    
-    tasks.forEach(task => {
-      if (task.assigneeIds?.includes(id)) {
-        const taskDocRef = getUserDocRef("tasks", task.id);
-        batch.update(taskDocRef, { assigneeIds: task.assigneeIds.filter(pid => pid !== id) });
-      }
-    });
-    
-    events.forEach(event => {
-      if (event.attendeeIds?.includes(id)) {
-        const eventDocRef = getUserDocRef("events", event.id);
-        batch.update(eventDocRef, { attendeeIds: event.attendeeIds.filter(pid => pid !== id) });
-      }
-    });
-    
-    await batch.commit();
-  }, [user?.uid, categories, tasks, events, getUserDocRef]);
+    const updatedEvents = events.map((event) => ({
+      ...event,
+      attendeeIds: event.attendeeIds?.filter((pid) => pid !== id),
+    }));
+    setEvents(updatedEvents);
+    await saveEvents(updatedEvents);
+  }, [people, categories, tasks, events]);
 
   const getPersonById = useCallback(
     (id: string) => people.find((person) => person.id === id),
@@ -880,8 +598,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 export function useApp() {
   const context = useContext(AppContext);
-  if (context === undefined) {
-    throw new Error("useApp must be used within an AppProvider");
+  if (!context) {
+    throw new Error("useApp must be used within AppProvider");
   }
   return context;
 }
