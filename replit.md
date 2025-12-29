@@ -147,9 +147,11 @@ client/
 - **Defensive handling**: Missing person IDs are gracefully ignored in UI
 
 ### Data Persistence
-- All data stored locally with AsyncStorage
-- Default sample categories and tasks on first launch
-- Export and clear data options
+- **Categories (Life Bubbles)**: Stored in Supabase with user isolation (RLS enforced)
+- **Tasks, Events, People**: Stored in AsyncStorage with user ID prefix for isolation
+- Realtime subscription for life_bubbles table keeps UI in sync
+- Default sample categories created on first login via Supabase
+- Export and clear data options in Profile screen
 
 ### Supabase Integration
 - **Backend**: Supabase configured as the cloud backend for future data sync

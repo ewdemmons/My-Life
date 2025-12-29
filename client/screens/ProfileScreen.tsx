@@ -19,7 +19,7 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
-  const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin } = useApp();
+  const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin, clearAllData } = useApp();
   const { user, signOut } = useAuth();
 
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
@@ -37,15 +37,15 @@ export default function ProfileScreen() {
   const handleClearData = () => {
     Alert.alert(
       "Clear All Data",
-      "Are you sure you want to delete all your categories and tasks? This cannot be undone.",
+      "Are you sure you want to delete all your tasks and events? Categories are stored in the cloud. This cannot be undone.",
       [
         { text: "Cancel", style: "cancel" },
         {
           text: "Clear All",
           style: "destructive",
           onPress: async () => {
-            await AsyncStorage.multiRemove(["@mylife_categories", "@mylife_tasks", "@mylife_recycle_bin"]);
-            Alert.alert("Done", "All data has been cleared. Please restart the app.");
+            await clearAllData();
+            Alert.alert("Done", "All local data has been cleared.");
           },
         },
       ]

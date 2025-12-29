@@ -1,10 +1,11 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from "react";
+import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
-import { CategoryColors } from "@/constants/theme";
 import { generateRecurringInstances } from "@/utils/recurrence";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "./AuthContext";
+import { DEFAULT_BUBBLES } from "@/lib/defaultBubbles";
 
-const CATEGORIES_KEY = "@mylife_categories";
 const TASKS_KEY = "@mylife_tasks";
 const EVENTS_KEY = "@mylife_events";
 const PEOPLE_KEY = "@mylife_people";
@@ -43,46 +44,106 @@ interface AppContextType {
   restoreFromRecycleBin: (id: string) => Promise<void>;
   permanentlyDelete: (id: string) => Promise<void>;
   emptyRecycleBin: () => Promise<void>;
+  clearAllData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-const defaultCategories: LifeCategory[] = [
-  { id: "1", name: "Family", description: "Family time and relationships", color: CategoryColors[0], icon: "heart", createdAt: Date.now() },
-  { id: "2", name: "Health", description: "Physical and mental wellness", color: CategoryColors[2], icon: "activity", createdAt: Date.now() },
-  { id: "3", name: "Work", description: "Career and professional growth", color: CategoryColors[3], icon: "briefcase", createdAt: Date.now() },
-  { id: "4", name: "Hobbies", description: "Fun activities and interests", color: CategoryColors[4], icon: "star", createdAt: Date.now() },
-  { id: "5", name: "Finance", description: "Money and investments", color: CategoryColors[5], icon: "dollar-sign", createdAt: Date.now() },
-  { id: "6", name: "Learning", description: "Education and skills", color: CategoryColors[6], icon: "book", createdAt: Date.now() },
-];
+function mapSupabaseBubbleToCategory(bubble: any): LifeCategory {
+  return {
+    id: bubble.id,
+    name: bubble.name,
+    description: bubble.description || "",
+    color: bubble.color,
+    icon: bubble.icon,
+    createdAt: new Date(bubble.created_at).getTime(),
+    peopleIds: bubble.people_ids || [],
+  };
+}
 
-const defaultTasks: Task[] = [
-  { id: "t1", title: "Call Mom", description: "Weekly check-in call", type: "task", categoryId: "1", parentId: null, priority: "high", status: "pending", createdAt: Date.now() },
-  { id: "t2", title: "Get Fit This Year", description: "Annual health and fitness goal", type: "goal", categoryId: "2", parentId: null, priority: "high", status: "in_progress", createdAt: Date.now() },
-  { id: "t2a", title: "Build Running Habit", description: "Run 3x per week", type: "objective", categoryId: "2", parentId: "t2", priority: "high", status: "in_progress", createdAt: Date.now() + 1 },
-  { id: "t2b", title: "Morning Jog Routine", description: "30 min run each session", type: "project", categoryId: "2", parentId: "t2a", priority: "medium", status: "in_progress", createdAt: Date.now() + 2 },
-  { id: "t2c", title: "Today's Run", description: "30 minute jog around the park", type: "task", categoryId: "2", parentId: "t2b", priority: "medium", status: "pending", createdAt: Date.now() + 3 },
-  { id: "t2d", title: "Warm up stretches", description: "5 min dynamic stretching", type: "subtask", categoryId: "2", parentId: "t2c", priority: "low", status: "pending", createdAt: Date.now() + 4 },
-  { id: "t3", title: "Q4 Business Review", description: "Quarterly review project", type: "project", categoryId: "3", parentId: null, priority: "high", status: "in_progress", createdAt: Date.now() },
-  { id: "t3a", title: "Prepare Slides", description: "Create presentation deck", type: "task", categoryId: "3", parentId: "t3", priority: "high", status: "pending", createdAt: Date.now() + 1 },
-  { id: "t3b", title: "Gather Sales Data", description: "Pull Q4 numbers from CRM", type: "subtask", categoryId: "3", parentId: "t3a", priority: "medium", status: "pending", createdAt: Date.now() + 2 },
-  { id: "t4", title: "New App Feature Ideas", description: "Brainstorm ideas for the mobile app", type: "list", categoryId: "3", parentId: null, priority: "low", status: "pending", createdAt: Date.now() },
-  { id: "t4a", title: "Dark mode improvements", description: "Better contrast ratios. See Apple guidelines: https://developer.apple.com/design/human-interface-guidelines/color", type: "idea", categoryId: "3", parentId: "t4", priority: "low", status: "pending", createdAt: Date.now() + 1 },
-  { id: "t4b", title: "Push notifications", description: "Task reminders", type: "idea", categoryId: "3", parentId: "t4", priority: "medium", status: "pending", createdAt: Date.now() + 2 },
-  { id: "t5", title: "Doctor Appointment", description: "Annual checkup", type: "appointment", categoryId: "2", parentId: null, priority: "high", status: "pending", createdAt: Date.now() },
-];
+function mapCategoryToSupabaseBubble(category: Partial<LifeCategory>, userId: string) {
+  const result: any = { user_id: userId };
+  if (category.name !== undefined) result.name = category.name;
+  if (category.description !== undefined) result.description = category.description;
+  if (category.color !== undefined) result.color = category.color;
+  if (category.icon !== undefined) result.icon = category.icon;
+  if (category.peopleIds !== undefined) result.people_ids = category.peopleIds;
+  return result;
+}
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const subscriptionRef = useRef<any>(null);
 
   useEffect(() => {
-    loadData();
-  }, []);
+    if (user) {
+      loadData();
+      setupRealtimeSubscription();
+    } else {
+      clearLocalState();
+    }
+
+    return () => {
+      if (subscriptionRef.current) {
+        supabase.removeChannel(subscriptionRef.current);
+      }
+    };
+  }, [user?.id]);
+
+  const clearLocalState = () => {
+    setCategories([]);
+    setTasks([]);
+    setEvents([]);
+    setPeople([]);
+    setRecycleBin([]);
+    setIsLoading(false);
+  };
+
+  const setupRealtimeSubscription = () => {
+    if (!user) return;
+
+    if (subscriptionRef.current) {
+      supabase.removeChannel(subscriptionRef.current);
+    }
+
+    const channel = supabase
+      .channel(`life_bubbles_${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "*",
+          schema: "public",
+          table: "life_bubbles",
+          filter: `user_id=eq.${user.id}`,
+        },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const newCategory = mapSupabaseBubbleToCategory(payload.new);
+            setCategories((prev) => {
+              if (prev.find((c) => c.id === newCategory.id)) return prev;
+              return [...prev, newCategory];
+            });
+          } else if (payload.eventType === "UPDATE") {
+            const updatedCategory = mapSupabaseBubbleToCategory(payload.new);
+            setCategories((prev) =>
+              prev.map((c) => (c.id === updatedCategory.id ? updatedCategory : c))
+            );
+          } else if (payload.eventType === "DELETE") {
+            const deletedId = payload.old.id;
+            setCategories((prev) => prev.filter((c) => c.id !== deletedId));
+          }
+        }
+      )
+      .subscribe();
+
+    subscriptionRef.current = channel;
+  };
 
   const cleanupExpiredItems = (items: DeletedItem[]): DeletedItem[] => {
     const retentionMs = RECYCLE_BIN_RETENTION_DAYS * 24 * 60 * 60 * 1000;
@@ -91,44 +152,58 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   const loadData = async () => {
+    if (!user) {
+      setIsLoading(false);
+      return;
+    }
+
     try {
-      const [categoriesData, tasksData, eventsData, peopleData, recycleBinData] = await Promise.all([
-        AsyncStorage.getItem(CATEGORIES_KEY),
-        AsyncStorage.getItem(TASKS_KEY),
-        AsyncStorage.getItem(EVENTS_KEY),
-        AsyncStorage.getItem(PEOPLE_KEY),
-        AsyncStorage.getItem(RECYCLE_BIN_KEY),
-      ]);
-      
-      if (categoriesData) {
-        setCategories(JSON.parse(categoriesData));
+      setIsLoading(true);
+
+      const { data: bubblesData, error: bubblesError } = await supabase
+        .from("life_bubbles")
+        .select("*")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: true });
+
+      if (bubblesError) {
+        console.warn("Error loading bubbles:", bubblesError.message);
+        setCategories([]);
+      } else if (bubblesData && bubblesData.length > 0) {
+        setCategories(bubblesData.map(mapSupabaseBubbleToCategory));
       } else {
-        setCategories(defaultCategories);
-        await AsyncStorage.setItem(CATEGORIES_KEY, JSON.stringify(defaultCategories));
+        setCategories([]);
       }
-      
+
+      const userStoragePrefix = `${user.id}_`;
+      const [tasksData, eventsData, peopleData, recycleBinData] = await Promise.all([
+        AsyncStorage.getItem(userStoragePrefix + TASKS_KEY),
+        AsyncStorage.getItem(userStoragePrefix + EVENTS_KEY),
+        AsyncStorage.getItem(userStoragePrefix + PEOPLE_KEY),
+        AsyncStorage.getItem(userStoragePrefix + RECYCLE_BIN_KEY),
+      ]);
+
       if (tasksData) {
         const parsed = JSON.parse(tasksData);
         const migrated = parsed.map((task: any) => {
           const { dueDate, ...rest } = task;
-          return {
-            ...rest,
-            type: task.type || "task",
-          };
+          return { ...rest, type: task.type || "task" };
         });
         setTasks(migrated);
-        await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(migrated));
       } else {
-        setTasks(defaultTasks);
-        await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(defaultTasks));
+        setTasks([]);
       }
 
       if (eventsData) {
         setEvents(JSON.parse(eventsData));
+      } else {
+        setEvents([]);
       }
 
       if (peopleData) {
         setPeople(JSON.parse(peopleData));
+      } else {
+        setPeople([]);
       }
 
       if (recycleBinData) {
@@ -136,63 +211,108 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const cleaned = cleanupExpiredItems(parsed);
         setRecycleBin(cleaned);
         if (cleaned.length !== parsed.length) {
-          await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(cleaned));
+          await AsyncStorage.setItem(userStoragePrefix + RECYCLE_BIN_KEY, JSON.stringify(cleaned));
         }
+      } else {
+        setRecycleBin([]);
       }
     } catch (error) {
       console.error("Error loading data:", error);
-      setCategories(defaultCategories);
-      setTasks(defaultTasks);
+      setCategories([]);
+      setTasks([]);
     } finally {
       setIsLoading(false);
     }
   };
 
-  const saveCategories = async (newCategories: LifeCategory[]) => {
-    await AsyncStorage.setItem(CATEGORIES_KEY, JSON.stringify(newCategories));
-  };
-
   const saveTasks = async (newTasks: Task[]) => {
-    await AsyncStorage.setItem(TASKS_KEY, JSON.stringify(newTasks));
+    if (!user) return;
+    await AsyncStorage.setItem(`${user.id}_${TASKS_KEY}`, JSON.stringify(newTasks));
   };
 
   const saveRecycleBin = async (items: DeletedItem[]) => {
-    await AsyncStorage.setItem(RECYCLE_BIN_KEY, JSON.stringify(items));
+    if (!user) return;
+    await AsyncStorage.setItem(`${user.id}_${RECYCLE_BIN_KEY}`, JSON.stringify(items));
   };
 
   const saveEvents = async (newEvents: CalendarEvent[]) => {
-    await AsyncStorage.setItem(EVENTS_KEY, JSON.stringify(newEvents));
+    if (!user) return;
+    await AsyncStorage.setItem(`${user.id}_${EVENTS_KEY}`, JSON.stringify(newEvents));
   };
 
   const savePeople = async (newPeople: Person[]) => {
-    await AsyncStorage.setItem(PEOPLE_KEY, JSON.stringify(newPeople));
+    if (!user) return;
+    await AsyncStorage.setItem(`${user.id}_${PEOPLE_KEY}`, JSON.stringify(newPeople));
   };
 
   const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
-    const newCategory: LifeCategory = {
-      ...category,
-      id: Date.now().toString(),
-      createdAt: Date.now(),
-    };
-    const updated = [...categories, newCategory];
-    setCategories(updated);
-    await saveCategories(updated);
-  }, [categories]);
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("life_bubbles")
+      .insert({
+        user_id: user.id,
+        name: category.name,
+        description: category.description,
+        color: category.color,
+        icon: category.icon,
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adding category:", error.message);
+      return;
+    }
+
+    const newCategory = mapSupabaseBubbleToCategory(data);
+    setCategories((prev) => [...prev, newCategory]);
+  }, [user]);
 
   const updateCategory = useCallback(async (id: string, updates: Partial<LifeCategory>) => {
-    const updated = categories.map((cat) =>
-      cat.id === id ? { ...cat, ...updates } : cat
+    if (!user) return;
+
+    const supabaseUpdates: any = {};
+    if (updates.name !== undefined) supabaseUpdates.name = updates.name;
+    if (updates.description !== undefined) supabaseUpdates.description = updates.description;
+    if (updates.color !== undefined) supabaseUpdates.color = updates.color;
+    if (updates.icon !== undefined) supabaseUpdates.icon = updates.icon;
+
+    const { error } = await supabase
+      .from("life_bubbles")
+      .update(supabaseUpdates)
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error updating category:", error.message);
+      return;
+    }
+
+    setCategories((prev) =>
+      prev.map((cat) => (cat.id === id ? { ...cat, ...updates } : cat))
     );
-    setCategories(updated);
-    await saveCategories(updated);
-  }, [categories]);
+  }, [user]);
 
   const deleteCategory = useCallback(async (id: string) => {
+    if (!user) return;
+
     const categoryToDelete = categories.find((cat) => cat.id === id);
     if (!categoryToDelete) return;
 
     const relatedTasks = tasks.filter((task) => task.categoryId === id);
-    
+
+    const { error } = await supabase
+      .from("life_bubbles")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting category:", error.message);
+      return;
+    }
+
     const deletedItem: DeletedItem = {
       id: Date.now().toString(),
       type: "category",
@@ -210,11 +330,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setRecycleBin(updatedRecycleBin);
 
     await Promise.all([
-      saveCategories(updatedCategories),
       saveTasks(updatedTasks),
       saveRecycleBin(updatedRecycleBin),
     ]);
-  }, [categories, tasks, recycleBin]);
+  }, [user, categories, tasks, recycleBin]);
 
   const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">) => {
     const newTask: Task = {
@@ -225,7 +344,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updated = [...tasks, newTask];
     setTasks(updated);
     await saveTasks(updated);
-  }, [tasks]);
+  }, [tasks, user]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
     const updated = tasks.map((task) =>
@@ -233,7 +352,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     setTasks(updated);
     await saveTasks(updated);
-  }, [tasks]);
+  }, [tasks, user]);
 
   const deleteTask = useCallback(async (id: string) => {
     const taskToDelete = tasks.find((t) => t.id === id);
@@ -266,7 +385,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       saveTasks(updatedTasks),
       saveRecycleBin(updatedRecycleBin),
     ]);
-  }, [tasks, recycleBin]);
+  }, [tasks, recycleBin, user]);
 
   const reorderTasks = useCallback(async (taskIds: string[], parentId: string | null) => {
     const updated = tasks.map((task) => {
@@ -278,7 +397,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     setTasks(updated);
     await saveTasks(updated);
-  }, [tasks]);
+  }, [tasks, user]);
 
   const moveTaskToParent = useCallback(async (taskId: string, newParentId: string | null, newCategoryId?: string) => {
     const taskToMove = tasks.find((t) => t.id === taskId);
@@ -303,18 +422,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     });
     setTasks(updated);
     await saveTasks(updated);
-  }, [tasks]);
+  }, [tasks, user]);
 
   const restoreFromRecycleBin = useCallback(async (id: string) => {
+    if (!user) return;
     const item = recycleBin.find((i) => i.id === id);
     if (!item) return;
 
     if (item.type === "category") {
       const category = item.data as LifeCategory;
       const relatedTasks = item.relatedTasks || [];
-      
-      const updatedCategories = [...categories, category];
-      const updatedTasks = [...tasks, ...relatedTasks];
+
+      const { data, error } = await supabase
+        .from("life_bubbles")
+        .insert({
+          user_id: user.id,
+          name: category.name,
+          description: category.description,
+          color: category.color,
+          icon: category.icon,
+        })
+        .select()
+        .single();
+
+      if (error) {
+        console.error("Error restoring category:", error.message);
+        return;
+      }
+
+      const restoredCategory = mapSupabaseBubbleToCategory(data);
+      const restoredTasks = relatedTasks.map((t) => ({ ...t, categoryId: restoredCategory.id }));
+
+      const updatedCategories = [...categories, restoredCategory];
+      const updatedTasks = [...tasks, ...restoredTasks];
       const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
 
       setCategories(updatedCategories);
@@ -322,14 +462,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setRecycleBin(updatedRecycleBin);
 
       await Promise.all([
-        saveCategories(updatedCategories),
         saveTasks(updatedTasks),
         saveRecycleBin(updatedRecycleBin),
       ]);
     } else {
       const task = item.data as Task;
       const relatedTasks = item.relatedTasks || [];
-      
+
       const updatedTasks = [...tasks, task, ...relatedTasks];
       const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
 
@@ -341,18 +480,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         saveRecycleBin(updatedRecycleBin),
       ]);
     }
-  }, [categories, tasks, recycleBin]);
+  }, [user, categories, tasks, recycleBin]);
 
   const permanentlyDelete = useCallback(async (id: string) => {
     const updatedRecycleBin = recycleBin.filter((i) => i.id !== id);
     setRecycleBin(updatedRecycleBin);
     await saveRecycleBin(updatedRecycleBin);
-  }, [recycleBin]);
+  }, [recycleBin, user]);
 
   const emptyRecycleBin = useCallback(async () => {
     setRecycleBin([]);
     await saveRecycleBin([]);
-  }, []);
+  }, [user]);
 
   const getTasksByCategory = useCallback(
     (categoryId: string) => tasks.filter((task) => task.categoryId === categoryId),
@@ -361,17 +500,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
     const baseTimestamp = Date.now();
-    
+
     if (event.recurrence && event.recurrence !== "none") {
       const seriesId = baseTimestamp.toString();
       const instances = generateRecurringInstances(event, seriesId);
-      
+
       const newEvents: CalendarEvent[] = instances.map((instance, index) => ({
         ...instance,
         id: (baseTimestamp + index).toString(),
         createdAt: baseTimestamp,
       }));
-      
+
       const updated = [...events, ...newEvents];
       setEvents(updated);
       await saveEvents(updated);
@@ -386,7 +525,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setEvents(updated);
       await saveEvents(updated);
     }
-  }, [events]);
+  }, [events, user]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     const updated = events.map((event) =>
@@ -394,31 +533,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     setEvents(updated);
     await saveEvents(updated);
-  }, [events]);
+  }, [events, user]);
 
   const deleteEvent = useCallback(async (id: string) => {
     const updated = events.filter((event) => event.id !== id);
     setEvents(updated);
     await saveEvents(updated);
-  }, [events]);
+  }, [events, user]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>) => {
     const seriesEvents = events.filter(e => e.seriesId === seriesId && !e.isException);
     if (seriesEvents.length === 0) return;
-    
+
     const firstEvent = seriesEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
-    
+
     const updated = events.map((event) => {
       if (event.seriesId === seriesId && !event.isException) {
         const eventUpdates = { ...updates };
-        
+
         if (updates.startTime !== undefined) {
           eventUpdates.startTime = updates.startTime;
         }
         if (updates.endTime !== undefined) {
           eventUpdates.endTime = updates.endTime;
         }
-        
+
         if (updates.startDate !== undefined && event.id === firstEvent.id) {
           eventUpdates.startDate = updates.startDate;
           if (updates.endDate !== undefined) {
@@ -428,20 +567,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           delete eventUpdates.startDate;
           delete eventUpdates.endDate;
         }
-        
+
         return { ...event, ...eventUpdates };
       }
       return event;
     });
     setEvents(updated);
     await saveEvents(updated);
-  }, [events]);
+  }, [events, user]);
 
   const deleteEventSeries = useCallback(async (seriesId: string) => {
     const updated = events.filter((event) => event.seriesId !== seriesId);
     setEvents(updated);
     await saveEvents(updated);
-  }, [events]);
+  }, [events, user]);
 
   const updateEventInstance = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     const updated = events.map((event) =>
@@ -449,7 +588,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     setEvents(updated);
     await saveEvents(updated);
-  }, [events]);
+  }, [events, user]);
 
   const getEventsByDate = useCallback(
     (date: string) => events.filter((event) => event.startDate === date),
@@ -475,85 +614,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updatedPeople = [...people, newPerson];
     setPeople(updatedPeople);
     await savePeople(updatedPeople);
-
-    if (newPerson.categoryIds && newPerson.categoryIds.length > 0) {
-      const updatedCategories = categories.map((category) => {
-        if (newPerson.categoryIds!.includes(category.id)) {
-          const existingPeopleIds = category.peopleIds || [];
-          if (!existingPeopleIds.includes(newPerson.id)) {
-            return { ...category, peopleIds: [...existingPeopleIds, newPerson.id] };
-          }
-        }
-        return category;
-      });
-      setCategories(updatedCategories);
-      await saveCategories(updatedCategories);
-    }
-  }, [people, categories]);
+  }, [people, user]);
 
   const updatePerson = useCallback(async (id: string, updates: Partial<Person>) => {
-    const existingPerson = people.find((p) => p.id === id);
-    const oldCategoryIds = existingPerson?.categoryIds || [];
-    const newCategoryIds = updates.categoryIds !== undefined ? updates.categoryIds : oldCategoryIds;
-
     const updated = people.map((person) =>
       person.id === id ? { ...person, ...updates } : person
     );
     setPeople(updated);
     await savePeople(updated);
-
-    if (updates.categoryIds !== undefined) {
-      const addedCategories = newCategoryIds.filter((cid) => !oldCategoryIds.includes(cid));
-      const removedCategories = oldCategoryIds.filter((cid) => !newCategoryIds.includes(cid));
-
-      if (addedCategories.length > 0 || removedCategories.length > 0) {
-        const updatedCategories = categories.map((category) => {
-          const existingPeopleIds = category.peopleIds || [];
-          if (addedCategories.includes(category.id) && !existingPeopleIds.includes(id)) {
-            return { ...category, peopleIds: [...existingPeopleIds, id] };
-          }
-          if (removedCategories.includes(category.id)) {
-            return { ...category, peopleIds: existingPeopleIds.filter((pid) => pid !== id) };
-          }
-          return category;
-        });
-        setCategories(updatedCategories);
-        await saveCategories(updatedCategories);
-      }
-    }
-  }, [people, categories]);
+  }, [people, user]);
 
   const deletePerson = useCallback(async (id: string) => {
     const updatedPeople = people.filter((person) => person.id !== id);
     setPeople(updatedPeople);
     await savePeople(updatedPeople);
-    
-    const updatedCategories = categories.map((category) => ({
-      ...category,
-      peopleIds: category.peopleIds?.filter((pid) => pid !== id),
-    }));
-    setCategories(updatedCategories);
-    await saveCategories(updatedCategories);
-    
+
     const updatedTasks = tasks.map((task) => ({
       ...task,
       assigneeIds: task.assigneeIds?.filter((pid) => pid !== id),
     }));
     setTasks(updatedTasks);
     await saveTasks(updatedTasks);
-    
+
     const updatedEvents = events.map((event) => ({
       ...event,
       attendeeIds: event.attendeeIds?.filter((pid) => pid !== id),
     }));
     setEvents(updatedEvents);
     await saveEvents(updatedEvents);
-  }, [people, categories, tasks, events]);
+  }, [people, tasks, events, user]);
 
   const getPersonById = useCallback(
     (id: string) => people.find((person) => person.id === id),
     [people]
   );
+
+  const clearAllData = useCallback(async () => {
+    if (!user) return;
+
+    const userStoragePrefix = `${user.id}_`;
+    await AsyncStorage.multiRemove([
+      userStoragePrefix + TASKS_KEY,
+      userStoragePrefix + EVENTS_KEY,
+      userStoragePrefix + PEOPLE_KEY,
+      userStoragePrefix + RECYCLE_BIN_KEY,
+    ]);
+
+    setTasks([]);
+    setEvents([]);
+    setPeople([]);
+    setRecycleBin([]);
+  }, [user]);
 
   return (
     <AppContext.Provider
@@ -589,6 +700,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         restoreFromRecycleBin,
         permanentlyDelete,
         emptyRecycleBin,
+        clearAllData,
       }}
     >
       {children}
@@ -598,8 +710,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
 export function useApp() {
   const context = useContext(AppContext);
-  if (!context) {
-    throw new Error("useApp must be used within AppProvider");
+  if (context === undefined) {
+    throw new Error("useApp must be used within an AppProvider");
   }
   return context;
 }
