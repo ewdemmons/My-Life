@@ -315,12 +315,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (migrationComplete === "true") return;
 
     try {
-      const [tasksData, eventsData, peopleData, recycleBinData] = await Promise.all([
+      const [
+        prefixedTasksData, prefixedEventsData, prefixedPeopleData, prefixedRecycleBinData,
+        legacyTasksData, legacyEventsData, legacyPeopleData, legacyRecycleBinData,
+      ] = await Promise.all([
         AsyncStorage.getItem(userStoragePrefix + TASKS_KEY),
         AsyncStorage.getItem(userStoragePrefix + EVENTS_KEY),
         AsyncStorage.getItem(userStoragePrefix + PEOPLE_KEY),
         AsyncStorage.getItem(userStoragePrefix + RECYCLE_BIN_KEY),
+        AsyncStorage.getItem(TASKS_KEY),
+        AsyncStorage.getItem(EVENTS_KEY),
+        AsyncStorage.getItem(PEOPLE_KEY),
+        AsyncStorage.getItem(RECYCLE_BIN_KEY),
       ]);
+
+      const tasksData = prefixedTasksData || legacyTasksData;
+      const eventsData = prefixedEventsData || legacyEventsData;
+      const peopleData = prefixedPeopleData || legacyPeopleData;
+      const recycleBinData = prefixedRecycleBinData || legacyRecycleBinData;
 
       if (tasksData) {
         const localTasks = JSON.parse(tasksData);
@@ -401,6 +413,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         userStoragePrefix + EVENTS_KEY,
         userStoragePrefix + PEOPLE_KEY,
         userStoragePrefix + RECYCLE_BIN_KEY,
+        TASKS_KEY,
+        EVENTS_KEY,
+        PEOPLE_KEY,
+        RECYCLE_BIN_KEY,
       ]);
 
       await AsyncStorage.setItem(migrationKey, "true");

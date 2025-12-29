@@ -12,7 +12,7 @@ MVP implementation with core features:
 - Hierarchical task management with 10 entry types
 - Calendar view with event scheduling (Reminder, Due Date, Appointment, Meeting)
 - Profile screen with stats, settings, and Recycle Bin
-- Local data persistence with AsyncStorage
+- Cloud data persistence with Supabase (complete user isolation via RLS)
 - Dark mode support (follows system settings)
 - Feature parity between bubble calendars and global calendar
 
@@ -21,18 +21,18 @@ MVP implementation with core features:
 ### Frontend (client/)
 - **Expo + React Native** with TypeScript
 - **React Navigation 7** for navigation
-- **AsyncStorage** for local data persistence
+- **@supabase/supabase-js** for Supabase cloud data
 - **react-native-calendars** for calendar views
 - **react-native-svg** for Life Wheel visualization
 - **react-native-reanimated** for animations
 
 ### Backend (server/)
 - Express.js server (currently only serving landing page)
-- Prepared for future Firebase/API integration
+- Supabase provides the cloud database and authentication
 
 ### State Management
 - React Context API (AppContext) for global state
-- Local storage with AsyncStorage for persistence
+- Supabase realtime subscriptions for data sync
 
 ## Project Structure
 ```
@@ -40,6 +40,7 @@ client/
 ├── App.tsx                 # App entry point
 ├── context/
 │   └── AppContext.tsx      # Global state management
+│   └── AuthContext.tsx     # Authentication state management
 ├── types/
 │   └── index.ts            # TypeScript types
 ├── screens/
@@ -147,15 +148,24 @@ client/
 - **Defensive handling**: Missing person IDs are gracefully ignored in UI
 
 ### Data Persistence
-- **Categories (Life Bubbles)**: Stored in Supabase with user isolation (RLS enforced)
-- **Tasks, Events, People**: Stored in AsyncStorage with user ID prefix for isolation
-- Realtime subscription for life_bubbles table keeps UI in sync
-- Default sample categories created on first login via Supabase
+- **All Data in Supabase**: Categories, tasks, events, people, and recycle_bin all stored in Supabase cloud
+- **User Isolation**: Row Level Security (RLS) enforces complete data isolation between users
+- **Realtime Subscriptions**: All tables have realtime subscriptions keeping UI in sync across devices
+- **Automatic Migration**: One-time migration from legacy AsyncStorage to Supabase on first login
+- **Recycle Bin**: 30-day retention with automatic cleanup of expired items
+- **Default Bubbles**: 7 default Life Bubbles created on first login (Family, Home, Health, Work, Learning, Finance, Hobbies)
 - Export and clear data options in Profile screen
 
 ### Supabase Integration
-- **Backend**: Supabase configured as the cloud backend for future data sync
+- **Backend**: Supabase is the primary cloud backend for all data storage
 - **Client**: `client/lib/supabase.ts` exports the initialized Supabase client
+- **Schema**: `supabase/schema.sql` defines 6 tables with RLS policies:
+  - `profiles`: User profiles (id, email, display_name, avatar_url)
+  - `life_bubbles`: Life categories (id, user_id, name, color, icon, description, people_ids)
+  - `tasks`: Hierarchical tasks with 10 entry types (id, user_id, bubble_id, parent_id, type, title, status, priority, order_index, assignee_ids)
+  - `events`: Calendar events with recurrence (id, user_id, bubble_id, event_type, title, start_date, start_time, recurrence, series_id, is_exception, attendee_ids)
+  - `people`: Contacts and relationships (id, user_id, name, relationship, email, phone, photo_uri, notes, category_ids)
+  - `recycle_bin`: Soft-deleted items with 30-day retention (id, user_id, item_type, item_data, related_items, deleted_at)
 - **Configuration**: Credentials stored in `app.json` under `expo.extra` section
   - `supabaseUrl`: Supabase project URL
   - `supabaseAnonKey`: Supabase anon (public) key
