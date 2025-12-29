@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
+import { initializeDefaultBubbles } from "@/lib/defaultBubbles";
 
 type AuthContextType = {
   session: Session | null;
@@ -25,6 +26,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           console.warn("Failed to get session:", error.message);
         }
         setSession(session);
+
+        if (session?.user) {
+          await initializeDefaultBubbles(session.user.id);
+        }
       } catch (err) {
         console.warn("Auth initialization error:", err);
       } finally {
@@ -35,9 +40,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     initializeAuth();
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
+      async (event, session) => {
         setSession(session);
         setIsLoading(false);
+
+        if (event === "SIGNED_IN" && session?.user) {
+          await initializeDefaultBubbles(session.user.id);
+        }
       }
     );
 

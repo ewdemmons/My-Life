@@ -170,6 +170,18 @@ client/
 - **Route Protection**: RootStackNavigator shows AuthNavigator if no session, MainAppNavigator if authenticated
 - **Logout**: Available in ProfileScreen Account section with confirmation dialog
 - **Profile Auto-creation**: On signup, automatically creates/upserts row in `profiles` table (id, email, created_at)
+- **Default Bubbles**: On first login, 7 default Life Bubbles are created (Family, Home, Health, Work, Learning, Finance, Hobbies)
+
+### Database Schema (Supabase)
+- **Schema file**: `supabase/schema.sql` - Run in Supabase SQL Editor to create tables
+- **Tables**:
+  - `profiles`: User profiles (id, email, display_name, avatar_url)
+  - `life_bubbles`: Life categories (id, user_id, name, color, icon, description)
+  - `tasks`: Hierarchical tasks with 10 entry types (id, user_id, bubble_id, parent_id, type, title)
+  - `events`: Calendar events with recurrence (id, user_id, bubble_id, start_time, recurrence_rule)
+  - `people`: Contacts and relationships (id, user_id, name, relationship, contact_info)
+- **RLS**: Row Level Security enabled on all tables - users can only access their own data
+- **Default Bubbles**: `client/lib/defaultBubbles.ts` - 7 default bubbles created on first login
 
 ## Development
 
