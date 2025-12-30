@@ -603,12 +603,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    await supabase.from("recycle_bin").insert({
+    const { data, error: insertError } = await supabase.from("recycle_bin").insert({
       user_id: user.id,
       item_type: "category",
       item_data: categoryToDelete,
       related_items: relatedTasks,
-    });
+    }).select().single();
+
+    if (!insertError && data) {
+      const deletedItem = mapSupabaseRecycleBinToDeletedItem(data);
+      setRecycleBin((prev) => [...prev, deletedItem]);
+    }
 
     for (const task of relatedTasks) {
       await supabase.from("tasks").delete().eq("id", task.id).eq("user_id", user.id);
@@ -669,12 +674,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const descendants = getDescendants(id);
 
-    await supabase.from("recycle_bin").insert({
+    const { data, error: insertError } = await supabase.from("recycle_bin").insert({
       user_id: user.id,
       item_type: "task",
       item_data: taskToDelete,
       related_items: descendants,
-    });
+    }).select().single();
+
+    if (!insertError && data) {
+      const deletedItem = mapSupabaseRecycleBinToDeletedItem(data);
+      setRecycleBin((prev) => [...prev, deletedItem]);
+    }
 
     const idsToDelete = [id, ...descendants.map((t) => t.id)];
     for (const taskId of idsToDelete) {
