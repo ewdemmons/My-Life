@@ -92,15 +92,52 @@ function mapTaskToSupabase(task: Partial<Task>, userId: string) {
   return result;
 }
 
+function combineDateTime(date: string, time: string): string {
+  const [year, month, day] = date.split("-").map(Number);
+  const [hours, minutes] = time.split(":").map(Number);
+  const dateObj = new Date(year, month - 1, day, hours, minutes, 0, 0);
+  return dateObj.toISOString();
+}
+
+function parseTimestamp(timestamp: string | null, fallbackTimestamp?: string | null): { date: string; time: string } {
+  const ts = timestamp || fallbackTimestamp;
+  if (!ts) {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return {
+      date: `${year}-${month}-${day}`,
+      time: "09:00",
+    };
+  }
+  const dateObj = new Date(ts);
+  const year = dateObj.getFullYear();
+  const month = String(dateObj.getMonth() + 1).padStart(2, "0");
+  const day = String(dateObj.getDate()).padStart(2, "0");
+  const hours = dateObj.getHours().toString().padStart(2, "0");
+  const minutes = dateObj.getMinutes().toString().padStart(2, "0");
+  return { date: `${year}-${month}-${day}`, time: `${hours}:${minutes}` };
+}
+
+function addHoursToTimestamp(timestamp: string, hours: number): string {
+  const dateObj = new Date(timestamp);
+  dateObj.setHours(dateObj.getHours() + hours);
+  return dateObj.toISOString();
+}
+
 function mapSupabaseEventToEvent(event: any): CalendarEvent {
+  const start = parseTimestamp(event.start_time);
+  const end = parseTimestamp(event.end_time, event.start_time);
+  
   return {
     id: event.id,
     title: event.title,
     description: event.description || "",
-    startDate: event.start_date,
-    startTime: event.start_time,
-    endDate: event.end_date,
-    endTime: event.end_time,
+    startDate: start.date,
+    startTime: start.time,
+    endDate: end.date,
+    endTime: end.time,
     eventType: event.event_type || "reminder",
     recurrence: event.recurrence || "none",
     linkedTaskId: event.linked_task_id || null,
@@ -113,14 +150,31 @@ function mapSupabaseEventToEvent(event: any): CalendarEvent {
   };
 }
 
-function mapEventToSupabase(event: Partial<CalendarEvent>, userId: string) {
+function mapEventToSupabase(event: Partial<CalendarEvent>, userId: string, existingEvent?: CalendarEvent) {
   const result: any = { user_id: userId };
   if (event.title !== undefined) result.title = event.title;
   if (event.description !== undefined) result.description = event.description;
-  if (event.startDate !== undefined) result.start_date = event.startDate;
-  if (event.startTime !== undefined) result.start_time = event.startTime;
-  if (event.endDate !== undefined) result.end_date = event.endDate;
-  if (event.endTime !== undefined) result.end_time = event.endTime;
+  
+  const startDate = event.startDate ?? existingEvent?.startDate;
+  const startTime = event.startTime ?? existingEvent?.startTime;
+  const endDate = event.endDate ?? existingEvent?.endDate;
+  const endTime = event.endTime ?? existingEvent?.endTime;
+  
+  if (startDate && startTime) {
+    const startTimestamp = combineDateTime(startDate, startTime);
+    result.start_time = startTimestamp;
+    
+    if (endDate && endTime) {
+      result.end_time = combineDateTime(endDate, endTime);
+    } else {
+      result.end_time = addHoursToTimestamp(startTimestamp, 1);
+    }
+  } else if (startDate) {
+    const startTimestamp = combineDateTime(startDate, "09:00");
+    result.start_time = startTimestamp;
+    result.end_time = addHoursToTimestamp(startTimestamp, 1);
+  }
+  
   if (event.eventType !== undefined) result.event_type = event.eventType;
   if (event.recurrence !== undefined) result.recurrence = event.recurrence;
   if (event.linkedTaskId !== undefined) result.linked_task_id = event.linkedTaskId;
@@ -723,7 +777,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     if (!user) return;
 
-    const supabaseUpdates = mapEventToSupabase(updates, user.id);
+    const existingEvent = events.find((e) => e.id === id);
+    const supabaseUpdates = mapEventToSupabase(updates, user.id, existingEvent);
     delete supabaseUpdates.user_id;
 
     const { error } = await supabase
@@ -738,7 +793,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEvents((prev) => prev.map((event) => (event.id === id ? { ...event, ...updates } : event)));
-  }, [user]);
+  }, [user, events]);
 
   const deleteEvent = useCallback(async (id: string) => {
     if (!user) return;
@@ -773,7 +828,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         delete eventUpdates.endDate;
       }
 
-      const supabaseUpdates = mapEventToSupabase(eventUpdates, user.id);
+      const supabaseUpdates = mapEventToSupabase(eventUpdates, user.id, event);
       delete supabaseUpdates.user_id;
 
       await supabase
@@ -818,7 +873,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateEventInstance = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     if (!user) return;
 
-    const supabaseUpdates = mapEventToSupabase({ ...updates, isException: true }, user.id);
+    const existingEvent = events.find((e) => e.id === id);
+    const supabaseUpdates = mapEventToSupabase({ ...updates, isException: true }, user.id, existingEvent);
     delete supabaseUpdates.user_id;
 
     const { error } = await supabase
@@ -835,7 +891,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEvents((prev) =>
       prev.map((event) => (event.id === id ? { ...event, ...updates, isException: true } : event))
     );
-  }, [user]);
+  }, [user, events]);
 
   const getEventsByDate = useCallback(
     (date: string) => events.filter((event) => event.startDate === date),
