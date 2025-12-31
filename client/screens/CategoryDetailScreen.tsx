@@ -613,38 +613,43 @@ export default function CategoryDetailScreen() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
       <View style={[styles.expandedHeader, { marginTop: headerHeight, backgroundColor: category.color + "15" }]}>
-        <View style={styles.headerContent}>
-          <View style={[styles.categoryIconContainer, { backgroundColor: category.color }]}>
-            <Feather name={category.icon as any || "circle"} size={32} color="#FFFFFF" />
+        <View style={styles.headerRow}>
+          <View style={styles.headerContent}>
+            <View style={[styles.categoryIconContainer, { backgroundColor: category.color }]}>
+              <Feather name={category.icon as any || "circle"} size={24} color="#FFFFFF" />
+            </View>
+            <View style={styles.headerTitleSection}>
+              <ThemedText style={styles.categoryTitle}>{category.name}</ThemedText>
+              {category.description ? (
+                <ThemedText style={[styles.categoryDescription, { color: theme.textSecondary }]} numberOfLines={2}>
+                  {category.description}
+                </ThemedText>
+              ) : null}
+            </View>
           </View>
-          <View style={styles.headerTitleSection}>
-            <ThemedText style={styles.categoryTitle}>{category.name}</ThemedText>
-            {category.description ? (
-              <ThemedText style={[styles.categoryDescription, { color: theme.textSecondary }]} numberOfLines={2}>
-                {category.description}
-              </ThemedText>
-            ) : null}
+          <View style={styles.headerActions}>
+            <Pressable
+              style={[styles.headerActionBtn, { backgroundColor: category.color }]}
+              onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
+              hitSlop={8}
+            >
+              <Feather name="plus" size={16} color="#FFFFFF" />
+            </Pressable>
+            <Pressable
+              style={[styles.headerActionBtn, { backgroundColor: theme.success }]}
+              onPress={handleAddEvent}
+              hitSlop={8}
+            >
+              <Feather name="calendar" size={16} color="#FFFFFF" />
+            </Pressable>
+            <Pressable
+              style={[styles.headerActionBtn, { backgroundColor: theme.primary }]}
+              onPress={() => setShowAddPersonModal(true)}
+              hitSlop={8}
+            >
+              <Feather name="user-plus" size={16} color="#FFFFFF" />
+            </Pressable>
           </View>
-        </View>
-        <View style={styles.headerActions}>
-          <Pressable
-            style={[styles.headerActionBtn, { backgroundColor: category.color }]}
-            onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
-          >
-            <Feather name="plus" size={18} color="#FFFFFF" />
-          </Pressable>
-          <Pressable
-            style={[styles.headerActionBtn, { backgroundColor: theme.success }]}
-            onPress={handleAddEvent}
-          >
-            <Feather name="calendar" size={18} color="#FFFFFF" />
-          </Pressable>
-          <Pressable
-            style={[styles.headerActionBtn, { backgroundColor: theme.primary }]}
-            onPress={() => setShowAddPersonModal(true)}
-          >
-            <Feather name="user-plus" size={18} color="#FFFFFF" />
-          </Pressable>
         </View>
       </View>
 
@@ -724,19 +729,24 @@ export default function CategoryDetailScreen() {
 
 const styles = StyleSheet.create({
   expandedHeader: {
-    paddingHorizontal: Spacing.lg,
-    paddingVertical: Spacing.lg,
-    minHeight: 140,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
   },
   headerContent: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.md,
+    gap: Spacing.sm,
+    flex: 1,
   },
   categoryIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: BorderRadius.md,
+    width: 48,
+    height: 48,
+    borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
   },
@@ -744,22 +754,20 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   categoryTitle: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "700",
   },
   categoryDescription: {
-    fontSize: 14,
-    marginTop: 4,
+    fontSize: 13,
+    marginTop: 2,
   },
   headerActions: {
     flexDirection: "row",
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-    justifyContent: "flex-end",
+    gap: Spacing.xs,
   },
   headerActionBtn: {
-    width: 40,
-    height: 40,
+    width: 32,
+    height: 32,
     borderRadius: BorderRadius.full,
     alignItems: "center",
     justifyContent: "center",

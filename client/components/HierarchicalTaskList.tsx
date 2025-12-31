@@ -510,12 +510,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
             styles.hierarchyLine, 
             { 
               backgroundColor: parentColor + "40",
-              left: (depth - 1) * 24 + 8,
+              left: (depth - 1) * 20 + 6,
             }
           ]} 
         />
       ) : null}
-      <View style={[styles.itemContainer, { marginLeft: depth * 24 }]}>
+      <View style={[styles.itemContainer, { marginLeft: depth * 20 }]}>
         <GestureDetector gesture={composed}>
           <Animated.View
             style={[
@@ -539,52 +539,44 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                 {hasChildren ? (
                   <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
                     <Animated.View style={chevronStyle}>
-                      <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
                     </Animated.View>
                   </Pressable>
                 ) : (
                   <View style={styles.chevronPlaceholder} />
                 )}
-
-                <Pressable onPress={handleToggleComplete} hitSlop={12} style={styles.checkboxButton}>
-                  <View style={[
-                    styles.checkbox,
-                    { borderColor: task.status === "completed" ? theme.success : theme.textSecondary },
-                    task.status === "completed" && { backgroundColor: theme.success }
-                  ]}>
-                    {task.status === "completed" ? (
-                      <Feather name="check" size={14} color="#FFFFFF" />
-                    ) : null}
-                  </View>
-                </Pressable>
-
-                <View style={[styles.typeIconContainer, { backgroundColor: typeColor + "20" }]}>
-                  <Feather
-                    name={typeInfo.icon as any}
-                    size={24}
-                    color={typeColor}
-                  />
-                </View>
               </View>
 
               <View style={styles.itemContent}>
-                <ThemedText
-                  style={[
-                    styles.title,
-                    { color: isDark ? "#FFFFFF" : theme.text },
-                    task.status === "completed" && styles.titleCompleted,
-                  ]}
-                  numberOfLines={2}
-                >
-                  {task.title}
-                </ThemedText>
+                <View style={[styles.typeBadge, { backgroundColor: typeColor + "15", alignSelf: "flex-start" }]}>
+                  <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
+                    {typeInfo.label}
+                  </ThemedText>
+                </View>
+                <View style={styles.titleRow}>
+                  <ThemedText
+                    style={[
+                      styles.title,
+                      { color: isDark ? "#FFFFFF" : theme.text },
+                      task.status === "completed" && styles.titleCompleted,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {task.title}
+                  </ThemedText>
+                  <Pressable onPress={handleToggleComplete} hitSlop={14} style={styles.checkboxButton}>
+                    <View style={[
+                      styles.checkbox,
+                      { borderColor: task.status === "completed" ? theme.success : theme.textSecondary },
+                      task.status === "completed" && { backgroundColor: theme.success }
+                    ]}>
+                      {task.status === "completed" ? (
+                        <Feather name="check" size={12} color="#FFFFFF" />
+                      ) : null}
+                    </View>
+                  </Pressable>
+                </View>
                 <View style={styles.metaRow}>
-                  <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
-                    <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
-                      {typeInfo.label}
-                    </ThemedText>
-                  </View>
-                  
                   {showCategory && category ? (
                     <View style={styles.categoryBadge}>
                       <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
@@ -596,7 +588,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
 
                   {hasChildren ? (
                     <View style={styles.childCountBadge}>
-                      <Feather name="layers" size={12} color={theme.textSecondary} />
+                      <Feather name="layers" size={11} color={theme.textSecondary} />
                       <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
                         {task.children.length}
                       </ThemedText>
@@ -605,7 +597,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
 
                   {hasScheduledEvents ? (
                     <View style={[styles.scheduledBadge, { backgroundColor: "#3B82F6" + "20" }]}>
-                      <Feather name="calendar" size={12} color="#3B82F6" />
+                      <Feather name="calendar" size={11} color="#3B82F6" />
                     </View>
                   ) : null}
 
@@ -613,7 +605,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
 
                   {task.assigneeIds && task.assigneeIds.length > 0 ? (
                     <View style={styles.assigneesContainer}>
-                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
+                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={18} />
                     </View>
                   ) : null}
 
@@ -651,28 +643,28 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
                     onPress={handleEdit}
                   >
-                    <Feather name="edit-2" size={16} color={theme.primary} />
+                    <Feather name="edit-2" size={14} color={theme.primary} />
                     <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
                   </Pressable>
                   <Pressable
                     style={[styles.actionButton, { backgroundColor: "#3B82F6" + "15" }]}
                     onPress={handleSchedule}
                   >
-                    <Feather name="calendar" size={16} color="#3B82F6" />
+                    <Feather name="calendar" size={14} color="#3B82F6" />
                     <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
                   </Pressable>
                   <Pressable
                     style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
                     onPress={handleAddSubtask}
                   >
-                    <Feather name="plus" size={16} color={typeColor} />
-                    <ThemedText style={[styles.actionText, { color: typeColor }]}>Add Sub-entry</ThemedText>
+                    <Feather name="plus" size={14} color={typeColor} />
+                    <ThemedText style={[styles.actionText, { color: typeColor }]}>+ Sub-entry</ThemedText>
                   </Pressable>
                   <Pressable
                     style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
                     onPress={handleDelete}
                   >
-                    <Feather name="trash-2" size={16} color={theme.error} />
+                    <Feather name="trash-2" size={14} color={theme.error} />
                     <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
                   </Pressable>
                 </View>
@@ -713,7 +705,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   emptyContainer: {
     alignItems: "center",
@@ -754,48 +746,46 @@ const styles = StyleSheet.create({
   itemHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
-    padding: Spacing.md,
-    paddingVertical: Spacing.lg,
-    gap: Spacing.sm,
+    padding: Spacing.sm,
+    gap: Spacing.xs,
   },
   leftSection: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
   },
   expandButton: {
     padding: 2,
   },
   chevronPlaceholder: {
-    width: 24,
+    width: 20,
   },
   checkboxButton: {
     padding: 2,
+    marginLeft: Spacing.sm,
   },
   checkbox: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: 20,
+    height: 20,
+    borderRadius: 5,
     borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  typeIconContainer: {
-    width: 44,
-    height: 44,
-    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
   },
   itemContent: {
     flex: 1,
-    paddingTop: 2,
+  },
+  titleRow: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+    marginTop: 2,
   },
   title: {
-    fontSize: 18,
-    fontWeight: "700",
-    lineHeight: 24,
-    marginBottom: Spacing.xs,
+    fontSize: 16,
+    fontWeight: "600",
+    lineHeight: 22,
+    flex: 1,
   },
   titleCompleted: {
     textDecorationLine: "line-through",
@@ -804,16 +794,18 @@ const styles = StyleSheet.create({
   metaRow: {
     flexDirection: "row",
     alignItems: "center",
-    gap: Spacing.sm,
+    gap: Spacing.xs,
     flexWrap: "wrap",
+    marginTop: 4,
   },
   typeBadge: {
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginBottom: 2,
   },
   typeBadgeText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
   },
   categoryBadge: {
@@ -835,15 +827,15 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   scheduledBadge: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
   },
   priorityIndicator: {
-    width: 4,
-    height: 16,
+    width: 3,
+    height: 14,
     borderRadius: 2,
     marginLeft: "auto",
   },
@@ -864,7 +856,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   metaText: {
-    fontSize: 14,
+    fontSize: 12,
   },
   dragHint: {
     flexDirection: "row",
@@ -881,30 +873,28 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   details: {
-    padding: Spacing.md,
-    paddingTop: Spacing.md,
+    padding: Spacing.sm,
     borderTopWidth: 1,
   },
   description: {
-    fontSize: 15,
-    lineHeight: 22,
-    marginBottom: Spacing.md,
+    fontSize: 14,
+    lineHeight: 20,
+    marginBottom: Spacing.sm,
   },
   actions: {
     flexDirection: "row",
-    gap: Spacing.sm,
-    flexWrap: "wrap",
+    gap: Spacing.xs,
   },
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.sm,
-    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
     borderRadius: BorderRadius.xs,
-    gap: Spacing.xs,
+    gap: 4,
   },
   actionText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
   },
   children: {
