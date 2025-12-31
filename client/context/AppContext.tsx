@@ -326,6 +326,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { event: "*", schema: "public", table: "events", filter: `user_id=eq.${user.id}` },
         (payload) => {
           const eventId = payload.new?.id || payload.old?.id;
+          const eventSeriesId = payload.new?.series_id || payload.old?.series_id;
+          
+          if (regenStateRef.current.activeSeries && eventSeriesId === regenStateRef.current.activeSeries) {
+            return;
+          }
+          
           if (eventId && regenStateRef.current.ignoreIds.has(eventId)) {
             return;
           }
