@@ -539,6 +539,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
               <View style={styles.leftSection}>
                 <View style={styles.leftColumn}>
                   <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
+                    <Feather name={typeInfo.icon as any} size={12} color={typeColor} />
                     <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
                       {typeInfo.label}
                     </ThemedText>
@@ -552,14 +553,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                   ) : (
                     <View style={styles.chevronPlaceholder} />
                   )}
-                  {hasChildren ? (
-                    <View style={styles.childCountBadge}>
-                      <Feather name="layers" size={13} color={theme.textSecondary} />
-                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                        {task.children.length}
-                      </ThemedText>
-                    </View>
-                  ) : null}
                 </View>
               </View>
 
@@ -588,6 +581,15 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                   </Pressable>
                 </View>
                 <View style={styles.bottomIndicatorRow}>
+                  {hasChildren ? (
+                    <View style={styles.childCountBadge}>
+                      <Feather name="layers" size={13} color={theme.textSecondary} />
+                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                        {task.children.length}
+                      </ThemedText>
+                    </View>
+                  ) : null}
+
                   {task.priority === "high" ? (
                     <View style={styles.priorityIcon}>
                       <Feather name="alert-circle" size={16} color={theme.error} />
@@ -830,8 +832,11 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   typeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
     paddingHorizontal: Spacing.xs,
-    paddingVertical: 2,
+    paddingVertical: 3,
     borderRadius: 4,
     marginBottom: 2,
   },
