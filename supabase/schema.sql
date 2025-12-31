@@ -88,6 +88,35 @@ CREATE TABLE IF NOT EXISTS recycle_bin (
   deleted_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- 7. PENDING SHARES TABLE (invites for non-app-users)
+CREATE TABLE IF NOT EXISTS pending_shares (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  bubble_id UUID NOT NULL REFERENCES life_bubbles(id) ON DELETE CASCADE,
+  invite_code TEXT NOT NULL UNIQUE,
+  contact_type TEXT NOT NULL, -- 'email' or 'phone'
+  contact_value TEXT NOT NULL, -- email address or phone number
+  permission TEXT NOT NULL DEFAULT 'view', -- 'view', 'edit', 'co-owner'
+  status TEXT NOT NULL DEFAULT 'pending', -- 'pending', 'accepted', 'expired'
+  sender_name TEXT, -- Name of person who sent invite
+  bubble_name TEXT, -- Name of bubble being shared
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  accepted_at TIMESTAMPTZ,
+  expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '30 days')
+);
+
+-- 8. BUBBLE SHARES TABLE (active shares between app users)
+CREATE TABLE IF NOT EXISTS bubble_shares (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  bubble_id UUID NOT NULL REFERENCES life_bubbles(id) ON DELETE CASCADE,
+  owner_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  shared_with_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  permission TEXT NOT NULL DEFAULT 'view', -- 'view', 'edit', 'co-owner'
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(bubble_id, shared_with_id)
+);
+
 -- ============================================
 -- ROW LEVEL SECURITY (RLS) POLICIES
 -- ============================================
@@ -180,6 +209,118 @@ CREATE POLICY "Users can update own recycle bin" ON recycle_bin
 CREATE POLICY "Users can delete own recycle bin" ON recycle_bin
   FOR DELETE USING (auth.uid() = user_id);
 
+-- Enable RLS on pending_shares and bubble_shares
+ALTER TABLE pending_shares ENABLE ROW LEVEL SECURITY;
+ALTER TABLE bubble_shares ENABLE ROW LEVEL SECURITY;
+
+-- PENDING_SHARES policies (restrictive - only owners and email recipients can see/update)
+CREATE POLICY "Users can view own pending shares" ON pending_shares
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can view pending shares sent to them by email" ON pending_shares
+  FOR SELECT USING (
+    contact_type = 'email' AND LOWER(contact_value) IN (
+      SELECT LOWER(email) FROM profiles WHERE id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can insert own pending shares" ON pending_shares
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own pending shares" ON pending_shares
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Email recipients can accept pending shares" ON pending_shares
+  FOR UPDATE USING (
+    contact_type = 'email' AND LOWER(contact_value) IN (
+      SELECT LOWER(email) FROM profiles WHERE id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can delete own pending shares" ON pending_shares
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- ============================================
+-- SECURE RPC FUNCTION FOR INVITE CODE ACTIVATION
+-- ============================================
+-- This function allows secure activation of pending shares by invite code
+-- It bypasses RLS to validate the code and create the share atomically
+-- SECURITY: Uses auth.uid() to ensure the caller can only activate for themselves
+CREATE OR REPLACE FUNCTION activate_pending_invite(
+  p_invite_code TEXT
+)
+RETURNS JSON
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
+DECLARE
+  v_invite pending_shares%ROWTYPE;
+  v_caller_id UUID;
+BEGIN
+  -- Get the authenticated user's ID (security check)
+  v_caller_id := auth.uid();
+  
+  -- Ensure user is authenticated
+  IF v_caller_id IS NULL THEN
+    RETURN json_build_object(
+      'success', false,
+      'error', 'Authentication required'
+    );
+  END IF;
+
+  -- Find the pending invite by code
+  SELECT * INTO v_invite
+  FROM pending_shares
+  WHERE invite_code = p_invite_code
+    AND status = 'pending'
+    AND expires_at > NOW()
+  LIMIT 1;
+
+  -- Check if invite was found
+  IF v_invite.id IS NULL THEN
+    RETURN json_build_object(
+      'success', false,
+      'error', 'Invalid or expired invite code'
+    );
+  END IF;
+
+  -- Create the bubble share for the authenticated caller (not a client-supplied ID)
+  INSERT INTO bubble_shares (bubble_id, owner_id, shared_with_id, permission)
+  VALUES (v_invite.bubble_id, v_invite.user_id, v_caller_id, v_invite.permission)
+  ON CONFLICT (bubble_id, shared_with_id) 
+  DO UPDATE SET permission = EXCLUDED.permission, updated_at = NOW();
+
+  -- Mark the pending share as accepted
+  UPDATE pending_shares
+  SET status = 'accepted', accepted_at = NOW()
+  WHERE id = v_invite.id;
+
+  -- Return success with bubble info
+  RETURN json_build_object(
+    'success', true,
+    'bubble_name', v_invite.bubble_name,
+    'sender_name', v_invite.sender_name
+  );
+END;
+$$;
+
+-- BUBBLE_SHARES policies
+CREATE POLICY "Owners can view shared bubbles" ON bubble_shares
+  FOR SELECT USING (auth.uid() = owner_id);
+
+CREATE POLICY "Recipients can view bubbles shared with them" ON bubble_shares
+  FOR SELECT USING (auth.uid() = shared_with_id);
+
+CREATE POLICY "Owners can insert bubble shares" ON bubble_shares
+  FOR INSERT WITH CHECK (auth.uid() = owner_id);
+
+CREATE POLICY "Owners can update bubble shares" ON bubble_shares
+  FOR UPDATE USING (auth.uid() = owner_id);
+
+CREATE POLICY "Owners can delete bubble shares" ON bubble_shares
+  FOR DELETE USING (auth.uid() = owner_id);
+
 -- ============================================
 -- INDEXES for better query performance
 -- ============================================
@@ -193,6 +334,12 @@ CREATE INDEX IF NOT EXISTS idx_events_start_time ON events(start_time);
 CREATE INDEX IF NOT EXISTS idx_people_user_id ON people(user_id);
 CREATE INDEX IF NOT EXISTS idx_recycle_bin_user_id ON recycle_bin(user_id);
 CREATE INDEX IF NOT EXISTS idx_recycle_bin_deleted_at ON recycle_bin(deleted_at);
+CREATE INDEX IF NOT EXISTS idx_pending_shares_user_id ON pending_shares(user_id);
+CREATE INDEX IF NOT EXISTS idx_pending_shares_invite_code ON pending_shares(invite_code);
+CREATE INDEX IF NOT EXISTS idx_pending_shares_contact ON pending_shares(contact_value);
+CREATE INDEX IF NOT EXISTS idx_bubble_shares_bubble_id ON bubble_shares(bubble_id);
+CREATE INDEX IF NOT EXISTS idx_bubble_shares_owner_id ON bubble_shares(owner_id);
+CREATE INDEX IF NOT EXISTS idx_bubble_shares_shared_with_id ON bubble_shares(shared_with_id);
 
 -- ============================================
 -- TRIGGER: Auto-update updated_at timestamp

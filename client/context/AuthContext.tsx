@@ -1,7 +1,9 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
+import { Alert } from "react-native";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { initializeDefaultBubbles } from "@/lib/defaultBubbles";
+import { activatePendingInvite } from "@/lib/pendingInvites";
 
 type AuthContextType = {
   session: Session | null;
@@ -46,6 +48,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (event === "SIGNED_IN" && session?.user) {
           await initializeDefaultBubbles(session.user.id);
+
+          const inviteResult = await activatePendingInvite(
+            session.user.id,
+            session.user.email || ""
+          );
+
+          if (inviteResult.success) {
+            const message = inviteResult.count && inviteResult.count > 1
+              ? `You now have access to ${inviteResult.count} shared bubbles!`
+              : `${inviteResult.senderName} shared "${inviteResult.bubbleName}" with you!`;
+            Alert.alert("Welcome!", message);
+          }
         }
       }
     );

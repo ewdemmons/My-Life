@@ -151,6 +151,14 @@ client/
   - CategoryInvite tracks per-category sharing with status (pending/accepted/declined)
   - Shared status badges in CategoryDetailScreen People tab
   - Invite button on PeopleScreen person cards
+- **Bubble Sharing**:
+  - BubbleShareModal for sharing Life Bubbles with others
+  - Unified email/phone input with auto-detection (regex-based)
+  - Direct share: Existing app users get instant access via bubble_shares table
+  - Pending invites: New contacts receive email/SMS with invite code
+  - Deep link support: mylife://invite?code=XXXXXX for app open with invite
+  - Automatic activation: Pending invites activated on login based on email match or stored code
+  - Invite expiry: 30-day expiration for pending shares
 - **Avatar display**: Stacked avatars with initials (when no photo) on task cards and event views
 - **Cascading deletion**: Deleting a person removes their ID from all linked categories, tasks, and events
 - **Defensive handling**: Missing person IDs are gracefully ignored in UI
@@ -167,13 +175,15 @@ client/
 ### Supabase Integration
 - **Backend**: Supabase is the primary cloud backend for all data storage
 - **Client**: `client/lib/supabase.ts` exports the initialized Supabase client
-- **Schema**: `supabase/schema.sql` defines 6 tables with RLS policies:
+- **Schema**: `supabase/schema.sql` defines 8 tables with RLS policies:
   - `profiles`: User profiles (id, email, display_name, avatar_url)
   - `life_bubbles`: Life categories (id, user_id, name, color, icon, description, people_ids)
   - `tasks`: Hierarchical tasks with 10 entry types (id, user_id, bubble_id, parent_id, type, title, status, priority, order_index, assignee_ids)
   - `events`: Calendar events with recurrence (id, user_id, bubble_id, event_type, title, start_date, start_time, recurrence, series_id, is_exception, attendee_ids)
   - `people`: Contacts and relationships (id, user_id, name, relationship, email, phone, photo_uri, notes, category_ids)
   - `recycle_bin`: Soft-deleted items with 30-day retention (id, user_id, item_type, item_data, related_items, deleted_at)
+  - `pending_shares`: Pending invites for non-app users (id, user_id, bubble_id, invite_code, contact_type, contact_value, permission, status, expires_at)
+  - `bubble_shares`: Active shares between app users (id, bubble_id, owner_id, shared_with_id, permission)
 - **Configuration**: Credentials stored in `app.json` under `expo.extra` section
   - `supabaseUrl`: Supabase project URL
   - `supabaseAnonKey`: Supabase anon (public) key

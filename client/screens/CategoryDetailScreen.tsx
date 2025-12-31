@@ -20,6 +20,7 @@ import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { SharePeopleModal } from "@/components/SharePeopleModal";
 import { AddPersonModal } from "@/components/AddPersonModal";
+import { BubbleShareModal } from "@/components/BubbleShareModal";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 
@@ -62,6 +63,7 @@ export default function CategoryDetailScreen() {
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showBubbleShareModal, setShowBubbleShareModal] = useState(false);
   const [showAddPersonModal, setShowAddPersonModal] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editingAsInstance, setEditingAsInstance] = useState(false);
@@ -154,8 +156,11 @@ export default function CategoryDetailScreen() {
       headerTitle: "",
       headerRight: () => (
         <View style={{ flexDirection: "row", gap: 8 }}>
+          <HeaderButton onPress={() => setShowBubbleShareModal(true)}>
+            <Feather name="user-plus" size={20} color={theme.primary} />
+          </HeaderButton>
           <HeaderButton onPress={() => setShowShareModal(true)}>
-            <Feather name="share-2" size={20} color={theme.primary} />
+            <Feather name="users" size={20} color={theme.primary} />
           </HeaderButton>
           <HeaderButton onPress={() => navigation.navigate("AddCategory", { category })}>
             <Feather name="edit-2" size={20} color={theme.primary} />
@@ -721,6 +726,12 @@ export default function CategoryDetailScreen() {
         sharedWith={category.sharedWith || []}
         onUpdateSharing={handleUpdateSharing}
         itemTitle={category.name}
+      />
+
+      <BubbleShareModal
+        visible={showBubbleShareModal}
+        onClose={() => setShowBubbleShareModal(false)}
+        category={category}
       />
 
       <AddPersonModal

@@ -160,3 +160,29 @@ export const SHARE_PERMISSIONS: { value: SharePermission; label: string; descrip
   { value: "edit", label: "Edit", description: "Can view and edit", icon: "edit-2" },
   { value: "co-owner", label: "Co-Owner", description: "Full access including sharing", icon: "users" },
 ];
+
+export interface PendingShare {
+  id: string;
+  userId: string;
+  bubbleId: string;
+  inviteCode: string;
+  contactType: "email" | "phone";
+  contactValue: string;
+  permission: SharePermission;
+  status: "pending" | "accepted" | "expired";
+  senderName?: string;
+  bubbleName?: string;
+  createdAt: number;
+  acceptedAt?: number;
+  expiresAt?: number;
+}
+
+export interface BubbleShare {
+  id: string;
+  bubbleId: string;
+  ownerId: string;
+  sharedWithId: string;
+  permission: SharePermission;
+  createdAt: number;
+  updatedAt: number;
+}
