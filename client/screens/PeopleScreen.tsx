@@ -22,7 +22,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
-import { Person, RelationshipType, RELATIONSHIP_TYPES } from "@/types";
+import { Person, RelationshipType, RELATIONSHIP_TYPES, LifeCategory } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { InviteModal } from "@/components/InviteModal";
 
@@ -31,7 +31,7 @@ export default function PeopleScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
-  const { people, addPerson, updatePerson, deletePerson } = useApp();
+  const { people, addPerson, updatePerson, deletePerson, categories } = useApp();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
@@ -44,6 +44,8 @@ export default function PeopleScreen() {
   const [photoUri, setPhotoUri] = useState("");
   const [notes, setNotes] = useState("");
   const [showRelationshipPicker, setShowRelationshipPicker] = useState(false);
+  const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [personToInvite, setPersonToInvite] = useState<Person | null>(null);
   const [showNewInviteModal, setShowNewInviteModal] = useState(false);
@@ -161,6 +163,7 @@ export default function PeopleScreen() {
     setPhone("");
     setPhotoUri("");
     setNotes("");
+    setSelectedCategoryIds([]);
     setEditingPerson(null);
   };
 
@@ -177,7 +180,16 @@ export default function PeopleScreen() {
     setPhone(person.phone || "");
     setPhotoUri(person.photoUri || "");
     setNotes(person.notes || "");
+    setSelectedCategoryIds(person.categoryIds || []);
     setModalVisible(true);
+  };
+
+  const toggleCategorySelection = (categoryId: string) => {
+    setSelectedCategoryIds((prev) =>
+      prev.includes(categoryId)
+        ? prev.filter((id) => id !== categoryId)
+        : [...prev, categoryId]
+    );
   };
 
   const handleSave = async () => {
@@ -193,6 +205,7 @@ export default function PeopleScreen() {
       phone: phone.trim() || undefined,
       photoUri: photoUri || undefined,
       notes: notes.trim() || undefined,
+      categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
     };
 
     if (editingPerson) {
@@ -460,6 +473,44 @@ export default function PeopleScreen() {
               />
             </View>
 
+            <View style={styles.formGroup}>
+              <ThemedText style={styles.label}>Life Categories</ThemedText>
+              <Pressable
+                style={[styles.pickerButton, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}
+                onPress={() => setShowCategoryPicker(true)}
+              >
+                <ThemedText style={[styles.pickerText, selectedCategoryIds.length === 0 && { color: theme.textSecondary }]}>
+                  {selectedCategoryIds.length === 0 
+                    ? "None selected" 
+                    : selectedCategoryIds.length === 1 
+                      ? categories.find(c => c.id === selectedCategoryIds[0])?.name || "1 selected"
+                      : `${selectedCategoryIds.length} selected`}
+                </ThemedText>
+                <Feather name="chevron-down" size={18} color={theme.textSecondary} />
+              </Pressable>
+              {selectedCategoryIds.length > 0 ? (
+                <View style={styles.selectedCategoriesContainer}>
+                  {selectedCategoryIds.map((catId) => {
+                    const cat = categories.find((c) => c.id === catId);
+                    if (!cat) return null;
+                    return (
+                      <Pressable
+                        key={catId}
+                        style={[styles.categoryChip, { backgroundColor: cat.color + "20" }]}
+                        onPress={() => toggleCategorySelection(catId)}
+                      >
+                        <View style={[styles.categoryChipDot, { backgroundColor: cat.color }]} />
+                        <ThemedText style={[styles.categoryChipText, { color: cat.color }]}>
+                          {cat.name}
+                        </ThemedText>
+                        <Feather name="x" size={14} color={cat.color} />
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              ) : null}
+            </View>
+
             {editingPerson ? (
               <View style={styles.actionButtons}>
                 <Pressable
@@ -532,6 +583,48 @@ export default function PeopleScreen() {
                   ) : null}
                 </Pressable>
               ))}
+            </View>
+          </Pressable>
+        </Modal>
+
+        <Modal
+          visible={showCategoryPicker}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowCategoryPicker(false)}
+        >
+          <Pressable
+            style={styles.pickerOverlay}
+            onPress={() => setShowCategoryPicker(false)}
+          >
+            <View style={[styles.pickerModal, { backgroundColor: theme.backgroundDefault }]}>
+              <ThemedText style={styles.pickerTitle}>Select Life Categories</ThemedText>
+              <FlatList
+                data={categories}
+                keyExtractor={(item) => item.id}
+                renderItem={({ item }) => (
+                  <Pressable
+                    style={[
+                      styles.pickerOption,
+                      selectedCategoryIds.includes(item.id) && { backgroundColor: item.color + "15" },
+                    ]}
+                    onPress={() => toggleCategorySelection(item.id)}
+                  >
+                    <View style={[styles.categoryColorDot, { backgroundColor: item.color }]} />
+                    <ThemedText style={styles.pickerOptionText}>{item.name}</ThemedText>
+                    {selectedCategoryIds.includes(item.id) ? (
+                      <Feather name="check" size={18} color={item.color} />
+                    ) : null}
+                  </Pressable>
+                )}
+                style={{ maxHeight: 280 }}
+              />
+              <Pressable
+                style={[styles.pickerDoneButton, { backgroundColor: theme.primary }]}
+                onPress={() => setShowCategoryPicker(false)}
+              >
+                <ThemedText style={styles.pickerDoneText}>Done</ThemedText>
+              </Pressable>
             </View>
           </Pressable>
         </Modal>
@@ -938,5 +1031,44 @@ const styles = StyleSheet.create({
   },
   inviteCancelText: {
     fontSize: 16,
+  },
+  selectedCategoriesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  categoryChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    gap: 6,
+  },
+  categoryChipDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  categoryChipText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  categoryColorDot: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+  },
+  pickerDoneButton: {
+    marginTop: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.xs,
+    alignItems: "center",
+  },
+  pickerDoneText: {
+    color: "#FFFFFF",
+    fontSize: 16,
+    fontWeight: "600",
   },
 });

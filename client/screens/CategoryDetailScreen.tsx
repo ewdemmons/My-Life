@@ -180,8 +180,13 @@ export default function CategoryDetailScreen() {
         event.attendeeIds.forEach(id => personIds.add(id));
       }
     });
+    people.forEach(person => {
+      if (person.categoryIds?.includes(category.id)) {
+        personIds.add(person.id);
+      }
+    });
     return people.filter(p => personIds.has(p.id));
-  }, [category.peopleIds, categoryTasks, categoryEvents, people]);
+  }, [category.peopleIds, category.id, categoryTasks, categoryEvents, people]);
 
   const getPersonLinkedItems = useCallback((personId: string) => {
     const tasks = categoryTasks.filter(t => t.assigneeIds?.includes(personId));
