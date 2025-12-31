@@ -32,7 +32,7 @@ interface AppContextType {
   addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => Promise<void>;
   updateEvent: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
-  updateEventSeries: (seriesId: string, updates: Partial<CalendarEvent>) => Promise<void>;
+  updateEventSeries: (seriesId: string, updates: Partial<CalendarEvent>, editedEventId?: string) => Promise<boolean>;
   deleteEventSeries: (seriesId: string) => Promise<void>;
   updateEventInstance: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
   getEventsByDate: (date: string) => CalendarEvent[];
@@ -200,6 +200,18 @@ function mapSupabasePersonToPerson(person: any): Person {
   };
 }
 
+function buildPastEventUpdatePayload(updates: Partial<CalendarEvent>) {
+  const result: any = {};
+  if (updates.title !== undefined) result.title = updates.title;
+  if (updates.description !== undefined) result.description = updates.description;
+  if (updates.eventType !== undefined) result.event_type = updates.eventType;
+  if (updates.categoryId !== undefined) result.bubble_id = updates.categoryId;
+  if (updates.linkedTaskId !== undefined) result.linked_task_id = updates.linkedTaskId;
+  if (updates.attendeeIds !== undefined) result.attendee_ids = updates.attendeeIds;
+  if (updates.recurrence !== undefined) result.recurrence = updates.recurrence;
+  return result;
+}
+
 function mapPersonToSupabase(person: Partial<Person>, userId: string) {
   const result: any = { user_id: userId };
   if (person.name !== undefined) result.name = person.name;
@@ -222,6 +234,11 @@ function mapSupabaseRecycleBinToDeletedItem(item: any): DeletedItem {
   };
 }
 
+interface RegenState {
+  activeSeries: string | null;
+  ignoreIds: Set<string>;
+}
+
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
   const [categories, setCategories] = useState<LifeCategory[]>([]);
@@ -231,6 +248,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const subscriptionRef = useRef<any>(null);
+  const regenStateRef = useRef<RegenState>({ activeSeries: null, ignoreIds: new Set() });
 
   useEffect(() => {
     if (user) {
@@ -307,6 +325,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         "postgres_changes",
         { event: "*", schema: "public", table: "events", filter: `user_id=eq.${user.id}` },
         (payload) => {
+          const eventId = payload.new?.id || payload.old?.id;
+          if (eventId && regenStateRef.current.ignoreIds.has(eventId)) {
+            return;
+          }
+          
           if (payload.eventType === "INSERT") {
             const newEvent = mapSupabaseEventToEvent(payload.new);
             setEvents((prev) => {
@@ -845,25 +868,342 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setEvents((prev) => prev.filter((event) => event.id !== id));
   }, [user]);
 
-  const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>) => {
-    if (!user) return;
+  const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>, editedEventId?: string): Promise<boolean> => {
+    if (!user) return false;
 
-    const seriesEvents = events.filter((e) => e.seriesId === seriesId && !e.isException);
-    if (seriesEvents.length === 0) return;
+    const seriesEvents = events.filter((e) => e.seriesId === seriesId);
+    const nonExceptionEvents = seriesEvents.filter((e) => !e.isException);
+    const exceptionEvents = seriesEvents.filter((e) => e.isException);
+    
+    if (nonExceptionEvents.length === 0) return false;
 
-    const firstEvent = seriesEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const anchorEvent = nonExceptionEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const originalRecurrence = anchorEvent.recurrence;
+    const newRecurrence = updates.recurrence;
+    const recurrenceChanged = newRecurrence !== undefined && newRecurrence !== originalRecurrence;
 
-    for (const event of seriesEvents) {
-      const eventUpdates = { ...updates };
+    const today = new Date();
+    const todayString = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}-${String(today.getDate()).padStart(2, "0")}`;
 
-      if (event.id !== firstEvent.id) {
-        delete eventUpdates.startDate;
-        delete eventUpdates.endDate;
+    if (recurrenceChanged) {
+      console.log("Recurrence changed from", originalRecurrence, "to", newRecurrence, "- regenerating series");
+
+      const allSeriesIds = seriesEvents.map((e) => e.id);
+      regenStateRef.current = { activeSeries: seriesId, ignoreIds: new Set(allSeriesIds) };
+
+      try {
+        if (newRecurrence === "none") {
+          const idsToDelete = seriesEvents.filter((e) => e.id !== anchorEvent.id).map((e) => e.id);
+          
+          if (idsToDelete.length > 0) {
+            const { error: deleteError } = await supabase
+              .from("events")
+              .delete()
+              .eq("user_id", user.id)
+              .in("id", idsToDelete);
+
+            if (deleteError) {
+              console.error("Error deleting series instances:", deleteError.message);
+              return false;
+            }
+          }
+
+          const supabaseUpdates = mapEventToSupabase({ ...updates, seriesId: null, recurrence: "none" }, user.id, anchorEvent);
+          delete supabaseUpdates.user_id;
+
+          await supabase
+            .from("events")
+            .update(supabaseUpdates)
+            .eq("id", anchorEvent.id)
+            .eq("user_id", user.id);
+
+          setEvents((prev) => {
+            const eventsNotInSeries = prev.filter((e) => !allSeriesIds.includes(e.id));
+            const updatedAnchor = { ...anchorEvent, ...updates, seriesId: null, recurrence: "none" as const };
+            return [...eventsNotInSeries, updatedAnchor];
+          });
+
+          return true;
+        }
+
+        const futureNonExceptionIds = nonExceptionEvents
+          .filter((e) => e.startDate >= todayString && e.id !== anchorEvent.id)
+          .map((e) => e.id);
+
+        if (futureNonExceptionIds.length > 0) {
+          const { error: deleteError } = await supabase
+            .from("events")
+            .delete()
+            .eq("user_id", user.id)
+            .in("id", futureNonExceptionIds);
+
+          if (deleteError) {
+            console.error("Error deleting future series instances:", deleteError.message);
+            return false;
+          }
+        }
+
+        const supabaseAnchorUpdates = mapEventToSupabase(updates, user.id, anchorEvent);
+        delete supabaseAnchorUpdates.user_id;
+
+        await supabase
+          .from("events")
+          .update(supabaseAnchorUpdates)
+          .eq("id", anchorEvent.id)
+          .eq("user_id", user.id);
+
+        const updatedAnchorData: Omit<CalendarEvent, "id" | "createdAt"> = {
+          title: updates.title ?? anchorEvent.title,
+          description: updates.description ?? anchorEvent.description,
+          startDate: updates.startDate ?? anchorEvent.startDate,
+          startTime: updates.startTime ?? anchorEvent.startTime,
+          endDate: updates.endDate ?? anchorEvent.endDate,
+          endTime: updates.endTime ?? anchorEvent.endTime,
+          eventType: updates.eventType ?? anchorEvent.eventType,
+          recurrence: newRecurrence,
+          linkedTaskId: updates.linkedTaskId ?? anchorEvent.linkedTaskId,
+          categoryId: updates.categoryId ?? anchorEvent.categoryId,
+          attendeeIds: updates.attendeeIds ?? anchorEvent.attendeeIds,
+        };
+
+        const newInstances = generateRecurringInstances(updatedAnchorData, seriesId);
+        const futureInstances = newInstances.filter((instance) => instance.startDate > anchorEvent.startDate);
+
+        const pastNonExceptions = nonExceptionEvents.filter((e) => e.startDate < todayString && e.id !== anchorEvent.id);
+        
+        const pastEventUpdates = buildPastEventUpdatePayload({ ...updates, recurrence: newRecurrence });
+        if (Object.keys(pastEventUpdates).length > 0 && pastNonExceptions.length > 0) {
+          const pastEventIds = pastNonExceptions.map((e) => e.id);
+          await supabase
+            .from("events")
+            .update(pastEventUpdates)
+            .eq("user_id", user.id)
+            .in("id", pastEventIds);
+        }
+
+        if (futureInstances.length > 0) {
+          const supabaseInstances = futureInstances.map(instance => {
+            const supabaseEvent = mapEventToSupabase(instance, user.id);
+            if (instance.linkedTaskId && !instance.linkedTaskId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+              delete supabaseEvent.linked_task_id;
+            }
+            return supabaseEvent;
+          });
+
+          const { data: insertedData, error: insertError } = await supabase
+            .from("events")
+            .insert(supabaseInstances)
+            .select();
+
+          if (insertError) {
+            console.error("Error inserting regenerated instances:", insertError.message);
+            return false;
+          }
+
+          if (insertedData) {
+            const newEvents = insertedData.map(mapSupabaseEventToEvent);
+            newEvents.forEach((e) => regenStateRef.current.ignoreIds.add(e.id));
+            
+            setEvents((prev) => {
+              const eventsNotInSeries = prev.filter((e) => e.seriesId !== seriesId);
+              const updatedAnchor = { ...anchorEvent, ...updates, recurrence: newRecurrence };
+              const updatedPastEvents = pastNonExceptions.map((e) => ({
+                ...e,
+                title: updates.title ?? e.title,
+                description: updates.description ?? e.description,
+                eventType: updates.eventType ?? e.eventType,
+                categoryId: updates.categoryId ?? e.categoryId,
+                linkedTaskId: updates.linkedTaskId ?? e.linkedTaskId,
+                attendeeIds: updates.attendeeIds ?? e.attendeeIds,
+                recurrence: newRecurrence,
+              }));
+              return [...eventsNotInSeries, updatedAnchor, ...updatedPastEvents, ...newEvents, ...exceptionEvents];
+            });
+          }
+        } else {
+          setEvents((prev) => {
+            const eventsNotInSeries = prev.filter((e) => e.seriesId !== seriesId);
+            const updatedAnchor = { ...anchorEvent, ...updates, recurrence: newRecurrence };
+            const updatedPastEvents = pastNonExceptions.map((e) => ({
+              ...e,
+              title: updates.title ?? e.title,
+              description: updates.description ?? e.description,
+              eventType: updates.eventType ?? e.eventType,
+              categoryId: updates.categoryId ?? e.categoryId,
+              linkedTaskId: updates.linkedTaskId ?? e.linkedTaskId,
+              attendeeIds: updates.attendeeIds ?? e.attendeeIds,
+              recurrence: newRecurrence,
+            }));
+            return [...eventsNotInSeries, updatedAnchor, ...updatedPastEvents, ...exceptionEvents];
+          });
+        }
+
+        return true;
+      } finally {
+        regenStateRef.current = { activeSeries: null, ignoreIds: new Set() };
       }
+    }
 
-      const supabaseUpdates = mapEventToSupabase(eventUpdates, user.id, event);
+    const isEditingAnchor = editedEventId === anchorEvent.id;
+    const anchorDateChanged = isEditingAnchor && (
+      (updates.startDate && updates.startDate !== anchorEvent.startDate) ||
+      (updates.endDate && updates.endDate !== anchorEvent.endDate)
+    );
+
+    if (anchorDateChanged) {
+      console.log("Anchor date changed - regenerating future instances");
+      
+      const allSeriesIds = seriesEvents.map((e) => e.id);
+      regenStateRef.current = { activeSeries: seriesId, ignoreIds: new Set(allSeriesIds) };
+
+      try {
+        const futureNonExceptionIds = nonExceptionEvents
+          .filter((e) => e.startDate >= todayString && e.id !== anchorEvent.id)
+          .map((e) => e.id);
+
+        if (futureNonExceptionIds.length > 0) {
+          futureNonExceptionIds.forEach((id) => regenStateRef.current.ignoreIds.add(id));
+          await supabase
+            .from("events")
+            .delete()
+            .eq("user_id", user.id)
+            .in("id", futureNonExceptionIds);
+        }
+
+        const supabaseAnchorUpdates = mapEventToSupabase(updates, user.id, anchorEvent);
+        delete supabaseAnchorUpdates.user_id;
+        
+        await supabase
+          .from("events")
+          .update(supabaseAnchorUpdates)
+          .eq("id", anchorEvent.id)
+          .eq("user_id", user.id);
+
+        const pastNonExceptions = nonExceptionEvents.filter((e) => e.startDate < todayString && e.id !== anchorEvent.id);
+        const pastEventUpdates = buildPastEventUpdatePayload(updates);
+        if (Object.keys(pastEventUpdates).length > 0 && pastNonExceptions.length > 0) {
+          const pastEventIds = pastNonExceptions.map((e) => e.id);
+          await supabase
+            .from("events")
+            .update(pastEventUpdates)
+            .eq("user_id", user.id)
+            .in("id", pastEventIds);
+        }
+
+        const updatedAnchorData: Omit<CalendarEvent, "id" | "createdAt"> = {
+          title: updates.title ?? anchorEvent.title,
+          description: updates.description ?? anchorEvent.description,
+          startDate: updates.startDate ?? anchorEvent.startDate,
+          startTime: updates.startTime ?? anchorEvent.startTime,
+          endDate: updates.endDate ?? anchorEvent.endDate,
+          endTime: updates.endTime ?? anchorEvent.endTime,
+          eventType: updates.eventType ?? anchorEvent.eventType,
+          recurrence: anchorEvent.recurrence,
+          linkedTaskId: updates.linkedTaskId ?? anchorEvent.linkedTaskId,
+          categoryId: updates.categoryId ?? anchorEvent.categoryId,
+          attendeeIds: updates.attendeeIds ?? anchorEvent.attendeeIds,
+        };
+
+        const newInstances = generateRecurringInstances(updatedAnchorData, seriesId);
+        const futureInstances = newInstances.filter((instance) => instance.startDate > updatedAnchorData.startDate);
+
+        if (futureInstances.length > 0) {
+          const supabaseInstances = futureInstances.map(instance => {
+            const supabaseEvent = mapEventToSupabase(instance, user.id);
+            if (instance.linkedTaskId && !instance.linkedTaskId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+              delete supabaseEvent.linked_task_id;
+            }
+            return supabaseEvent;
+          });
+
+          const { data: insertedData, error: insertError } = await supabase
+            .from("events")
+            .insert(supabaseInstances)
+            .select();
+
+          if (insertError) {
+            console.error("Error inserting regenerated instances:", insertError.message);
+            return false;
+          }
+
+          if (insertedData) {
+            const newEvents = insertedData.map(mapSupabaseEventToEvent);
+            newEvents.forEach((e) => regenStateRef.current.ignoreIds.add(e.id));
+            
+            setEvents((prev) => {
+              const eventsNotInSeries = prev.filter((e) => e.seriesId !== seriesId);
+              const updatedAnchor = { ...anchorEvent, ...updates };
+              const updatedPastEvents = pastNonExceptions.map((e) => ({
+                ...e,
+                title: updates.title ?? e.title,
+                description: updates.description ?? e.description,
+                eventType: updates.eventType ?? e.eventType,
+                categoryId: updates.categoryId ?? e.categoryId,
+                linkedTaskId: updates.linkedTaskId ?? e.linkedTaskId,
+                attendeeIds: updates.attendeeIds ?? e.attendeeIds,
+              }));
+              return [...eventsNotInSeries, updatedAnchor, ...updatedPastEvents, ...newEvents, ...exceptionEvents];
+            });
+          }
+        } else {
+          const updatedAnchor = { ...anchorEvent, ...updates };
+          const updatedPastEvents = pastNonExceptions.map((e) => ({
+            ...e,
+            title: updates.title ?? e.title,
+            description: updates.description ?? e.description,
+            eventType: updates.eventType ?? e.eventType,
+            categoryId: updates.categoryId ?? e.categoryId,
+            linkedTaskId: updates.linkedTaskId ?? e.linkedTaskId,
+            attendeeIds: updates.attendeeIds ?? e.attendeeIds,
+          }));
+          
+          setEvents((prev) => {
+            const eventsNotInSeries = prev.filter((e) => e.seriesId !== seriesId);
+            return [...eventsNotInSeries, updatedAnchor, ...updatedPastEvents, ...exceptionEvents];
+          });
+        }
+
+        return true;
+      } finally {
+        regenStateRef.current = { activeSeries: null, ignoreIds: new Set() };
+      }
+    }
+    
+    const anchorUpdates = { ...updates };
+    delete anchorUpdates.startDate;
+    delete anchorUpdates.endDate;
+
+    const supabaseAnchorUpdates = mapEventToSupabase(anchorUpdates, user.id, anchorEvent);
+    delete supabaseAnchorUpdates.user_id;
+    
+    await supabase
+      .from("events")
+      .update(supabaseAnchorUpdates)
+      .eq("id", anchorEvent.id)
+      .eq("user_id", user.id);
+
+    const pastEvents = nonExceptionEvents.filter((e) => e.id !== anchorEvent.id && e.startDate < todayString);
+    const futureEvents = nonExceptionEvents.filter((e) => e.id !== anchorEvent.id && e.startDate >= todayString);
+
+    if (pastEvents.length > 0) {
+      const pastEventUpdates = buildPastEventUpdatePayload(updates);
+      if (Object.keys(pastEventUpdates).length > 0) {
+        const pastEventIds = pastEvents.map((e) => e.id);
+        await supabase
+          .from("events")
+          .update(pastEventUpdates)
+          .eq("user_id", user.id)
+          .in("id", pastEventIds);
+      }
+    }
+
+    const futureEventUpdates = { ...updates };
+    delete futureEventUpdates.startDate;
+    delete futureEventUpdates.endDate;
+
+    for (const event of futureEvents) {
+      const supabaseUpdates = mapEventToSupabase(futureEventUpdates, user.id, event);
       delete supabaseUpdates.user_id;
-
       await supabase
         .from("events")
         .update(supabaseUpdates)
@@ -871,19 +1211,30 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .eq("user_id", user.id);
     }
 
+    const { startDate: _sd, endDate: _ed, ...safeUpdates } = updates;
+    
     setEvents((prev) =>
       prev.map((event) => {
         if (event.seriesId === seriesId && !event.isException) {
-          const eventUpdates = { ...updates };
-          if (event.id !== firstEvent.id) {
-            delete eventUpdates.startDate;
-            delete eventUpdates.endDate;
+          if (event.startDate < todayString && event.id !== anchorEvent.id) {
+            return {
+              ...event,
+              title: updates.title ?? event.title,
+              description: updates.description ?? event.description,
+              eventType: updates.eventType ?? event.eventType,
+              categoryId: updates.categoryId ?? event.categoryId,
+              linkedTaskId: updates.linkedTaskId ?? event.linkedTaskId,
+              attendeeIds: updates.attendeeIds ?? event.attendeeIds,
+              recurrence: updates.recurrence ?? event.recurrence,
+            };
           }
-          return { ...event, ...eventUpdates };
+          return { ...event, ...safeUpdates };
         }
         return event;
       })
     );
+
+    return true;
   }, [user, events]);
 
   const deleteEventSeries = useCallback(async (seriesId: string) => {

@@ -74,6 +74,8 @@ export function SchedulingModal({
     lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || null
   );
   const [attendeeIds, setAttendeeIds] = useState<string[]>(editingEvent?.attendeeIds || []);
+  const [isSaving, setIsSaving] = useState(false);
+  const [isUpdatingSeries, setIsUpdatingSeries] = useState(false);
 
   const [showStartDatePicker, setShowStartDatePicker] = useState(false);
   const [showStartTimePicker, setShowStartTimePicker] = useState(false);
@@ -191,7 +193,7 @@ export function SchedulingModal({
   };
 
   const handleSave = async () => {
-    if (!title.trim()) return;
+    if (!title.trim() || isSaving) return;
 
     const linkedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) : null;
     const finalCategoryId = selectedCategoryId || linkedTask?.categoryId || null;
@@ -210,22 +212,31 @@ export function SchedulingModal({
       attendeeIds,
     };
 
-    if (editingEvent) {
-      const isPartOfSeries = editingEvent.seriesId != null && editingEvent.seriesId !== "";
-      
-      if (isPartOfSeries) {
-        if (editingAsInstance) {
-          await updateEventInstance(editingEvent.id, eventData);
+    try {
+      setIsSaving(true);
+
+      if (editingEvent) {
+        const isPartOfSeries = editingEvent.seriesId != null && editingEvent.seriesId !== "";
+        
+        if (isPartOfSeries && editingEvent.seriesId) {
+          if (editingAsInstance) {
+            await updateEventInstance(editingEvent.id, eventData);
+          } else {
+            setIsUpdatingSeries(true);
+            await updateEventSeries(editingEvent.seriesId, eventData, editingEvent.id);
+            setIsUpdatingSeries(false);
+          }
         } else {
-          await updateEventSeries(editingEvent.seriesId, eventData);
+          await updateEvent(editingEvent.id, eventData);
         }
       } else {
-        await updateEvent(editingEvent.id, eventData);
+        await addEvent(eventData);
       }
-    } else {
-      await addEvent(eventData);
+      onClose();
+    } finally {
+      setIsSaving(false);
+      setIsUpdatingSeries(false);
     }
-    onClose();
   };
 
   const handleDelete = async () => {
@@ -258,10 +269,12 @@ export function SchedulingModal({
             </ThemedText>
             <Pressable
               onPress={handleSave}
-              style={[styles.headerButton, !title.trim() && { opacity: 0.5 }]}
-              disabled={!title.trim()}
+              style={[styles.headerButton, (!title.trim() || isSaving) && { opacity: 0.5 }]}
+              disabled={!title.trim() || isSaving}
             >
-              <ThemedText style={[styles.saveText, { color: theme.primary }]}>Save</ThemedText>
+              <ThemedText style={[styles.saveText, { color: theme.primary }]}>
+                {isUpdatingSeries ? "Updating series..." : isSaving ? "Saving..." : "Save"}
+              </ThemedText>
             </Pressable>
           </View>
 

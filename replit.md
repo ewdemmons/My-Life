@@ -116,12 +116,20 @@ client/
 
 ### Recurring Events
 - **Recurrence options**: None, Daily, Weekly, Biweekly, Monthly, Yearly
-- **Series generation**: Up to 2 years or 100 occurrences
+- **Series generation**: Up to 52 occurrences (1 year of weekly events)
 - **Visual indicator**: Repeat icon (↻) on recurring events
 - **Series-aware editing**: Choose to edit single instance or entire series
 - **Instance exceptions**: Edited instances become exceptions, preserved during series updates
 - **Series deletion**: Delete single instance or entire series
 - **Recurrence clarity note**: Shows description like "Repeats Weekly on Mondays"
+
+### Advanced Series Editing
+- **Recurrence change**: Changing recurrence pattern (e.g., weekly → daily) regenerates future instances
+- **Anchor date reschedule**: Moving the anchor event date regenerates future instances from new date
+- **Past event preservation**: Past events only receive mutable field updates (title, description, etc.), not date/time changes
+- **Future event updates**: Future events receive time changes but preserve their recurrence-derived dates
+- **Realtime guard**: Prevents duplicate instances during series regeneration by filtering realtime subscription replays
+- **Recurrence→None conversion**: Converts recurring series to single standalone event, deleting all other instances
 
 ### People Management
 - **Person profiles**: Name, relationship type, email, phone, photo, notes
