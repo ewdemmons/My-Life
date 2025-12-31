@@ -766,9 +766,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const seriesId = Date.now().toString();
       const instances = generateRecurringInstances(event, seriesId);
 
-      for (const instance of instances) {
-        const supabaseEvent = mapEventToSupabase(instance, user.id);
-        await supabase.from("events").insert(supabaseEvent);
+      const { data, error } = await supabase
+        .from("events")
+        .insert(instances.map(instance => mapEventToSupabase(instance, user.id)))
+        .select();
+
+      if (error) {
+        console.error("Error adding recurring events:", error.message);
+        return;
+      }
+
+      if (data) {
+        const newEvents = data.map(mapSupabaseEventToEvent);
+        setEvents((prev) => [...prev, ...newEvents]);
       }
     } else {
       const supabaseEvent = mapEventToSupabase({ ...event, seriesId: null }, user.id);
@@ -884,7 +894,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const existingEvent = events.find((e) => e.id === id);
-    const supabaseUpdates = mapEventToSupabase({ ...updates, isException: true }, user.id, existingEvent);
+    if (!existingEvent) return;
+
+    const isException = existingEvent.seriesId ? true : undefined;
+    const supabaseUpdates = mapEventToSupabase({ ...updates, isException }, user.id, existingEvent);
     delete supabaseUpdates.user_id;
 
     const { error } = await supabase
@@ -898,9 +911,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    setEvents((prev) =>
-      prev.map((event) => (event.id === id ? { ...event, ...updates, isException: true } : event))
-    );
+    const updatedEvent = { ...existingEvent, ...updates };
+    if (existingEvent.seriesId) updatedEvent.isException = true;
+    setEvents((prev) => prev.map((event) => (event.id === id ? updatedEvent : event)));
   }, [user, events]);
 
   const getEventsByDate = useCallback(
