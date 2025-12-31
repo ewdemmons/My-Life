@@ -182,6 +182,10 @@ client/
 
 ### Authentication
 - **Email/Password Auth**: Using Supabase Auth with signUp and signInWithPassword
+- **Session Persistence**: Uses AsyncStorage to persist auth sessions across app restarts
+  - `persistSession: true` - Stores session in AsyncStorage
+  - `autoRefreshToken: true` - Automatically refreshes tokens before expiry
+  - Users stay logged in after force-quitting and reopening the app
 - **Auth Screens**: 
   - WelcomeScreen: Landing page with Sign Up and Sign In buttons
   - SignUpScreen: Email, password, confirm password fields with validation
