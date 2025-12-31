@@ -3,6 +3,11 @@ import { CalendarEvent, RecurrenceType } from "@/types";
 const MAX_OCCURRENCES = 52;
 const MAX_YEARS_AHEAD = 2;
 
+function parseLocalDate(dateString: string): Date {
+  const [year, month, day] = dateString.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
 export function generateUUID(): string {
   const chars = "0123456789abcdef";
   let uuid = "";
@@ -71,8 +76,8 @@ export function generateRecurringInstances(
   }
 
   const instances: Omit<CalendarEvent, "id" | "createdAt">[] = [];
-  const startDate = new Date(baseEvent.startDate + "T12:00:00");
-  const endDate = new Date(baseEvent.endDate + "T12:00:00");
+  const startDate = parseLocalDate(baseEvent.startDate);
+  const endDate = parseLocalDate(baseEvent.endDate);
   const dayDiff = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
   
   const maxDate = addYears(new Date(), MAX_YEARS_AHEAD);
@@ -101,7 +106,7 @@ export function generateRecurringInstances(
 export function getRecurrenceDescription(recurrence: RecurrenceType, startDate: string): string {
   if (recurrence === "none") return "";
   
-  const date = new Date(startDate + "T12:00:00");
+  const date = parseLocalDate(startDate);
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const dayName = dayNames[date.getDay()];
   const dayOfMonth = date.getDate();
