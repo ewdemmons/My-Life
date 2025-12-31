@@ -456,22 +456,9 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
 
   const taskEvents = getEventsByTask(task.id);
   const hasScheduledEvents = taskEvents.length > 0;
-  const firstEventType = taskEvents[0]?.eventType;
 
   const priorityColor = task.priority === "high" ? theme.error : 
                         task.priority === "medium" ? theme.warning : theme.success;
-
-  const getScheduleIcon = () => {
-    switch (firstEventType) {
-      case "reminder": return { name: "bell", color: "#F59E0B" };
-      case "appointment": return { name: "calendar", color: "#3B82F6" };
-      case "meeting": return { name: "users", color: "#A855F7" };
-      case "due_date": return { name: "flag", color: theme.error };
-      default: return null;
-    }
-  };
-
-  const scheduleIcon = getScheduleIcon();
 
   const cardShadow = Platform.select({
     ios: {
@@ -550,95 +537,33 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
             <View style={styles.itemHeader}>
               <View style={styles.leftSection}>
                 {hasChildren ? (
-                  <View style={styles.expandCluster}>
-                    <View style={styles.countBadgeContainer}>
-                      <View style={[styles.countBadge, { backgroundColor: typeColor }]}>
-                        <ThemedText style={styles.countBadgeText}>{task.children.length}</ThemedText>
-                      </View>
-                    </View>
-                    <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
-                      <Animated.View style={chevronStyle}>
-                        <Feather name="chevron-right" size={24} color={theme.textSecondary} />
-                      </Animated.View>
-                    </Pressable>
-                  </View>
+                  <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
+                    <Animated.View style={chevronStyle}>
+                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                    </Animated.View>
+                  </Pressable>
                 ) : (
                   <View style={styles.chevronPlaceholder} />
                 )}
               </View>
 
               <View style={styles.itemContent}>
-                <View style={styles.topIndicatorRow}>
-                  <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
-                    <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
-                      {typeInfo.label}
-                    </ThemedText>
-                  </View>
-
-                  <View style={styles.priorityIconGroup}>
-                    <Pressable
-                      style={[
-                        styles.priorityIcon,
-                        task.priority === "high"
-                          ? { backgroundColor: theme.error + "20" }
-                          : { opacity: 0.3 },
-                      ]}
-                      onPress={handleToggleComplete}
-                      hitSlop={8}
-                    >
-                      <Feather
-                        name="alert-circle"
-                        size={16}
-                        color={task.priority === "high" ? theme.error : theme.textSecondary}
-                      />
-                    </Pressable>
-                    <Pressable
-                      style={[
-                        styles.priorityIcon,
-                        task.priority === "medium"
-                          ? { backgroundColor: theme.warning + "20" }
-                          : { opacity: 0.3 },
-                      ]}
-                      onPress={handleToggleComplete}
-                      hitSlop={8}
-                    >
-                      <Feather
-                        name="minus"
-                        size={16}
-                        color={task.priority === "medium" ? theme.warning : theme.textSecondary}
-                        strokeWidth={3}
-                      />
-                    </Pressable>
-                    <Pressable
-                      style={[
-                        styles.priorityIcon,
-                        task.priority === "low"
-                          ? { backgroundColor: theme.success + "20" }
-                          : { opacity: 0.3 },
-                      ]}
-                      onPress={handleToggleComplete}
-                      hitSlop={8}
-                    >
-                      <Feather
-                        name="circle"
-                        size={16}
-                        color={task.priority === "low" ? theme.success : theme.textSecondary}
-                      />
-                    </Pressable>
-                  </View>
-
-                  {scheduleIcon ? (
-                    <View style={styles.scheduleIconContainer}>
-                      <Feather name={scheduleIcon.name as any} size={18} color={scheduleIcon.color} />
-                    </View>
-                  ) : null}
-
-                  {task.assigneeIds && task.assigneeIds.length > 0 ? (
-                    <View style={styles.assigneesRow}>
-                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={16} />
-                    </View>
-                  ) : null}
-
+                <View style={[styles.typeBadge, { backgroundColor: typeColor + "15", alignSelf: "flex-start" }]}>
+                  <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
+                    {typeInfo.label}
+                  </ThemedText>
+                </View>
+                <View style={styles.titleRow}>
+                  <ThemedText
+                    style={[
+                      styles.title,
+                      { color: isDark ? "#FFFFFF" : theme.text },
+                      task.status === "completed" && styles.titleCompleted,
+                    ]}
+                    numberOfLines={2}
+                  >
+                    {task.title}
+                  </ThemedText>
                   <Pressable onPress={handleToggleComplete} hitSlop={14} style={styles.checkboxButton}>
                     <View style={[
                       styles.checkbox,
@@ -651,20 +576,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </View>
                   </Pressable>
                 </View>
-
-                <View style={styles.titleRow}>
-                  <ThemedText
-                    style={[
-                      styles.title,
-                      { color: isDark ? "#FFFFFF" : theme.text },
-                      task.status === "completed" && styles.titleCompleted,
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {task.title}
-                  </ThemedText>
-                </View>
-
                 <View style={styles.metaRow}>
                   {showCategory && category ? (
                     <View style={styles.categoryBadge}>
@@ -672,6 +583,29 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                       <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
                         {category.name}
                       </ThemedText>
+                    </View>
+                  ) : null}
+
+                  {hasChildren ? (
+                    <View style={styles.childCountBadge}>
+                      <Feather name="layers" size={11} color={theme.textSecondary} />
+                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                        {task.children.length}
+                      </ThemedText>
+                    </View>
+                  ) : null}
+
+                  {hasScheduledEvents ? (
+                    <View style={[styles.scheduledBadge, { backgroundColor: "#3B82F6" + "20" }]}>
+                      <Feather name="calendar" size={11} color="#3B82F6" />
+                    </View>
+                  ) : null}
+
+                  <View style={[styles.priorityIndicator, { backgroundColor: priorityColor }]} />
+
+                  {task.assigneeIds && task.assigneeIds.length > 0 ? (
+                    <View style={styles.assigneesContainer}>
+                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={18} />
                     </View>
                   ) : null}
 
@@ -816,40 +750,18 @@ const styles = StyleSheet.create({
     gap: Spacing.xs,
   },
   leftSection: {
-    flexDirection: "column",
+    flexDirection: "row",
     alignItems: "center",
-    justifyContent: "flex-start",
-  },
-  expandCluster: {
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 6,
-    minWidth: 44,
-    minHeight: 44,
-  },
-  countBadgeContainer: {
-    position: "absolute",
-    top: 0,
-    left: 12,
-  },
-  countBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  countBadgeText: {
-    fontSize: 11,
-    fontWeight: "700",
-    color: "#FFFFFF",
   },
   expandButton: {
-    padding: 8,
+    padding: 2,
   },
   chevronPlaceholder: {
-    width: 44,
-    height: 44,
+    width: 20,
+  },
+  checkboxButton: {
+    padding: 2,
+    marginLeft: Spacing.sm,
   },
   checkbox: {
     width: 20,
@@ -862,44 +774,12 @@ const styles = StyleSheet.create({
   itemContent: {
     flex: 1,
   },
-  topIndicatorRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    marginBottom: Spacing.xs,
-    flexWrap: "wrap",
-  },
-  priorityIconGroup: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 4,
-  },
-  priorityIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  scheduleIconContainer: {
-    width: 28,
-    height: 28,
-    borderRadius: 6,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  assigneesRow: {
-    marginLeft: Spacing.xs,
-  },
-  checkboxButton: {
-    padding: 6,
-    marginLeft: "auto",
-  },
   titleRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    marginTop: Spacing.xs,
-    marginBottom: Spacing.xs,
+    justifyContent: "space-between",
+    gap: Spacing.sm,
+    marginTop: 2,
   },
   title: {
     fontSize: 16,
