@@ -71,8 +71,8 @@ export function generateRecurringInstances(
   }
 
   const instances: Omit<CalendarEvent, "id" | "createdAt">[] = [];
-  const startDate = new Date(baseEvent.startDate);
-  const endDate = new Date(baseEvent.endDate);
+  const startDate = new Date(baseEvent.startDate + "T12:00:00");
+  const endDate = new Date(baseEvent.endDate + "T12:00:00");
   const dayDiff = Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24));
   
   const maxDate = addYears(new Date(), MAX_YEARS_AHEAD);
@@ -101,7 +101,7 @@ export function generateRecurringInstances(
 export function getRecurrenceDescription(recurrence: RecurrenceType, startDate: string): string {
   if (recurrence === "none") return "";
   
-  const date = new Date(startDate);
+  const date = new Date(startDate + "T12:00:00");
   const dayNames = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
   const dayName = dayNames[date.getDay()];
   const dayOfMonth = date.getDate();
