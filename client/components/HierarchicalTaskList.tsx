@@ -456,6 +456,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
 
   const taskEvents = getEventsByTask(task.id);
   const hasScheduledEvents = taskEvents.length > 0;
+  const linkedEventType = taskEvents.length > 0 ? taskEvents[0].eventType : null;
 
   const priorityColor = task.priority === "high" ? theme.error : 
                         task.priority === "medium" ? theme.warning : theme.success;
@@ -536,23 +537,33 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
           >
             <View style={styles.itemHeader}>
               <View style={styles.leftSection}>
-                {hasChildren ? (
-                  <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
-                    <Animated.View style={chevronStyle}>
-                      <Feather name="chevron-right" size={18} color={theme.textSecondary} />
-                    </Animated.View>
-                  </Pressable>
-                ) : (
-                  <View style={styles.chevronPlaceholder} />
-                )}
+                <View style={styles.leftColumn}>
+                  <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
+                    <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
+                      {typeInfo.label}
+                    </ThemedText>
+                  </View>
+                  {hasChildren ? (
+                    <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
+                      <Animated.View style={chevronStyle}>
+                        <Feather name="chevron-right" size={24} color={theme.textSecondary} />
+                      </Animated.View>
+                    </Pressable>
+                  ) : (
+                    <View style={styles.chevronPlaceholder} />
+                  )}
+                  {hasChildren ? (
+                    <View style={styles.childCountBadge}>
+                      <Feather name="layers" size={13} color={theme.textSecondary} />
+                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                        {task.children.length}
+                      </ThemedText>
+                    </View>
+                  ) : null}
+                </View>
               </View>
 
               <View style={styles.itemContent}>
-                <View style={[styles.typeBadge, { backgroundColor: typeColor + "15", alignSelf: "flex-start" }]}>
-                  <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
-                    {typeInfo.label}
-                  </ThemedText>
-                </View>
                 <View style={styles.titleRow}>
                   <ThemedText
                     style={[
@@ -576,36 +587,42 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </View>
                   </Pressable>
                 </View>
-                <View style={styles.metaRow}>
-                  {showCategory && category ? (
-                    <View style={styles.categoryBadge}>
-                      <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
-                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                        {category.name}
-                      </ThemedText>
+                <View style={styles.bottomIndicatorRow}>
+                  {task.priority === "high" ? (
+                    <View style={styles.priorityIcon}>
+                      <Feather name="alert-circle" size={16} color={theme.error} />
+                    </View>
+                  ) : task.priority === "medium" ? (
+                    <View style={styles.priorityIcon}>
+                      <Feather name="minus" size={16} color={theme.warning} />
+                    </View>
+                  ) : (
+                    <View style={styles.priorityIcon}>
+                      <Feather name="circle" size={16} color={theme.success} />
+                    </View>
+                  )}
+
+                  {linkedEventType === "reminder" ? (
+                    <View style={styles.scheduleIcon}>
+                      <Feather name="bell" size={16} color="#F59E0B" />
+                    </View>
+                  ) : linkedEventType === "appointment" ? (
+                    <View style={styles.scheduleIcon}>
+                      <Feather name="calendar" size={16} color="#3B82F6" />
+                    </View>
+                  ) : linkedEventType === "meeting" ? (
+                    <View style={styles.scheduleIcon}>
+                      <Feather name="users" size={16} color="#A855F7" />
+                    </View>
+                  ) : linkedEventType === "due_date" ? (
+                    <View style={styles.scheduleIcon}>
+                      <Feather name="flag" size={16} color={theme.error} />
                     </View>
                   ) : null}
-
-                  {hasChildren ? (
-                    <View style={styles.childCountBadge}>
-                      <Feather name="layers" size={11} color={theme.textSecondary} />
-                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                        {task.children.length}
-                      </ThemedText>
-                    </View>
-                  ) : null}
-
-                  {hasScheduledEvents ? (
-                    <View style={[styles.scheduledBadge, { backgroundColor: "#3B82F6" + "20" }]}>
-                      <Feather name="calendar" size={11} color="#3B82F6" />
-                    </View>
-                  ) : null}
-
-                  <View style={[styles.priorityIndicator, { backgroundColor: priorityColor }]} />
 
                   {task.assigneeIds && task.assigneeIds.length > 0 ? (
                     <View style={styles.assigneesContainer}>
-                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={18} />
+                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
                     </View>
                   ) : null}
 
@@ -618,6 +635,15 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </View>
                   ) : null}
                 </View>
+
+                {showCategory && category ? (
+                  <View style={styles.categoryBadge}>
+                    <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                    <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                      {category.name}
+                    </ThemedText>
+                  </View>
+                ) : null}
 
                 {isDragging ? (
                   <View style={styles.dragHint}>
@@ -753,11 +779,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
   },
+  leftColumn: {
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
   expandButton: {
     padding: 2,
   },
   chevronPlaceholder: {
-    width: 20,
+    width: 28,
+    height: 28,
   },
   checkboxButton: {
     padding: 2,
@@ -825,22 +856,30 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
-  scheduledBadge: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+  bottomIndicatorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginTop: Spacing.xs,
+  },
+  priorityIcon: {
+    width: 24,
+    height: 24,
     alignItems: "center",
     justifyContent: "center",
   },
-  priorityIndicator: {
-    width: 3,
-    height: 14,
-    borderRadius: 2,
-    marginLeft: "auto",
+  scheduleIcon: {
+    width: 24,
+    height: 24,
+    alignItems: "center",
+    justifyContent: "center",
   },
   assigneesContainer: {
-    marginLeft: Spacing.sm,
+    marginLeft: Spacing.xs,
   },
   sharedBadge: {
     flexDirection: "row",
