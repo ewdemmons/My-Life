@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
-import { generateRecurringInstances } from "@/utils/recurrence";
+import { generateRecurringInstances, generateUUID } from "@/utils/recurrence";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
 import { DEFAULT_BUBBLES } from "@/lib/defaultBubbles";
@@ -763,16 +763,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     if (event.recurrence && event.recurrence !== "none") {
-      const seriesId = Date.now().toString();
+      const seriesId = generateUUID();
       const instances = generateRecurringInstances(event, seriesId);
+
+      const supabaseInstances = instances.map(instance => {
+        const supabaseEvent = mapEventToSupabase(instance, user.id);
+        // Ensure valid linked_task_id
+        if (event.linkedTaskId && !event.linkedTaskId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
+          delete supabaseEvent.linked_task_id;
+        }
+        return supabaseEvent;
+      });
+
+      if (supabaseInstances.length > 0) {
+        console.log("Inserting recurring events:", { seriesId, instanceCount: supabaseInstances.length, firstInstance: supabaseInstances[0] });
+      }
 
       const { data, error } = await supabase
         .from("events")
-        .insert(instances.map(instance => mapEventToSupabase(instance, user.id)))
+        .insert(supabaseInstances)
         .select();
 
       if (error) {
-        console.error("Error adding recurring events:", error.message);
+        console.error("Error adding recurring events:", error.message, { seriesId, instances: supabaseInstances });
         return;
       }
 
