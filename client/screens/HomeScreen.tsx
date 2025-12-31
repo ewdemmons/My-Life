@@ -85,7 +85,7 @@ export default function HomeScreen() {
       <View style={styles.heroSection}>
         <ThemedText style={styles.headline}>Balance Your World</ThemedText>
         <ThemedText style={[styles.subheadline, { color: theme.textSecondary }]}>
-          Everything that matters, organized in one place.
+          Everything that matters to you, organized in one place.
         </ThemedText>
       </View>
 
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
   },
   heroSection: {
     paddingTop: Spacing.xxl,
-    paddingBottom: Spacing.xl,
+    paddingBottom: Spacing.md,
     alignItems: "center",
   },
   headline: {
