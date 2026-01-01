@@ -157,8 +157,9 @@ client/
   - **Import from Contacts**: One-tap device contacts import with permission handling
   - Auto-add imported contacts to People list if not already present
   - Direct share: Existing app users get instant access via bubble_shares table
-  - Pending invites: New contacts receive email/SMS with invite code
-  - Deep link support: mylife://invite?code=XXXXXX for app open with invite
+  - Pending invites: New contacts receive email/SMS with clickable invite links
+  - **Deep link URLs**: HTTPS invite URLs (e.g., https://domain/invite/ABC123) that redirect to app deep links
+  - **Server redirect page**: /invite/:code endpoint serves branded redirect page with deep link and fallback
   - Automatic activation: Pending invites activated on login based on email match or stored code
   - Invite expiry: 30-day expiration for pending shares
 - **Avatar display**: Stacked avatars with initials (when no photo) on task cards and event views
