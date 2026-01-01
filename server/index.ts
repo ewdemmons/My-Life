@@ -155,6 +155,74 @@ function serveLandingPage({
   res.status(200).send(html);
 }
 
+function serveInviteRedirect(res: Response, code: string, appName: string) {
+  const deepLink = `mylife://invite?code=${code}`;
+  const html = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Join ${appName}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #fff;
+      padding: 20px;
+    }
+    .container {
+      text-align: center;
+      max-width: 400px;
+    }
+    h1 { font-size: 28px; margin-bottom: 16px; }
+    p { font-size: 16px; opacity: 0.8; margin-bottom: 24px; line-height: 1.5; }
+    .button {
+      display: inline-block;
+      background: #5B7FFF;
+      color: #fff;
+      padding: 16px 32px;
+      border-radius: 12px;
+      text-decoration: none;
+      font-weight: 600;
+      font-size: 18px;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .button:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(91,127,255,0.4); }
+    .code { 
+      margin-top: 24px;
+      padding: 16px;
+      background: rgba(255,255,255,0.1);
+      border-radius: 8px;
+      font-size: 14px;
+    }
+    .code strong { display: block; margin-bottom: 8px; }
+    .invite-code { font-family: monospace; font-size: 18px; letter-spacing: 2px; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>You're Invited!</h1>
+    <p>Someone invited you to collaborate on a Life Bubble in ${appName}.</p>
+    <a href="${deepLink}" class="button">Open in App</a>
+    <div class="code">
+      <strong>Don't have the app yet?</strong>
+      Download "${appName}" and your invite code <span class="invite-code">${code}</span> will be ready.
+    </div>
+  </div>
+  <script>
+    setTimeout(function() { window.location.href = "${deepLink}"; }, 500);
+  </script>
+</body>
+</html>`;
+  res.setHeader("Content-Type", "text/html; charset=utf-8");
+  res.status(200).send(html);
+}
+
 function configureExpoAndLanding(app: express.Application) {
   const templatePath = path.resolve(
     process.cwd(),
@@ -166,6 +234,14 @@ function configureExpoAndLanding(app: express.Application) {
   const appName = getAppName();
 
   log("Serving static Expo files with dynamic manifest routing");
+
+  app.get("/invite/:code", (req: Request, res: Response) => {
+    const { code } = req.params;
+    if (!code || code.length < 4) {
+      return res.status(400).send("Invalid invite code");
+    }
+    serveInviteRedirect(res, code, appName);
+  });
 
   app.use((req: Request, res: Response, next: NextFunction) => {
     if (req.path.startsWith("/api")) {

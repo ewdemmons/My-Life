@@ -30,6 +30,7 @@ import {
   SHARE_PERMISSIONS,
   RELATIONSHIP_TYPES,
 } from "@/types";
+import { getApiUrl } from "@/lib/query-client";
 
 interface BubbleShareModalProps {
   visible: boolean;
@@ -302,6 +303,15 @@ export function BubbleShareModal({
     }
   };
 
+  const getInviteUrl = (inviteCode: string): string => {
+    try {
+      const baseUrl = getApiUrl();
+      return `${baseUrl}invite/${inviteCode}`;
+    } catch {
+      return `mylife://invite?code=${inviteCode}`;
+    }
+  };
+
   const sendEmailInvite = async (email: string, inviteCode: string, senderName: string) => {
     const isAvailable = await MailComposer.isAvailableAsync();
     if (!isAvailable) {
@@ -309,13 +319,19 @@ export function BubbleShareModal({
       return;
     }
 
-    const appLink = `mylife://invite?code=${inviteCode}`;
-    const message = `Hi there!\n\n${senderName} has invited you to collaborate on "${category.name}" in the My Life app.\n\nAccess Level: ${getPermissionInfo().label}\n\nTo accept this invitation:\n1. Download the My Life app\n2. Sign up or log in\n3. Use invite code: ${inviteCode}\n\nOr click here to join: ${appLink}\n\nSee you there!`;
+    const inviteUrl = getInviteUrl(inviteCode);
+    const message = `Hi there!\n\n${senderName} has invited you to collaborate on "${category.name}" in the My Life app.\n\nAccess Level: ${getPermissionInfo().label}\n\n` +
+      `Join now:\n${inviteUrl}\n\n` +
+      `How to join:\n` +
+      `1. Download "My Life" from the App Store or Google Play\n` +
+      `2. Click the link above to automatically join\n\n` +
+      `See you there!`;
 
     await MailComposer.composeAsync({
       recipients: [email],
       subject: `${senderName} invited you to "${category.name}" in My Life`,
       body: message,
+      isHtml: false,
     });
   };
 
@@ -326,7 +342,8 @@ export function BubbleShareModal({
       return;
     }
 
-    const message = `${senderName} invited you to collaborate on "${category.name}" in My Life app! Download the app and use invite code: ${inviteCode}`;
+    const inviteUrl = getInviteUrl(inviteCode);
+    const message = `${senderName} invited you to "${category.name}" in My Life!\n\nJoin: ${inviteUrl}`;
 
     await SMS.sendSMSAsync([phone], message);
   };
@@ -378,9 +395,10 @@ export function BubbleShareModal({
         await sendSMSInvite(trimmedInput, inviteCode, senderName);
       }
 
+      const inviteUrl = getInviteUrl(inviteCode);
       Alert.alert(
         "Invite Sent!",
-        `Invitation sent via ${contactType === "email" ? "email" : "SMS"}. They can use code ${inviteCode} to join.`
+        `Invitation sent via ${contactType === "email" ? "email" : "SMS"}. They can tap the link to join automatically.`
       );
       onClose();
     } catch (error) {
@@ -549,8 +567,8 @@ export function BubbleShareModal({
             <Feather name="info" size={16} color={theme.textSecondary} />
             <ThemedText style={[styles.infoText, { color: theme.textSecondary }]}>
               {detectedType === "email"
-                ? "If this email belongs to an existing user, they'll get instant access. Otherwise, an invite will be sent."
-                : "An SMS invite with a code will be sent. The recipient can join using this code after signing up."}
+                ? "If this email belongs to an existing user, they'll get instant access. Otherwise, an invite link will be sent."
+                : "An SMS with a join link will be sent. The recipient can tap the link to join after downloading the app."}
             </ThemedText>
           </View>
         </View>
