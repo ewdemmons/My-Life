@@ -154,6 +154,8 @@ client/
 - **Bubble Sharing**:
   - BubbleShareModal for sharing Life Bubbles with others
   - Unified email/phone input with auto-detection (regex-based)
+  - **Import from Contacts**: One-tap device contacts import with permission handling
+  - Auto-add imported contacts to People list if not already present
   - Direct share: Existing app users get instant access via bubble_shares table
   - Pending invites: New contacts receive email/SMS with invite code
   - Deep link support: mylife://invite?code=XXXXXX for app open with invite
