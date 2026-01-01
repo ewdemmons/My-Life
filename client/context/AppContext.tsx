@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem, CalendarEvent, Person } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission } from "@/types";
 import { generateRecurringInstances, generateUUID } from "@/utils/recurrence";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
@@ -59,6 +59,21 @@ function mapSupabaseBubbleToCategory(bubble: any): LifeCategory {
     icon: bubble.icon,
     createdAt: new Date(bubble.created_at).getTime(),
     peopleIds: bubble.people_ids || [],
+  };
+}
+
+function mapSharedBubbleToCategory(share: any, bubble: any): LifeCategory {
+  return {
+    id: bubble.id,
+    name: bubble.name,
+    description: bubble.description || "",
+    color: bubble.color,
+    icon: bubble.icon,
+    createdAt: new Date(bubble.created_at).getTime(),
+    peopleIds: bubble.people_ids || [],
+    isShared: true,
+    sharePermission: share.permission as SharePermission,
+    ownerId: share.owner_id,
   };
 }
 
@@ -248,6 +263,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const subscriptionRef = useRef<any>(null);
+  const sharedBubbleIdsRef = useRef<Set<string>>(new Set());
   const regenStateRef = useRef<RegenState>({ activeSeries: null, ignoreIds: new Set() });
 
   useEffect(() => {
@@ -305,8 +321,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "tasks", filter: `user_id=eq.${user.id}` },
+        { event: "*", schema: "public", table: "tasks" },
         (payload) => {
+          const bubbleId = payload.new?.bubble_id || payload.old?.bubble_id;
+          const taskUserId = payload.new?.user_id || payload.old?.user_id;
+          const isOwned = taskUserId === user.id;
+          const isShared = sharedBubbleIdsRef.current.has(bubbleId);
+          if (!isOwned && !isShared) return;
+
           if (payload.eventType === "INSERT") {
             const newTask = mapSupabaseTaskToTask(payload.new);
             setTasks((prev) => {
@@ -323,8 +345,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       )
       .on(
         "postgres_changes",
-        { event: "*", schema: "public", table: "events", filter: `user_id=eq.${user.id}` },
+        { event: "*", schema: "public", table: "events" },
         (payload) => {
+          const bubbleId = payload.new?.bubble_id || payload.old?.bubble_id;
+          const eventUserId = payload.new?.user_id || payload.old?.user_id;
+          const isOwned = eventUserId === user.id;
+          const isShared = sharedBubbleIdsRef.current.has(bubbleId);
+          if (!isOwned && !isShared) return;
+
           const eventId = payload.new?.id || payload.old?.id;
           const eventSeriesId = payload.new?.series_id || payload.old?.series_id;
           
@@ -380,6 +408,59 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           } else if (payload.eventType === "DELETE") {
             setRecycleBin((prev) => prev.filter((i) => i.id !== payload.old.id));
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "bubble_shares", filter: `shared_with_id=eq.${user.id}` },
+        async (payload) => {
+          if (payload.eventType === "INSERT") {
+            const bubbleId = payload.new.bubble_id;
+            sharedBubbleIdsRef.current.add(bubbleId);
+            const [bubbleRes, tasksRes, eventsRes] = await Promise.all([
+              supabase.from("life_bubbles").select("*").eq("id", bubbleId).single(),
+              supabase.from("tasks").select("*").eq("bubble_id", bubbleId),
+              supabase.from("events").select("*").eq("bubble_id", bubbleId),
+            ]);
+            if (bubbleRes.data) {
+              const sharedCategory = mapSharedBubbleToCategory(payload.new, bubbleRes.data);
+              setCategories((prev) => {
+                if (prev.find((c) => c.id === sharedCategory.id)) return prev;
+                return [...prev, sharedCategory];
+              });
+            }
+            if (tasksRes.data && tasksRes.data.length > 0) {
+              const newTasks = tasksRes.data.map(mapSupabaseTaskToTask);
+              setTasks((prev) => {
+                const existingIds = new Set(prev.map(t => t.id));
+                const uniqueNewTasks = newTasks.filter(t => !existingIds.has(t.id));
+                return [...prev, ...uniqueNewTasks];
+              });
+            }
+            if (eventsRes.data && eventsRes.data.length > 0) {
+              const newEvents = eventsRes.data.map(mapSupabaseEventToEvent);
+              setEvents((prev) => {
+                const existingIds = new Set(prev.map(e => e.id));
+                const uniqueNewEvents = newEvents.filter(e => !existingIds.has(e.id));
+                return [...prev, ...uniqueNewEvents];
+              });
+            }
+          } else if (payload.eventType === "DELETE") {
+            const bubbleId = payload.old.bubble_id;
+            sharedBubbleIdsRef.current.delete(bubbleId);
+            setCategories((prev) => prev.filter((c) => !(c.id === bubbleId && c.isShared)));
+            setTasks((prev) => prev.filter((t) => t.categoryId !== bubbleId));
+            setEvents((prev) => prev.filter((e) => e.categoryId !== bubbleId));
+          } else if (payload.eventType === "UPDATE") {
+            setCategories((prev) =>
+              prev.map((c) => {
+                if (c.id === payload.new.bubble_id && c.isShared) {
+                  return { ...c, sharePermission: payload.new.permission };
+                }
+                return c;
+              })
+            );
           }
         }
       )
@@ -533,22 +614,47 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       await migrateLocalDataToSupabase();
 
-      const [bubblesRes, tasksRes, eventsRes, peopleRes, recycleBinRes] = await Promise.all([
+      const sharedBubblesRes = await supabase.from("bubble_shares").select("*, life_bubbles(*)").eq("shared_with_id", user.id);
+      const sharedBubbleIds = sharedBubblesRes.error ? [] : (sharedBubblesRes.data || [])
+        .filter((share: any) => share.life_bubbles)
+        .map((share: any) => share.bubble_id);
+      sharedBubbleIdsRef.current = new Set(sharedBubbleIds);
+
+      const [bubblesRes, tasksRes, sharedTasksRes, eventsRes, sharedEventsRes, peopleRes, recycleBinRes] = await Promise.all([
         supabase.from("life_bubbles").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
         supabase.from("tasks").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
-        supabase.from("events").select("*").eq("user_id", user.id).order("start_date", { ascending: true }),
+        sharedBubbleIds.length > 0 
+          ? supabase.from("tasks").select("*").in("bubble_id", sharedBubbleIds).order("created_at", { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
+        supabase.from("events").select("*").eq("user_id", user.id).order("start_time", { ascending: true }),
+        sharedBubbleIds.length > 0
+          ? supabase.from("events").select("*").in("bubble_id", sharedBubbleIds).order("start_time", { ascending: true })
+          : Promise.resolve({ data: [], error: null }),
         supabase.from("people").select("*").eq("user_id", user.id).order("name", { ascending: true }),
         supabase.from("recycle_bin").select("*").eq("user_id", user.id).order("deleted_at", { ascending: false }),
       ]);
 
+      const ownedCategories = bubblesRes.error ? [] : (bubblesRes.data || []).map(mapSupabaseBubbleToCategory);
+      const sharedCategories = sharedBubblesRes.error ? [] : (sharedBubblesRes.data || [])
+        .filter((share: any) => share.life_bubbles)
+        .map((share: any) => mapSharedBubbleToCategory(share, share.life_bubbles));
+      
       if (bubblesRes.error) console.warn("Error loading bubbles:", bubblesRes.error.message);
-      else setCategories((bubblesRes.data || []).map(mapSupabaseBubbleToCategory));
+      if (sharedBubblesRes.error) console.warn("Error loading shared bubbles:", sharedBubblesRes.error.message);
+      
+      setCategories([...ownedCategories, ...sharedCategories]);
 
+      const ownedTasks = tasksRes.error ? [] : (tasksRes.data || []).map(mapSupabaseTaskToTask);
+      const sharedTasks = sharedTasksRes.error ? [] : (sharedTasksRes.data || []).map(mapSupabaseTaskToTask);
       if (tasksRes.error) console.warn("Error loading tasks:", tasksRes.error.message);
-      else setTasks((tasksRes.data || []).map(mapSupabaseTaskToTask));
+      if (sharedTasksRes.error) console.warn("Error loading shared tasks:", sharedTasksRes.error.message);
+      setTasks([...ownedTasks, ...sharedTasks]);
 
+      const ownedEvents = eventsRes.error ? [] : (eventsRes.data || []).map(mapSupabaseEventToEvent);
+      const sharedEvents = sharedEventsRes.error ? [] : (sharedEventsRes.data || []).map(mapSupabaseEventToEvent);
       if (eventsRes.error) console.warn("Error loading events:", eventsRes.error.message);
-      else setEvents((eventsRes.data || []).map(mapSupabaseEventToEvent));
+      if (sharedEventsRes.error) console.warn("Error loading shared events:", sharedEventsRes.error.message);
+      setEvents([...ownedEvents, ...sharedEvents]);
 
       if (peopleRes.error) console.warn("Error loading people:", peopleRes.error.message);
       else setPeople((peopleRes.data || []).map(mapSupabasePersonToPerson));

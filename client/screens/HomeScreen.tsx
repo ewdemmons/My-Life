@@ -65,6 +65,17 @@ export default function HomeScreen() {
     }
   };
 
+  const canEditCategory = (category: LifeCategory | null) => {
+    if (!category) return false;
+    if (!category.isShared) return true;
+    return category.sharePermission === "edit" || category.sharePermission === "co-owner";
+  };
+
+  const canDeleteCategory = (category: LifeCategory | null) => {
+    if (!category) return false;
+    return !category.isShared;
+  };
+
   if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
@@ -129,23 +140,45 @@ export default function HomeScreen() {
                 { backgroundColor: isDark ? "rgba(26,26,26,0.9)" : "rgba(255,255,255,0.9)" },
               ]}
             >
-              <Pressable
-                style={({ pressed }) => [styles.contextMenuItem, pressed && { opacity: 0.7 }]}
-                onPress={handleEditCategory}
-              >
-                <Feather name="edit-2" size={20} color={theme.text} />
-                <ThemedText style={styles.contextMenuText}>Edit Category</ThemedText>
-              </Pressable>
-              <View style={[styles.contextSeparator, { backgroundColor: theme.border }]} />
-              <Pressable
-                style={({ pressed }) => [styles.contextMenuItem, pressed && { opacity: 0.7 }]}
-                onPress={handleDeleteCategory}
-              >
-                <Feather name="trash-2" size={20} color={theme.error} />
-                <ThemedText style={[styles.contextMenuText, { color: theme.error }]}>
-                  Delete Category
+              {selectedCategory?.isShared ? (
+                <View style={styles.sharedInfo}>
+                  <Feather name="users" size={16} color={theme.primary} />
+                  <ThemedText style={[styles.sharedInfoText, { color: theme.textSecondary }]}>
+                    Shared with you ({selectedCategory.sharePermission === "view" ? "View only" : 
+                      selectedCategory.sharePermission === "edit" ? "Can edit" : "Co-owner"})
+                  </ThemedText>
+                </View>
+              ) : null}
+              {canEditCategory(selectedCategory) ? (
+                <>
+                  <Pressable
+                    style={({ pressed }) => [styles.contextMenuItem, pressed && { opacity: 0.7 }]}
+                    onPress={handleEditCategory}
+                  >
+                    <Feather name="edit-2" size={20} color={theme.text} />
+                    <ThemedText style={styles.contextMenuText}>Edit Category</ThemedText>
+                  </Pressable>
+                  {canDeleteCategory(selectedCategory) ? (
+                    <View style={[styles.contextSeparator, { backgroundColor: theme.border }]} />
+                  ) : null}
+                </>
+              ) : null}
+              {canDeleteCategory(selectedCategory) ? (
+                <Pressable
+                  style={({ pressed }) => [styles.contextMenuItem, pressed && { opacity: 0.7 }]}
+                  onPress={handleDeleteCategory}
+                >
+                  <Feather name="trash-2" size={20} color={theme.error} />
+                  <ThemedText style={[styles.contextMenuText, { color: theme.error }]}>
+                    Delete Category
+                  </ThemedText>
+                </Pressable>
+              ) : null}
+              {selectedCategory?.isShared && selectedCategory.sharePermission === "view" ? (
+                <ThemedText style={[styles.viewOnlyHint, { color: theme.textSecondary }]}>
+                  You can view entries in this bubble
                 </ThemedText>
-              </Pressable>
+              ) : null}
             </BlurView>
           </View>
         </Pressable>
@@ -247,5 +280,23 @@ const styles = StyleSheet.create({
   contextSeparator: {
     height: 1,
     marginHorizontal: Spacing.lg,
+  },
+  sharedInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    gap: Spacing.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: "rgba(255,255,255,0.1)",
+  },
+  sharedInfoText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  viewOnlyHint: {
+    fontSize: 12,
+    textAlign: "center",
+    padding: Spacing.md,
+    fontStyle: "italic",
   },
 });

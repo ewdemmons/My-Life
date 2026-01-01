@@ -53,6 +53,9 @@ export interface LifeCategory {
   createdAt: number;
   peopleIds?: string[];
   sharedWith?: ShareRecord[];
+  isShared?: boolean;
+  sharePermission?: SharePermission;
+  ownerId?: string;
 }
 
 export type TaskType = 

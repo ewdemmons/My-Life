@@ -179,6 +179,11 @@ function CategoryBubble({ category, position, bubbleSize, scale, onPress, onLong
       onPress={onPress}
       onLongPress={onLongPress}
     >
+      {category.isShared ? (
+        <View style={[styles.sharedBadge, { backgroundColor: theme.primary }]}>
+          <Feather name="users" size={8} color="#FFFFFF" />
+        </View>
+      ) : null}
       <Feather
         name={category.icon as any}
         size={24 * scale}
@@ -219,5 +224,16 @@ const styles = StyleSheet.create({
     fontWeight: "500",
     textAlign: "center",
     marginTop: 2,
+  },
+  sharedBadge: {
+    position: "absolute",
+    top: -2,
+    right: -2,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
   },
 });

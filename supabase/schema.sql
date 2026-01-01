@@ -145,11 +145,27 @@ CREATE POLICY "Users can delete own profile" ON profiles
 CREATE POLICY "Users can view own bubbles" ON life_bubbles
   FOR SELECT USING (auth.uid() = user_id);
 
+CREATE POLICY "Users can view shared bubbles" ON life_bubbles
+  FOR SELECT USING (
+    id IN (
+      SELECT bubble_id FROM bubble_shares WHERE shared_with_id = auth.uid()
+    )
+  );
+
 CREATE POLICY "Users can insert own bubbles" ON life_bubbles
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can update own bubbles" ON life_bubbles
   FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users with edit permission can update shared bubbles" ON life_bubbles
+  FOR UPDATE USING (
+    id IN (
+      SELECT bubble_id FROM bubble_shares 
+      WHERE shared_with_id = auth.uid() 
+        AND permission IN ('edit', 'co-owner')
+    )
+  );
 
 CREATE POLICY "Users can delete own bubbles" ON life_bubbles
   FOR DELETE USING (auth.uid() = user_id);
@@ -158,11 +174,27 @@ CREATE POLICY "Users can delete own bubbles" ON life_bubbles
 CREATE POLICY "Users can view own tasks" ON tasks
   FOR SELECT USING (auth.uid() = user_id);
 
+CREATE POLICY "Users can view tasks in shared bubbles" ON tasks
+  FOR SELECT USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares WHERE shared_with_id = auth.uid()
+    )
+  );
+
 CREATE POLICY "Users can insert own tasks" ON tasks
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can update own tasks" ON tasks
   FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users with edit permission can update tasks in shared bubbles" ON tasks
+  FOR UPDATE USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares 
+      WHERE shared_with_id = auth.uid() 
+        AND permission IN ('edit', 'co-owner')
+    )
+  );
 
 CREATE POLICY "Users can delete own tasks" ON tasks
   FOR DELETE USING (auth.uid() = user_id);
@@ -171,11 +203,27 @@ CREATE POLICY "Users can delete own tasks" ON tasks
 CREATE POLICY "Users can view own events" ON events
   FOR SELECT USING (auth.uid() = user_id);
 
+CREATE POLICY "Users can view events in shared bubbles" ON events
+  FOR SELECT USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares WHERE shared_with_id = auth.uid()
+    )
+  );
+
 CREATE POLICY "Users can insert own events" ON events
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can update own events" ON events
   FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users with edit permission can update events in shared bubbles" ON events
+  FOR UPDATE USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares 
+      WHERE shared_with_id = auth.uid() 
+        AND permission IN ('edit', 'co-owner')
+    )
+  );
 
 CREATE POLICY "Users can delete own events" ON events
   FOR DELETE USING (auth.uid() = user_id);
