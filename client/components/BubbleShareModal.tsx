@@ -8,12 +8,15 @@ import {
   TextInput,
   FlatList,
   ActivityIndicator,
+  Platform,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import { Image } from "expo-image";
 import * as MailComposer from "expo-mail-composer";
 import * as SMS from "expo-sms";
+import * as Contacts from "expo-contacts";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
@@ -32,6 +35,14 @@ interface BubbleShareModalProps {
   visible: boolean;
   onClose: () => void;
   category: LifeCategory;
+}
+
+interface ContactItem {
+  id: string;
+  name: string;
+  email?: string;
+  phone?: string;
+  imageUri?: string;
 }
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -64,6 +75,10 @@ export function BubbleShareModal({
   const [showPeopleSearch, setShowPeopleSearch] = useState(false);
   const [isSending, setIsSending] = useState(false);
   const [selectedPerson, setSelectedPerson] = useState<Person | null>(null);
+  const [loadingContacts, setLoadingContacts] = useState(false);
+  const [showContactPicker, setShowContactPicker] = useState(false);
+  const [contacts, setContacts] = useState<ContactItem[]>([]);
+  const [contactSearch, setContactSearch] = useState("");
 
   useEffect(() => {
     if (visible) {
@@ -72,6 +87,8 @@ export function BubbleShareModal({
       setSelectedPerson(null);
       setShowPeopleSearch(false);
       setShowPermissionPicker(false);
+      setShowContactPicker(false);
+      setContactSearch("");
     }
   }, [visible]);
 
@@ -121,6 +138,111 @@ export function BubbleShareModal({
     setContactInput(person.email || person.phone || person.name);
     setShowPeopleSearch(false);
   };
+
+  const handleImportFromContacts = async () => {
+    if (Platform.OS === "web") {
+      Alert.alert(
+        "Not Available",
+        "Contact import is only available in Expo Go on your mobile device. Please scan the QR code to test this feature."
+      );
+      return;
+    }
+
+    setLoadingContacts(true);
+    try {
+      const { status } = await Contacts.requestPermissionsAsync();
+
+      if (status !== "granted") {
+        const canAskAgain = await Contacts.getPermissionsAsync();
+        if (!canAskAgain.canAskAgain) {
+          Alert.alert(
+            "Permission Required",
+            "Please enable Contacts access in Settings to import contacts.",
+            [
+              { text: "Cancel", style: "cancel" },
+              ...(Platform.OS === "ios" || Platform.OS === "android"
+                ? [
+                    {
+                      text: "Open Settings",
+                      onPress: async () => {
+                        try {
+                          await Linking.openSettings();
+                        } catch (e) {
+                          // Settings not available
+                        }
+                      },
+                    },
+                  ]
+                : []),
+            ]
+          );
+        } else {
+          Alert.alert("Permission Denied", "Contacts permission is required to import contacts.");
+        }
+        setLoadingContacts(false);
+        return;
+      }
+
+      const { data } = await Contacts.getContactsAsync({
+        fields: [
+          Contacts.Fields.Name,
+          Contacts.Fields.Emails,
+          Contacts.Fields.PhoneNumbers,
+          Contacts.Fields.Image,
+        ],
+      });
+
+      const formattedContacts: ContactItem[] = data
+        .filter((c) => c.name && (c.emails?.length || c.phoneNumbers?.length))
+        .map((contact) => ({
+          id: contact.id || Math.random().toString(),
+          name: contact.name || "",
+          email: contact.emails?.[0]?.email,
+          phone: contact.phoneNumbers?.[0]?.number,
+          imageUri: contact.image?.uri,
+        }))
+        .sort((a, b) => a.name.localeCompare(b.name));
+
+      setContacts(formattedContacts);
+      setShowContactPicker(true);
+    } catch (error) {
+      Alert.alert("Error", "Failed to load contacts. Please try again.");
+    }
+    setLoadingContacts(false);
+  };
+
+  const selectContact = async (contact: ContactItem) => {
+    const contactValue = contact.email || contact.phone || "";
+    setContactInput(contactValue);
+    setShowContactPicker(false);
+    setContactSearch("");
+
+    const existingPerson = people.find(
+      (p) =>
+        (contact.email && p.email?.toLowerCase() === contact.email.toLowerCase()) ||
+        (contact.phone && p.phone?.replace(/\D/g, "") === contact.phone.replace(/\D/g, ""))
+    );
+
+    if (existingPerson) {
+      setSelectedPerson(existingPerson);
+    } else {
+      await addPerson({
+        name: contact.name,
+        relationship: "other",
+        email: contact.email || undefined,
+        phone: contact.phone || undefined,
+        photoUri: contact.imageUri || undefined,
+        categoryIds: [category.id],
+      });
+    }
+  };
+
+  const filteredContacts = contacts.filter(
+    (c) =>
+      c.name.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.email?.toLowerCase().includes(contactSearch.toLowerCase()) ||
+      c.phone?.includes(contactSearch)
+  );
 
   const checkExistingAppUser = async (email: string): Promise<string | null> => {
     const { data, error } = await supabase
@@ -372,6 +494,21 @@ export function BubbleShareModal({
                 </ThemedText>
               </View>
             )}
+
+            <Pressable
+              style={[styles.importButton, { borderColor: theme.border }]}
+              onPress={handleImportFromContacts}
+              disabled={loadingContacts}
+            >
+              {loadingContacts ? (
+                <ActivityIndicator size="small" color={theme.primary} />
+              ) : (
+                <Feather name="users" size={18} color={theme.primary} />
+              )}
+              <ThemedText style={[styles.importButtonText, { color: theme.primary }]}>
+                {loadingContacts ? "Loading Contacts..." : "Import from Contacts"}
+              </ThemedText>
+            </Pressable>
           </View>
 
           {showPeopleSearch && matchingPeople.length > 0 && (
@@ -467,6 +604,82 @@ export function BubbleShareModal({
               ))}
             </View>
           </Pressable>
+        </Modal>
+
+        <Modal
+          visible={showContactPicker}
+          animationType="slide"
+          presentationStyle="pageSheet"
+          onRequestClose={() => setShowContactPicker(false)}
+        >
+          <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={[styles.header, { borderBottomColor: theme.border }]}>
+              <Pressable onPress={() => setShowContactPicker(false)} hitSlop={12}>
+                <ThemedText style={[styles.cancelButton, { color: theme.textSecondary }]}>
+                  Cancel
+                </ThemedText>
+              </Pressable>
+              <ThemedText style={styles.headerTitle}>Select Contact</ThemedText>
+              <View style={{ width: 50 }} />
+            </View>
+
+            <View style={[styles.searchContainer, { borderBottomColor: theme.border }]}>
+              <Feather name="search" size={18} color={theme.textSecondary} />
+              <TextInput
+                style={[styles.searchInput, { color: theme.text }]}
+                placeholder="Search contacts..."
+                placeholderTextColor={theme.textSecondary}
+                value={contactSearch}
+                onChangeText={setContactSearch}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {contactSearch.length > 0 && (
+                <Pressable onPress={() => setContactSearch("")} hitSlop={8}>
+                  <Feather name="x-circle" size={16} color={theme.textSecondary} />
+                </Pressable>
+              )}
+            </View>
+
+            <FlatList
+              data={filteredContacts}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={[styles.contactList, { paddingBottom: insets.bottom + Spacing.xl }]}
+              renderItem={({ item }) => (
+                <Pressable
+                  style={[styles.contactItem, { borderBottomColor: theme.border }]}
+                  onPress={() => selectContact(item)}
+                >
+                  {item.imageUri ? (
+                    <Image source={{ uri: item.imageUri }} style={styles.contactAvatar} />
+                  ) : (
+                    <View style={[styles.contactAvatar, { backgroundColor: theme.primary + "30" }]}>
+                      <ThemedText style={[styles.contactInitials, { color: theme.primary }]}>
+                        {getInitials(item.name)}
+                      </ThemedText>
+                    </View>
+                  )}
+                  <View style={styles.contactInfo}>
+                    <ThemedText style={[styles.contactName, { color: theme.text }]}>
+                      {item.name}
+                    </ThemedText>
+                    <ThemedText style={[styles.contactDetail, { color: theme.textSecondary }]}>
+                      {item.email || item.phone || "No contact info"}
+                    </ThemedText>
+                  </View>
+                  <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+                </Pressable>
+              )}
+              ListEmptyComponent={
+                <View style={styles.emptyState}>
+                  <Feather name="users" size={48} color={theme.textSecondary} />
+                  <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
+                    {contactSearch ? "No matching contacts found" : "No contacts with email or phone"}
+                  </ThemedText>
+                </View>
+              }
+            />
+          </View>
         </Modal>
       </View>
     </Modal>
@@ -636,5 +849,75 @@ const styles = StyleSheet.create({
   pickerOptionDesc: {
     fontSize: 12,
     marginTop: 2,
+  },
+  importButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    marginTop: Spacing.md,
+    gap: Spacing.sm,
+  },
+  importButtonText: {
+    fontSize: 15,
+    fontWeight: "500",
+  },
+  searchContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 1,
+    gap: Spacing.sm,
+  },
+  searchInput: {
+    flex: 1,
+    fontSize: 16,
+    paddingVertical: Spacing.xs,
+  },
+  contactList: {
+    padding: Spacing.lg,
+  },
+  contactItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+    gap: Spacing.sm,
+  },
+  contactAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  contactInitials: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  contactInfo: {
+    flex: 1,
+  },
+  contactName: {
+    fontSize: 16,
+    fontWeight: "500",
+  },
+  contactDetail: {
+    fontSize: 14,
+    marginTop: 2,
+  },
+  emptyState: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.xl * 2,
+    gap: Spacing.md,
+  },
+  emptyText: {
+    fontSize: 15,
+    textAlign: "center",
   },
 });
