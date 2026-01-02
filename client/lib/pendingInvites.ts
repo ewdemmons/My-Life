@@ -78,9 +78,12 @@ export async function redeemInviteCode(code: string): Promise<{
   error?: string;
 }> {
   try {
+    console.log("DEBUG: Calling activate_pending_invite with code:", code.toUpperCase().trim());
     const { data, error } = await supabase.rpc("activate_pending_invite", {
       p_invite_code: code.toUpperCase().trim(),
     });
+
+    console.log("DEBUG: RPC response - data:", JSON.stringify(data), "error:", JSON.stringify(error));
 
     if (error) {
       console.error("Error calling activate_pending_invite RPC:", error);
@@ -88,8 +91,20 @@ export async function redeemInviteCode(code: string): Promise<{
     }
 
     if (!data || !data.success) {
+      console.log("DEBUG: RPC returned unsuccessful:", data);
       return { success: false, error: data?.error || "Invalid or expired invite code" };
     }
+
+    // Verify the share was actually created
+    const { data: session } = await supabase.auth.getSession();
+    const userId = session?.session?.user?.id;
+    console.log("DEBUG: Current user ID:", userId);
+    
+    const { data: shares, error: sharesError } = await supabase
+      .from("bubble_shares")
+      .select("*")
+      .eq("shared_with_id", userId || "");
+    console.log("DEBUG: Current bubble_shares for user:", JSON.stringify(shares), "error:", JSON.stringify(sharesError));
 
     return {
       success: true,

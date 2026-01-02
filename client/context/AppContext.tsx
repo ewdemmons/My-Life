@@ -616,9 +616,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       await migrateLocalDataToSupabase();
 
       const sharedBubblesRes = await supabase.from("bubble_shares").select("*, life_bubbles(*)").eq("shared_with_id", user.id);
+      console.log("DEBUG: sharedBubblesRes", JSON.stringify(sharedBubblesRes, null, 2));
       const sharedBubbleIds = sharedBubblesRes.error ? [] : (sharedBubblesRes.data || [])
         .filter((share: any) => share.life_bubbles)
         .map((share: any) => share.bubble_id);
+      console.log("DEBUG: sharedBubbleIds after filter", sharedBubbleIds);
       sharedBubbleIdsRef.current = new Set(sharedBubbleIds);
 
       const [bubblesRes, tasksRes, sharedTasksRes, eventsRes, sharedEventsRes, peopleRes, recycleBinRes] = await Promise.all([
@@ -639,6 +641,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const sharedCategories = sharedBubblesRes.error ? [] : (sharedBubblesRes.data || [])
         .filter((share: any) => share.life_bubbles)
         .map((share: any) => mapSharedBubbleToCategory(share, share.life_bubbles));
+      
+      console.log("DEBUG: ownedCategories count", ownedCategories.length);
+      console.log("DEBUG: sharedCategories count", sharedCategories.length, sharedCategories);
       
       if (bubblesRes.error) console.warn("Error loading bubbles:", bubblesRes.error.message);
       if (sharedBubblesRes.error) console.warn("Error loading shared bubbles:", sharedBubblesRes.error.message);
