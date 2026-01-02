@@ -265,6 +265,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [isLoading, setIsLoading] = useState(true);
   const subscriptionRef = useRef<any>(null);
   const sharedBubbleIdsRef = useRef<Set<string>>(new Set());
+  const ownedBubbleIdsRef = useRef<Set<string>>(new Set());
   const regenStateRef = useRef<RegenState>({ activeSeries: null, ignoreIds: new Set() });
 
   useEffect(() => {
@@ -326,9 +327,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (payload) => {
           const bubbleId = payload.new?.bubble_id || payload.old?.bubble_id;
           const taskUserId = payload.new?.user_id || payload.old?.user_id;
-          const isOwned = taskUserId === user.id;
-          const isShared = sharedBubbleIdsRef.current.has(bubbleId);
-          if (!isOwned && !isShared) return;
+          const isOwnTask = taskUserId === user.id;
+          const isInOwnedBubble = bubbleId && ownedBubbleIdsRef.current.has(bubbleId);
+          const isInSharedBubble = bubbleId && sharedBubbleIdsRef.current.has(bubbleId);
+          // Accept task if: user owns it, OR it's in a bubble user owns, OR it's in a shared bubble
+          if (!isOwnTask && !isInOwnedBubble && !isInSharedBubble) return;
 
           if (payload.eventType === "INSERT") {
             const newTask = mapSupabaseTaskToTask(payload.new);
@@ -350,9 +353,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (payload) => {
           const bubbleId = payload.new?.bubble_id || payload.old?.bubble_id;
           const eventUserId = payload.new?.user_id || payload.old?.user_id;
-          const isOwned = eventUserId === user.id;
-          const isShared = sharedBubbleIdsRef.current.has(bubbleId);
-          if (!isOwned && !isShared) return;
+          const isOwnEvent = eventUserId === user.id;
+          const isInOwnedBubble = bubbleId && ownedBubbleIdsRef.current.has(bubbleId);
+          const isInSharedBubble = bubbleId && sharedBubbleIdsRef.current.has(bubbleId);
+          // Accept event if: user owns it, OR it's in a bubble user owns, OR it's in a shared bubble
+          if (!isOwnEvent && !isInOwnedBubble && !isInSharedBubble) return;
 
           const eventId = payload.new?.id || payload.old?.id;
           const eventSeriesId = payload.new?.series_id || payload.old?.series_id;
@@ -615,24 +620,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       await migrateLocalDataToSupabase();
 
+      // Fetch bubbles the user is shared with (as recipient)
       const sharedBubblesRes = await supabase.from("bubble_shares").select("*, life_bubbles(*)").eq("shared_with_id", user.id);
-      console.log("DEBUG: sharedBubblesRes", JSON.stringify(sharedBubblesRes, null, 2));
       const sharedBubbleIds = sharedBubblesRes.error ? [] : (sharedBubblesRes.data || [])
         .filter((share: any) => share.life_bubbles)
         .map((share: any) => share.bubble_id);
-      console.log("DEBUG: sharedBubbleIds after filter", sharedBubbleIds);
       sharedBubbleIdsRef.current = new Set(sharedBubbleIds);
 
-      const [bubblesRes, tasksRes, sharedTasksRes, eventsRes, sharedEventsRes, peopleRes, recycleBinRes] = await Promise.all([
-        supabase.from("life_bubbles").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
-        supabase.from("tasks").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
-        sharedBubbleIds.length > 0 
-          ? supabase.from("tasks").select("*").in("bubble_id", sharedBubbleIds).order("created_at", { ascending: true })
+      // First fetch owned bubbles to get their IDs
+      const bubblesRes = await supabase.from("life_bubbles").select("*").eq("user_id", user.id).order("created_at", { ascending: true });
+      const ownedBubbleIds = bubblesRes.error ? [] : (bubblesRes.data || []).map((b: any) => b.id);
+
+      // Combine owned + shared bubble IDs for fetching all tasks/events
+      const allRelevantBubbleIds = [...new Set([...ownedBubbleIds, ...sharedBubbleIds])];
+
+      // Store owned bubble IDs for realtime subscriptions
+      ownedBubbleIdsRef.current = new Set(ownedBubbleIds);
+
+      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes] = await Promise.all([
+        // Fetch all tasks in bubbles the user owns or is shared with
+        allRelevantBubbleIds.length > 0
+          ? supabase.from("tasks").select("*").in("bubble_id", allRelevantBubbleIds).order("created_at", { ascending: true })
           : Promise.resolve({ data: [], error: null }),
-        supabase.from("events").select("*").eq("user_id", user.id).order("start_time", { ascending: true }),
-        sharedBubbleIds.length > 0
-          ? supabase.from("events").select("*").in("bubble_id", sharedBubbleIds).order("start_time", { ascending: true })
+        // Fetch user's uncategorized tasks (null bubble_id)
+        supabase.from("tasks").select("*").eq("user_id", user.id).is("bubble_id", null).order("created_at", { ascending: true }),
+        // Fetch all events in bubbles the user owns or is shared with
+        allRelevantBubbleIds.length > 0
+          ? supabase.from("events").select("*").in("bubble_id", allRelevantBubbleIds).order("start_time", { ascending: true })
           : Promise.resolve({ data: [], error: null }),
+        // Fetch user's uncategorized events (null bubble_id)
+        supabase.from("events").select("*").eq("user_id", user.id).is("bubble_id", null).order("start_time", { ascending: true }),
         supabase.from("people").select("*").eq("user_id", user.id).order("name", { ascending: true }),
         supabase.from("recycle_bin").select("*").eq("user_id", user.id).order("deleted_at", { ascending: false }),
       ]);
@@ -642,32 +659,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .filter((share: any) => share.life_bubbles)
         .map((share: any) => mapSharedBubbleToCategory(share, share.life_bubbles));
       
-      console.log("DEBUG: ownedCategories count", ownedCategories.length);
-      console.log("DEBUG: sharedCategories count", sharedCategories.length, sharedCategories);
-      
       if (bubblesRes.error) console.warn("Error loading bubbles:", bubblesRes.error.message);
       if (sharedBubblesRes.error) console.warn("Error loading shared bubbles:", sharedBubblesRes.error.message);
       
       setCategories([...ownedCategories, ...sharedCategories]);
 
-      const ownedTasks = tasksRes.error ? [] : (tasksRes.data || []).map(mapSupabaseTaskToTask);
-      const sharedTasks = sharedTasksRes.error ? [] : (sharedTasksRes.data || []).map(mapSupabaseTaskToTask);
-      if (tasksRes.error) console.warn("Error loading tasks:", tasksRes.error.message);
-      if (sharedTasksRes.error) console.warn("Error loading shared tasks:", sharedTasksRes.error.message);
-      // Deduplicate tasks by ID (user's tasks in shared bubbles appear in both queries)
+      // Combine tasks from bubbles + uncategorized user tasks
+      const bubbleTasks = tasksInBubblesRes.error ? [] : (tasksInBubblesRes.data || []).map(mapSupabaseTaskToTask);
+      const uncategorizedTasks = userUncategorizedTasksRes.error ? [] : (userUncategorizedTasksRes.data || []).map(mapSupabaseTaskToTask);
+      if (tasksInBubblesRes.error) console.warn("Error loading tasks:", tasksInBubblesRes.error.message);
+      // Deduplicate in case of overlap
       const taskMap = new Map<string, Task>();
-      ownedTasks.forEach(t => taskMap.set(t.id, t));
-      sharedTasks.forEach(t => { if (!taskMap.has(t.id)) taskMap.set(t.id, t); });
+      bubbleTasks.forEach(t => taskMap.set(t.id, t));
+      uncategorizedTasks.forEach(t => { if (!taskMap.has(t.id)) taskMap.set(t.id, t); });
       setTasks(Array.from(taskMap.values()));
 
-      const ownedEvents = eventsRes.error ? [] : (eventsRes.data || []).map(mapSupabaseEventToEvent);
-      const sharedEvents = sharedEventsRes.error ? [] : (sharedEventsRes.data || []).map(mapSupabaseEventToEvent);
-      if (eventsRes.error) console.warn("Error loading events:", eventsRes.error.message);
-      if (sharedEventsRes.error) console.warn("Error loading shared events:", sharedEventsRes.error.message);
-      // Deduplicate events by ID (user's events in shared bubbles appear in both queries)
+      // Combine events from bubbles + uncategorized user events
+      const bubbleEvents = eventsInBubblesRes.error ? [] : (eventsInBubblesRes.data || []).map(mapSupabaseEventToEvent);
+      const uncategorizedEvents = userUncategorizedEventsRes.error ? [] : (userUncategorizedEventsRes.data || []).map(mapSupabaseEventToEvent);
+      if (eventsInBubblesRes.error) console.warn("Error loading events:", eventsInBubblesRes.error.message);
+      // Deduplicate in case of overlap
       const eventMap = new Map<string, CalendarEvent>();
-      ownedEvents.forEach(e => eventMap.set(e.id, e));
-      sharedEvents.forEach(e => { if (!eventMap.has(e.id)) eventMap.set(e.id, e); });
+      bubbleEvents.forEach(e => eventMap.set(e.id, e));
+      uncategorizedEvents.forEach(e => { if (!eventMap.has(e.id)) eventMap.set(e.id, e); });
       setEvents(Array.from(eventMap.values()));
 
       if (peopleRes.error) console.warn("Error loading people:", peopleRes.error.message);
