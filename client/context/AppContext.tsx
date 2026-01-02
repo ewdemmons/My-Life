@@ -654,13 +654,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const sharedTasks = sharedTasksRes.error ? [] : (sharedTasksRes.data || []).map(mapSupabaseTaskToTask);
       if (tasksRes.error) console.warn("Error loading tasks:", tasksRes.error.message);
       if (sharedTasksRes.error) console.warn("Error loading shared tasks:", sharedTasksRes.error.message);
-      setTasks([...ownedTasks, ...sharedTasks]);
+      // Deduplicate tasks by ID (user's tasks in shared bubbles appear in both queries)
+      const taskMap = new Map<string, Task>();
+      ownedTasks.forEach(t => taskMap.set(t.id, t));
+      sharedTasks.forEach(t => { if (!taskMap.has(t.id)) taskMap.set(t.id, t); });
+      setTasks(Array.from(taskMap.values()));
 
       const ownedEvents = eventsRes.error ? [] : (eventsRes.data || []).map(mapSupabaseEventToEvent);
       const sharedEvents = sharedEventsRes.error ? [] : (sharedEventsRes.data || []).map(mapSupabaseEventToEvent);
       if (eventsRes.error) console.warn("Error loading events:", eventsRes.error.message);
       if (sharedEventsRes.error) console.warn("Error loading shared events:", sharedEventsRes.error.message);
-      setEvents([...ownedEvents, ...sharedEvents]);
+      // Deduplicate events by ID (user's events in shared bubbles appear in both queries)
+      const eventMap = new Map<string, CalendarEvent>();
+      ownedEvents.forEach(e => eventMap.set(e.id, e));
+      sharedEvents.forEach(e => { if (!eventMap.has(e.id)) eventMap.set(e.id, e); });
+      setEvents(Array.from(eventMap.values()));
 
       if (peopleRes.error) console.warn("Error loading people:", peopleRes.error.message);
       else setPeople((peopleRes.data || []).map(mapSupabasePersonToPerson));
