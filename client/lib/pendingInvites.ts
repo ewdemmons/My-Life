@@ -71,6 +71,37 @@ export async function activatePendingInvite(userId: string, userEmail: string): 
   }
 }
 
+export async function redeemInviteCode(code: string): Promise<{
+  success: boolean;
+  bubbleName?: string;
+  senderName?: string;
+  error?: string;
+}> {
+  try {
+    const { data, error } = await supabase.rpc("activate_pending_invite", {
+      p_invite_code: code.toUpperCase().trim(),
+    });
+
+    if (error) {
+      console.error("Error calling activate_pending_invite RPC:", error);
+      return { success: false, error: "Failed to activate invite" };
+    }
+
+    if (!data || !data.success) {
+      return { success: false, error: data?.error || "Invalid or expired invite code" };
+    }
+
+    return {
+      success: true,
+      bubbleName: data.bubble_name,
+      senderName: data.sender_name,
+    };
+  } catch (error) {
+    console.error("Error redeeming invite code:", error);
+    return { success: false, error: "An unexpected error occurred" };
+  }
+}
+
 export async function checkPendingInvitesByEmail(userId: string, userEmail: string): Promise<{
   success: boolean;
   bubbleName?: string;

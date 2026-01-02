@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Alert, ScrollView, FlatList } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -11,6 +11,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { DeletedItem, Task, LifeCategory, getTaskTypeInfo } from "@/types";
+import InviteCodeModal from "@/components/InviteCodeModal";
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
@@ -21,6 +22,7 @@ export default function ProfileScreen() {
   const { theme, isDark } = useTheme();
   const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin, clearAllData } = useApp();
   const { user, signOut } = useAuth();
+  const [showInviteCodeModal, setShowInviteCodeModal] = useState(false);
 
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
   const totalTasks = tasks.length;
@@ -326,6 +328,19 @@ export default function ProfileScreen() {
           <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
           <Pressable
             style={({ pressed }) => [styles.settingRow, pressed && { opacity: 0.7 }]}
+            onPress={() => setShowInviteCodeModal(true)}
+          >
+            <View style={styles.settingInfo}>
+              <View style={[styles.settingIcon, { backgroundColor: theme.primary + "20" }]}>
+                <Feather name="gift" size={20} color={theme.primary} />
+              </View>
+              <ThemedText style={styles.settingText}>Enter Invite Code</ThemedText>
+            </View>
+            <Feather name="chevron-right" size={20} color={theme.textSecondary} />
+          </Pressable>
+          <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+          <Pressable
+            style={({ pressed }) => [styles.settingRow, pressed && { opacity: 0.7 }]}
             onPress={handleLogout}
           >
             <View style={styles.settingInfo}>
@@ -340,6 +355,12 @@ export default function ProfileScreen() {
           </Pressable>
         </View>
       </View>
+
+      <InviteCodeModal
+        visible={showInviteCodeModal}
+        onClose={() => setShowInviteCodeModal(false)}
+        onSuccess={() => {}}
+      />
     </ScrollView>
   );
 }
