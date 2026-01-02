@@ -46,6 +46,7 @@ interface AppContextType {
   permanentlyDelete: (id: string) => Promise<void>;
   emptyRecycleBin: () => Promise<void>;
   clearAllData: () => Promise<void>;
+  refreshData: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -1660,6 +1661,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         permanentlyDelete,
         emptyRecycleBin,
         clearAllData,
+        refreshData: loadData,
       }}
     >
       {children}

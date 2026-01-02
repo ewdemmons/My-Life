@@ -20,7 +20,7 @@ export default function ProfileScreen() {
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
-  const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin, clearAllData } = useApp();
+  const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin, clearAllData, refreshData } = useApp();
   const { user, signOut } = useAuth();
   const [showInviteCodeModal, setShowInviteCodeModal] = useState(false);
 
@@ -359,7 +359,7 @@ export default function ProfileScreen() {
       <InviteCodeModal
         visible={showInviteCodeModal}
         onClose={() => setShowInviteCodeModal(false)}
-        onSuccess={() => {}}
+        onSuccess={refreshData}
       />
     </ScrollView>
   );
