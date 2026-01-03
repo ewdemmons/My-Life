@@ -677,7 +677,7 @@ export default function CategoryDetailScreen() {
           >
             <Feather
               name={tab.icon as any}
-              size={16}
+              size={20}
               color={activeTab === tab.key ? category.color : theme.textSecondary}
             />
             <ThemedText
@@ -795,17 +795,20 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderBottomWidth: 1,
     borderBottomColor: "transparent",
+    height: 65,
   },
   tab: {
     flex: 1,
-    flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: Spacing.sm,
-    gap: Spacing.xs,
+    paddingVertical: Spacing.xs,
+    gap: 2,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
   },
   tabLabel: {
-    fontSize: 13,
+    fontSize: 11,
+    fontWeight: "500",
   },
   typeFilters: {
     maxHeight: 40,
