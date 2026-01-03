@@ -990,6 +990,7 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     gap: Spacing.xs,
+    flexWrap: "wrap",
   },
   actionButton: {
     flexDirection: "row",
