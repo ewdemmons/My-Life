@@ -22,6 +22,8 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ClickableDescription } from "@/components/ClickableDescription";
 import { SchedulingModal } from "@/components/SchedulingModal";
+import { TaskCompletionModal } from "@/components/TaskCompletionModal";
+import { AddHabitModal } from "@/components/AddHabitModal";
 import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
@@ -379,11 +381,15 @@ interface TaskItemProps {
 function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { updateTask, deleteTask, getEventsByTask } = useApp();
+  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, habits } = useApp();
+  const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
+  const taskOccurrences = getOccurrencesForItem(task.id, "task");
   const { draggedTaskId, targetTaskId, setDraggedTaskId, handleTaskTap, cancelDrag } = useContext(DragContext);
   const [isExpanded, setIsExpanded] = useState(false);
   const [showDetails, setShowDetails] = useState(false);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [showCompletionModal, setShowCompletionModal] = useState(false);
+  const [showHabitModal, setShowHabitModal] = useState(false);
   const rotation = useSharedValue(0);
   const scale = useSharedValue(1);
   const isDragging = draggedTaskId === task.id;
@@ -411,9 +417,11 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   }));
 
   const handleToggleComplete = useCallback(async () => {
-    await updateTask(task.id, {
-      status: task.status === "completed" ? "pending" : "completed",
-    });
+    if (task.status === "completed") {
+      await updateTask(task.id, { status: "pending" });
+    } else {
+      setShowCompletionModal(true);
+    }
   }, [task.id, task.status, updateTask]);
 
   const handleEdit = useCallback(() => {
@@ -681,6 +689,20 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     <Feather name="calendar" size={14} color="#3B82F6" />
                     <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
                   </Pressable>
+                  {linkedHabit ? (
+                    <View style={[styles.actionButton, { backgroundColor: "#22C55E" + "15" }]}>
+                      <Feather name="activity" size={14} color="#22C55E" />
+                      <ThemedText style={[styles.actionText, { color: "#22C55E" }]}>Habit Linked</ThemedText>
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={[styles.actionButton, { backgroundColor: "#A855F7" + "15" }]}
+                      onPress={() => setShowHabitModal(true)}
+                    >
+                      <Feather name="activity" size={14} color="#A855F7" />
+                      <ThemedText style={[styles.actionText, { color: "#A855F7" }]}>Make Habit</ThemedText>
+                    </Pressable>
+                  )}
                   <Pressable
                     style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
                     onPress={handleAddSubtask}
@@ -696,6 +718,32 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
                   </Pressable>
                 </View>
+
+                {taskOccurrences.length > 0 ? (
+                  <View style={[styles.historySection, { borderTopColor: theme.border }]}>
+                    <ThemedText style={[styles.historyTitle, { color: theme.textSecondary }]}>
+                      Completion History ({taskOccurrences.length})
+                    </ThemedText>
+                    {taskOccurrences.slice(0, 5).map((occ) => (
+                      <View key={occ.id} style={styles.historyItem}>
+                        <Feather name="check-circle" size={12} color={theme.success} />
+                        <ThemedText style={[styles.historyDate, { color: theme.text }]}>
+                          {new Date(occ.occurredAt).toLocaleDateString("en-US", {
+                            month: "short",
+                            day: "numeric",
+                            year: "numeric",
+                          })}
+                          {occ.notes ? ` - ${occ.notes}` : ""}
+                        </ThemedText>
+                      </View>
+                    ))}
+                    {taskOccurrences.length > 5 ? (
+                      <ThemedText style={[styles.historyMore, { color: theme.textSecondary }]}>
+                        +{taskOccurrences.length - 5} more
+                      </ThemedText>
+                    ) : null}
+                  </View>
+                ) : null}
               </View>
             ) : null}
           </Animated.View>
@@ -720,6 +768,20 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
       <SchedulingModal
         visible={showSchedulingModal}
         onClose={() => setShowSchedulingModal(false)}
+        linkedTask={task}
+      />
+
+      <TaskCompletionModal
+        visible={showCompletionModal}
+        task={task}
+        onClose={() => setShowCompletionModal(false)}
+        onComplete={() => {}}
+      />
+
+      <AddHabitModal
+        visible={showHabitModal}
+        onClose={() => setShowHabitModal(false)}
+        categoryId={task.categoryId}
         linkedTask={task}
       />
     </View>
@@ -940,6 +1002,30 @@ const styles = StyleSheet.create({
   actionText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  historySection: {
+    marginTop: Spacing.md,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+  },
+  historyTitle: {
+    fontSize: 12,
+    fontWeight: "600",
+    marginBottom: Spacing.sm,
+  },
+  historyItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 4,
+  },
+  historyDate: {
+    fontSize: 12,
+  },
+  historyMore: {
+    fontSize: 11,
+    fontStyle: "italic",
+    marginTop: 4,
   },
   children: {
     marginTop: Spacing.sm,

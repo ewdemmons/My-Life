@@ -21,7 +21,8 @@ import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { SharePeopleModal } from "@/components/SharePeopleModal";
 import { AddPersonModal } from "@/components/AddPersonModal";
 import { BubbleShareModal } from "@/components/BubbleShareModal";
-import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task } from "@/types";
+import { HabitsList } from "@/components/HabitsList";
+import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task, Habit } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 
 const TASK_TYPE_COLORS: Record<TaskType, string> = {
@@ -38,13 +39,14 @@ const TASK_TYPE_COLORS: Record<TaskType, string> = {
 };
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
-type TabType = "entries" | "calendar" | "dashboard" | "people";
+type TabType = "entries" | "calendar" | "dashboard" | "people" | "habits";
 
 const TABS: { key: TabType; label: string; icon: string }[] = [
   { key: "entries", label: "Entries", icon: "list" },
   { key: "calendar", label: "Calendar", icon: "calendar" },
   { key: "dashboard", label: "Dashboard", icon: "pie-chart" },
   { key: "people", label: "People", icon: "users" },
+  { key: "habits", label: "Habits", icon: "activity" },
 ];
 
 export default function CategoryDetailScreen() {
@@ -53,7 +55,7 @@ export default function CategoryDetailScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people } = useApp();
+  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem } = useApp();
 
   const categoryFromState = categories.find(c => c.id === route.params.category.id) || route.params.category;
   const category = categoryFromState;
@@ -695,6 +697,7 @@ export default function CategoryDetailScreen() {
       {activeTab === "calendar" ? renderCalendarTab() : null}
       {activeTab === "dashboard" ? renderDashboardTab() : null}
       {activeTab === "people" ? renderPeopleTab() : null}
+      {activeTab === "habits" ? <HabitsList categoryId={category.id} /> : null}
 
       <SchedulingModal
         visible={showSchedulingModal}

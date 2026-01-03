@@ -47,7 +47,7 @@ interface AppContextType {
   addHabit: (habit: Omit<Habit, "id" | "createdAt">) => Promise<void>;
   updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
-  addOccurrence: (occurrence: Omit<Occurrence, "id" | "createdAt">) => Promise<void>;
+  addOccurrence: (occurrence: Omit<Occurrence, "id" | "createdAt">) => Promise<Occurrence | null>;
   deleteOccurrence: (id: string) => Promise<void>;
   getOccurrencesForItem: (itemId: string, itemType: OccurrenceItemType) => Occurrence[];
   restoreFromRecycleBin: (id: string) => Promise<void>;
@@ -1693,8 +1693,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOccurrences((prev) => prev.filter((o) => !(o.itemId === id && o.itemType === "habit")));
   }, [user]);
 
-  const addOccurrence = useCallback(async (occurrence: Omit<Occurrence, "id" | "createdAt">) => {
-    if (!user) return;
+  const addOccurrence = useCallback(async (occurrence: Omit<Occurrence, "id" | "createdAt">): Promise<Occurrence | null> => {
+    if (!user) throw new Error("User session required");
 
     const { data, error } = await supabase
       .from("occurrences")
@@ -1704,11 +1704,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (error) {
       console.error("Error adding occurrence:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     const newOccurrence = mapSupabaseOccurrenceToOccurrence(data);
     setOccurrences((prev) => [...prev, newOccurrence]);
+    return newOccurrence;
   }, [user]);
 
   const deleteOccurrence = useCallback(async (id: string) => {
