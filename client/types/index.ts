@@ -70,6 +70,8 @@ export type TaskType =
   | "resource"
   | "appointment";
 
+export type CompletionType = "as_of" | "until" | null;
+
 export interface Task {
   id: string;
   title: string;
@@ -83,6 +85,9 @@ export interface Task {
   orderIndex?: number;
   assigneeIds?: string[];
   sharedWith?: ShareRecord[];
+  completionType?: CompletionType;
+  completionDate?: string;
+  isRecurring?: boolean;
 }
 
 export interface DeletedItem {
@@ -189,3 +194,50 @@ export interface BubbleShare {
   createdAt: number;
   updatedAt: number;
 }
+
+// Habit Tracking Types
+export type HabitType = "positive" | "negative";
+export type GoalFrequency = "daily" | "weekly" | "monthly";
+
+export interface Habit {
+  id: string;
+  name: string;
+  description?: string;
+  habitType: HabitType;
+  goalFrequency: GoalFrequency;
+  goalCount: number;
+  categoryId: string | null;
+  linkedTaskId: string | null;
+  isActive: boolean;
+  createdAt: number;
+}
+
+export const HABIT_TYPES: { value: HabitType; label: string; icon: string; color: string }[] = [
+  { value: "positive", label: "Positive", icon: "plus-circle", color: "#22C55E" },
+  { value: "negative", label: "Negative", icon: "minus-circle", color: "#EF4444" },
+];
+
+export const GOAL_FREQUENCIES: { value: GoalFrequency; label: string }[] = [
+  { value: "daily", label: "Daily" },
+  { value: "weekly", label: "Weekly" },
+  { value: "monthly", label: "Monthly" },
+];
+
+// Occurrence Tracking (unified for tasks and habits)
+export type OccurrenceItemType = "task" | "habit";
+
+export interface Occurrence {
+  id: string;
+  itemId: string;
+  itemType: OccurrenceItemType;
+  occurredAt: number;
+  occurredDate: string;
+  notes?: string;
+  createdAt: number;
+}
+
+export const COMPLETION_TYPES: { value: CompletionType; label: string; description: string }[] = [
+  { value: null, label: "Standard", description: "Mark as complete now" },
+  { value: "as_of", label: "Complete as of", description: "Was completed on a specific date" },
+  { value: "until", label: "Complete until", description: "Completed until a future date" },
+];

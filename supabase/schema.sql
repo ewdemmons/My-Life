@@ -37,6 +37,9 @@ CREATE TABLE IF NOT EXISTS tasks (
   priority TEXT NOT NULL DEFAULT 'medium', -- 'low', 'medium', 'high'
   order_index INTEGER DEFAULT 0,
   assignee_ids UUID[],
+  completion_type TEXT, -- 'as_of', 'until', or null for standard completion
+  completion_date TEXT, -- YYYY-MM-DD for time-bound completions
+  is_recurring BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -419,4 +422,118 @@ CREATE TRIGGER update_events_updated_at
 
 CREATE TRIGGER update_people_updated_at
   BEFORE UPDATE ON people
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- HABITS TABLE (for habit tracking)
+-- ============================================
+CREATE TABLE IF NOT EXISTS habits (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  bubble_id UUID REFERENCES life_bubbles(id) ON DELETE SET NULL,
+  name TEXT NOT NULL,
+  description TEXT,
+  habit_type TEXT NOT NULL DEFAULT 'positive', -- 'positive' or 'negative'
+  goal_frequency TEXT NOT NULL DEFAULT 'daily', -- 'daily', 'weekly', 'monthly'
+  goal_count INTEGER DEFAULT 1, -- Number of times per frequency period
+  linked_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL, -- For task-to-habit promotion
+  is_active BOOLEAN DEFAULT TRUE,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- ============================================
+-- OCCURRENCES TABLE (unified tracking for tasks and habits)
+-- ============================================
+CREATE TABLE IF NOT EXISTS occurrences (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  item_id UUID NOT NULL, -- References either task.id or habit.id
+  item_type TEXT NOT NULL, -- 'task' or 'habit'
+  occurred_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  occurred_date TEXT NOT NULL, -- YYYY-MM-DD for easier querying
+  notes TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS on new tables
+ALTER TABLE habits ENABLE ROW LEVEL SECURITY;
+ALTER TABLE occurrences ENABLE ROW LEVEL SECURITY;
+
+-- HABITS policies
+CREATE POLICY "Users can view own habits" ON habits
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can view habits in shared bubbles" ON habits
+  FOR SELECT USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares WHERE shared_with_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Owners can view all habits in their bubbles" ON habits
+  FOR SELECT USING (
+    bubble_id IN (
+      SELECT id FROM life_bubbles WHERE user_id = auth.uid()
+    )
+  );
+
+CREATE POLICY "Users can insert own habits" ON habits
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own habits" ON habits
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users with edit permission can update habits in shared bubbles" ON habits
+  FOR UPDATE USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares 
+      WHERE shared_with_id = auth.uid() 
+        AND permission IN ('edit', 'co-owner')
+    )
+  );
+
+CREATE POLICY "Users can delete own habits" ON habits
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- OCCURRENCES policies
+CREATE POLICY "Users can view own occurrences" ON occurrences
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can view occurrences for items in shared bubbles" ON occurrences
+  FOR SELECT USING (
+    (item_type = 'task' AND item_id IN (
+      SELECT id FROM tasks WHERE bubble_id IN (
+        SELECT bubble_id FROM bubble_shares WHERE shared_with_id = auth.uid()
+      )
+    ))
+    OR
+    (item_type = 'habit' AND item_id IN (
+      SELECT id FROM habits WHERE bubble_id IN (
+        SELECT bubble_id FROM bubble_shares WHERE shared_with_id = auth.uid()
+      )
+    ))
+  );
+
+CREATE POLICY "Users can insert own occurrences" ON occurrences
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Users can update own occurrences" ON occurrences
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own occurrences" ON occurrences
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Indexes for habits and occurrences
+CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
+CREATE INDEX IF NOT EXISTS idx_habits_bubble_id ON habits(bubble_id);
+CREATE INDEX IF NOT EXISTS idx_habits_linked_task_id ON habits(linked_task_id);
+CREATE INDEX IF NOT EXISTS idx_occurrences_user_id ON occurrences(user_id);
+CREATE INDEX IF NOT EXISTS idx_occurrences_item_id ON occurrences(item_id);
+CREATE INDEX IF NOT EXISTS idx_occurrences_item_type ON occurrences(item_type);
+CREATE INDEX IF NOT EXISTS idx_occurrences_occurred_date ON occurrences(occurred_date);
+
+-- Triggers for habits
+CREATE TRIGGER update_habits_updated_at
+  BEFORE UPDATE ON habits
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

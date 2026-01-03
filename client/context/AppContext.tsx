@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType } from "@/types";
 import { generateRecurringInstances, generateUUID } from "@/utils/recurrence";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
@@ -18,6 +18,8 @@ interface AppContextType {
   tasks: Task[];
   events: CalendarEvent[];
   people: Person[];
+  habits: Habit[];
+  occurrences: Occurrence[];
   recycleBin: DeletedItem[];
   isLoading: boolean;
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<void>;
@@ -42,6 +44,12 @@ interface AppContextType {
   updatePerson: (id: string, updates: Partial<Person>) => Promise<void>;
   deletePerson: (id: string) => Promise<void>;
   getPersonById: (id: string) => Person | undefined;
+  addHabit: (habit: Omit<Habit, "id" | "createdAt">) => Promise<void>;
+  updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
+  deleteHabit: (id: string) => Promise<void>;
+  addOccurrence: (occurrence: Omit<Occurrence, "id" | "createdAt">) => Promise<void>;
+  deleteOccurrence: (id: string) => Promise<void>;
+  getOccurrencesForItem: (itemId: string, itemType: OccurrenceItemType) => Occurrence[];
   restoreFromRecycleBin: (id: string) => Promise<void>;
   permanentlyDelete: (id: string) => Promise<void>;
   emptyRecycleBin: () => Promise<void>;
@@ -91,6 +99,36 @@ function mapSupabaseTaskToTask(task: any): Task {
     createdAt: new Date(task.created_at).getTime(),
     orderIndex: task.order_index || 0,
     assigneeIds: task.assignee_ids || [],
+    completionType: task.completion_type || null,
+    completionDate: task.completion_date || undefined,
+    isRecurring: task.is_recurring || false,
+  };
+}
+
+function mapSupabaseHabitToHabit(item: any): Habit {
+  return {
+    id: item.id,
+    name: item.name,
+    description: item.description || undefined,
+    habitType: item.habit_type || "positive",
+    goalFrequency: item.goal_frequency || "daily",
+    goalCount: item.goal_count || 1,
+    categoryId: item.bubble_id || null,
+    linkedTaskId: item.linked_task_id || null,
+    isActive: item.is_active !== false,
+    createdAt: new Date(item.created_at).getTime(),
+  };
+}
+
+function mapSupabaseOccurrenceToOccurrence(item: any): Occurrence {
+  return {
+    id: item.id,
+    itemId: item.item_id,
+    itemType: item.item_type as OccurrenceItemType,
+    occurredAt: new Date(item.occurred_at).getTime(),
+    occurredDate: item.occurred_date,
+    notes: item.notes || undefined,
+    createdAt: new Date(item.created_at).getTime(),
   };
 }
 
@@ -105,6 +143,32 @@ function mapTaskToSupabase(task: Partial<Task>, userId: string) {
   if (task.status !== undefined) result.status = task.status;
   if (task.orderIndex !== undefined) result.order_index = task.orderIndex;
   if (task.assigneeIds !== undefined) result.assignee_ids = task.assigneeIds;
+  if (task.completionType !== undefined) result.completion_type = task.completionType;
+  if (task.completionDate !== undefined) result.completion_date = task.completionDate || null;
+  if (task.isRecurring !== undefined) result.is_recurring = task.isRecurring;
+  return result;
+}
+
+function mapHabitToSupabase(habit: Partial<Habit>, userId: string) {
+  const result: any = { user_id: userId };
+  if (habit.name !== undefined) result.name = habit.name;
+  if (habit.description !== undefined) result.description = habit.description || null;
+  if (habit.habitType !== undefined) result.habit_type = habit.habitType;
+  if (habit.goalFrequency !== undefined) result.goal_frequency = habit.goalFrequency;
+  if (habit.goalCount !== undefined) result.goal_count = habit.goalCount;
+  if (habit.categoryId !== undefined) result.bubble_id = habit.categoryId;
+  if (habit.linkedTaskId !== undefined) result.linked_task_id = habit.linkedTaskId;
+  if (habit.isActive !== undefined) result.is_active = habit.isActive;
+  return result;
+}
+
+function mapOccurrenceToSupabase(occurrence: Partial<Occurrence>, userId: string) {
+  const result: any = { user_id: userId };
+  if (occurrence.itemId !== undefined) result.item_id = occurrence.itemId;
+  if (occurrence.itemType !== undefined) result.item_type = occurrence.itemType;
+  if (occurrence.occurredAt !== undefined) result.occurred_at = new Date(occurrence.occurredAt).toISOString();
+  if (occurrence.occurredDate !== undefined) result.occurred_date = occurrence.occurredDate;
+  if (occurrence.notes !== undefined) result.notes = occurrence.notes || null;
   return result;
 }
 
@@ -261,6 +325,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [people, setPeople] = useState<Person[]>([]);
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const subscriptionRef = useRef<any>(null);
@@ -288,6 +354,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTasks([]);
     setEvents([]);
     setPeople([]);
+    setHabits([]);
+    setOccurrences([]);
     setRecycleBin([]);
     setIsLoading(false);
   };
@@ -414,6 +482,39 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             });
           } else if (payload.eventType === "DELETE") {
             setRecycleBin((prev) => prev.filter((i) => i.id !== payload.old.id));
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "habits", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const newHabit = mapSupabaseHabitToHabit(payload.new);
+            setHabits((prev) => {
+              if (prev.find((h) => h.id === newHabit.id)) return prev;
+              return [...prev, newHabit];
+            });
+          } else if (payload.eventType === "UPDATE") {
+            const updatedHabit = mapSupabaseHabitToHabit(payload.new);
+            setHabits((prev) => prev.map((h) => (h.id === updatedHabit.id ? updatedHabit : h)));
+          } else if (payload.eventType === "DELETE") {
+            setHabits((prev) => prev.filter((h) => h.id !== payload.old.id));
+          }
+        }
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "occurrences", filter: `user_id=eq.${user.id}` },
+        (payload) => {
+          if (payload.eventType === "INSERT") {
+            const newOccurrence = mapSupabaseOccurrenceToOccurrence(payload.new);
+            setOccurrences((prev) => {
+              if (prev.find((o) => o.id === newOccurrence.id)) return prev;
+              return [...prev, newOccurrence];
+            });
+          } else if (payload.eventType === "DELETE") {
+            setOccurrences((prev) => prev.filter((o) => o.id !== payload.old.id));
           }
         }
       )
@@ -637,7 +738,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Store owned bubble IDs for realtime subscriptions
       ownedBubbleIdsRef.current = new Set(ownedBubbleIds);
 
-      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes] = await Promise.all([
+      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes, habitsRes, occurrencesRes] = await Promise.all([
         // Fetch all tasks in bubbles the user owns or is shared with
         allRelevantBubbleIds.length > 0
           ? supabase.from("tasks").select("*").in("bubble_id", allRelevantBubbleIds).order("created_at", { ascending: true })
@@ -652,6 +753,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from("events").select("*").eq("user_id", user.id).is("bubble_id", null).order("start_time", { ascending: true }),
         supabase.from("people").select("*").eq("user_id", user.id).order("name", { ascending: true }),
         supabase.from("recycle_bin").select("*").eq("user_id", user.id).order("deleted_at", { ascending: false }),
+        supabase.from("habits").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
+        supabase.from("occurrences").select("*").eq("user_id", user.id).order("occurred_at", { ascending: false }),
       ]);
 
       const ownedCategories = bubblesRes.error ? [] : (bubblesRes.data || []).map(mapSupabaseBubbleToCategory);
@@ -689,6 +792,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (recycleBinRes.error) console.warn("Error loading recycle bin:", recycleBinRes.error.message);
       else setRecycleBin((recycleBinRes.data || []).map(mapSupabaseRecycleBinToDeletedItem));
+
+      if (habitsRes.error) console.warn("Error loading habits:", habitsRes.error.message);
+      else setHabits((habitsRes.data || []).map(mapSupabaseHabitToHabit));
+
+      if (occurrencesRes.error) console.warn("Error loading occurrences:", occurrencesRes.error.message);
+      else setOccurrences((occurrencesRes.data || []).map(mapSupabaseOccurrenceToOccurrence));
 
       await cleanupExpiredRecycleBin();
     } catch (error) {
@@ -1528,6 +1637,103 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [people]
   );
 
+  const addHabit = useCallback(async (habit: Omit<Habit, "id" | "createdAt">) => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("habits")
+      .insert(mapHabitToSupabase(habit, user.id))
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adding habit:", error.message);
+      return;
+    }
+
+    const newHabit = mapSupabaseHabitToHabit(data);
+    setHabits((prev) => [...prev, newHabit]);
+  }, [user]);
+
+  const updateHabit = useCallback(async (id: string, updates: Partial<Habit>) => {
+    if (!user) return;
+
+    const supabaseUpdates = mapHabitToSupabase(updates, user.id);
+    delete supabaseUpdates.user_id;
+
+    const { error } = await supabase
+      .from("habits")
+      .update(supabaseUpdates)
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error updating habit:", error.message);
+      return;
+    }
+
+    setHabits((prev) => prev.map((habit) => (habit.id === id ? { ...habit, ...updates } : habit)));
+  }, [user]);
+
+  const deleteHabit = useCallback(async (id: string) => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("habits")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting habit:", error.message);
+      return;
+    }
+
+    setHabits((prev) => prev.filter((habit) => habit.id !== id));
+    setOccurrences((prev) => prev.filter((o) => !(o.itemId === id && o.itemType === "habit")));
+  }, [user]);
+
+  const addOccurrence = useCallback(async (occurrence: Omit<Occurrence, "id" | "createdAt">) => {
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("occurrences")
+      .insert(mapOccurrenceToSupabase(occurrence, user.id))
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adding occurrence:", error.message);
+      return;
+    }
+
+    const newOccurrence = mapSupabaseOccurrenceToOccurrence(data);
+    setOccurrences((prev) => [...prev, newOccurrence]);
+  }, [user]);
+
+  const deleteOccurrence = useCallback(async (id: string) => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("occurrences")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting occurrence:", error.message);
+      return;
+    }
+
+    setOccurrences((prev) => prev.filter((occurrence) => occurrence.id !== id));
+  }, [user]);
+
+  const getOccurrencesForItem = useCallback(
+    (itemId: string, itemType: OccurrenceItemType) => 
+      occurrences.filter((o) => o.itemId === itemId && o.itemType === itemType),
+    [occurrences]
+  );
+
   const restoreFromRecycleBin = useCallback(async (id: string) => {
     if (!user) return;
 
@@ -1645,11 +1851,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       supabase.from("events").delete().eq("user_id", user.id),
       supabase.from("people").delete().eq("user_id", user.id),
       supabase.from("recycle_bin").delete().eq("user_id", user.id),
+      supabase.from("habits").delete().eq("user_id", user.id),
+      supabase.from("occurrences").delete().eq("user_id", user.id),
     ]);
 
     setTasks([]);
     setEvents([]);
     setPeople([]);
+    setHabits([]);
+    setOccurrences([]);
     setRecycleBin([]);
   }, [user]);
 
@@ -1660,6 +1870,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         tasks,
         events,
         people,
+        habits,
+        occurrences,
         recycleBin,
         isLoading,
         addCategory,
@@ -1684,6 +1896,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updatePerson,
         deletePerson,
         getPersonById,
+        addHabit,
+        updateHabit,
+        deleteHabit,
+        addOccurrence,
+        deleteOccurrence,
+        getOccurrencesForItem,
         restoreFromRecycleBin,
         permanentlyDelete,
         emptyRecycleBin,
