@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, createContext, useContext } from "react";
-import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -28,6 +28,23 @@ import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+
+function isTemporarilyComplete(task: Task): boolean {
+  if (task.completionType !== "until" || !task.completionDate) return false;
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  const untilDate = new Date(task.completionDate);
+  untilDate.setHours(0, 0, 0, 0);
+  return untilDate > today;
+}
+
+function formatShortDate(dateStr: string): string {
+  const date = new Date(dateStr);
+  const month = date.getMonth() + 1;
+  const day = date.getDate();
+  const year = date.getFullYear().toString().slice(-2);
+  return `${month}/${day}/${year}`;
+}
 
 const TYPE_COLORS: Record<TaskType, string> = {
   goal: "#8B5CF6",
@@ -381,7 +398,10 @@ interface TaskItemProps {
 function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, habits } = useApp();
+  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits } = useApp();
+  const [editingOccurrence, setEditingOccurrence] = useState<{ id: string; notes: string } | null>(null);
+  const tempComplete = isTemporarilyComplete(task);
+  const showAsComplete = task.status === "completed" || tempComplete;
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
   const taskOccurrences = getOccurrencesForItem(task.id, "task");
   const { draggedTaskId, targetTaskId, setDraggedTaskId, handleTaskTap, cancelDrag } = useContext(DragContext);
@@ -540,7 +560,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     : (isDark ? theme.border : "transparent"),
                 borderWidth: isSelectedTarget ? 2 : isValidDropTarget ? 1.5 : 1,
               },
-              task.status === "completed" && styles.itemCompleted,
+              showAsComplete && styles.itemCompleted,
             ]}
           >
             <View style={styles.itemHeader}>
@@ -570,20 +590,30 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     style={[
                       styles.title,
                       { color: isDark ? "#FFFFFF" : theme.text },
-                      task.status === "completed" && styles.titleCompleted,
+                      showAsComplete && styles.titleCompleted,
                     ]}
                     numberOfLines={2}
                   >
                     {task.title}
                   </ThemedText>
                   <Pressable onPress={handleToggleComplete} hitSlop={14} style={styles.checkboxButton}>
-                    <View style={[
-                      styles.checkbox,
-                      { borderColor: task.status === "completed" ? theme.success : theme.textSecondary },
-                      task.status === "completed" && { backgroundColor: theme.success }
-                    ]}>
-                      {task.status === "completed" ? (
-                        <Feather name="check" size={12} color="#FFFFFF" />
+                    <View style={styles.checkboxContainer}>
+                      <View style={[
+                        styles.checkbox,
+                        { borderColor: showAsComplete ? theme.success : theme.textSecondary },
+                        showAsComplete && { backgroundColor: theme.success }
+                      ]}>
+                        {showAsComplete ? (
+                          <Feather name="check" size={12} color="#FFFFFF" />
+                        ) : null}
+                      </View>
+                      {tempComplete && task.completionDate ? (
+                        <View style={styles.completeUntilIndicator}>
+                          <Feather name="refresh-cw" size={10} color={theme.warning} />
+                          <ThemedText style={[styles.completeUntilDate, { color: theme.warning }]}>
+                            {formatShortDate(task.completionDate)}
+                          </ThemedText>
+                        </View>
                       ) : null}
                     </View>
                   </Pressable>
@@ -726,15 +756,46 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </ThemedText>
                     {taskOccurrences.slice(0, 5).map((occ) => (
                       <View key={occ.id} style={styles.historyItem}>
-                        <Feather name="check-circle" size={12} color={theme.success} />
-                        <ThemedText style={[styles.historyDate, { color: theme.text }]}>
-                          {new Date(occ.occurredAt).toLocaleDateString("en-US", {
-                            month: "short",
-                            day: "numeric",
-                            year: "numeric",
-                          })}
-                          {occ.notes ? ` - ${occ.notes}` : ""}
-                        </ThemedText>
+                        <View style={styles.historyItemContent}>
+                          <Feather name="check-circle" size={12} color={theme.success} />
+                          <ThemedText style={[styles.historyDate, { color: theme.text }]} numberOfLines={1}>
+                            {new Date(occ.occurredAt).toLocaleDateString("en-US", {
+                              month: "short",
+                              day: "numeric",
+                              year: "numeric",
+                            })}
+                            {occ.notes ? ` - ${occ.notes}` : ""}
+                          </ThemedText>
+                        </View>
+                        <View style={styles.historyItemActions}>
+                          <Pressable
+                            onPress={() => setEditingOccurrence({ id: occ.id, notes: occ.notes || "" })}
+                            hitSlop={8}
+                            style={styles.historyActionBtn}
+                          >
+                            <Feather name="edit-2" size={12} color={theme.primary} />
+                          </Pressable>
+                          <Pressable
+                            onPress={() => {
+                              Alert.alert(
+                                "Delete Entry",
+                                "Remove this completion log entry?",
+                                [
+                                  { text: "Cancel", style: "cancel" },
+                                  { 
+                                    text: "Delete", 
+                                    style: "destructive", 
+                                    onPress: () => deleteOccurrence(occ.id)
+                                  },
+                                ]
+                              );
+                            }}
+                            hitSlop={8}
+                            style={styles.historyActionBtn}
+                          >
+                            <Feather name="trash-2" size={12} color={theme.error} />
+                          </Pressable>
+                        </View>
                       </View>
                     ))}
                     {taskOccurrences.length > 5 ? (
@@ -784,6 +845,60 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
         categoryId={task.categoryId}
         linkedTask={task}
       />
+
+      <Modal
+        visible={editingOccurrence !== null}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setEditingOccurrence(null)}
+      >
+        <Pressable style={styles.modalOverlay} onPress={() => setEditingOccurrence(null)}>
+          <Pressable 
+            style={[styles.editNotesModal, { backgroundColor: theme.backgroundDefault }]}
+            onPress={(e) => e.stopPropagation()}
+          >
+            <View style={styles.editNotesHeader}>
+              <ThemedText style={styles.editNotesTitle}>Edit Notes</ThemedText>
+              <Pressable onPress={() => setEditingOccurrence(null)} hitSlop={10}>
+                <Feather name="x" size={22} color={theme.textSecondary} />
+              </Pressable>
+            </View>
+            <TextInput
+              style={[styles.editNotesInput, { 
+                backgroundColor: theme.backgroundSecondary, 
+                color: theme.text,
+                borderColor: theme.border 
+              }]}
+              placeholder="Add completion notes..."
+              placeholderTextColor={theme.textSecondary}
+              value={editingOccurrence?.notes || ""}
+              onChangeText={(text) => setEditingOccurrence(prev => prev ? { ...prev, notes: text } : null)}
+              multiline
+              numberOfLines={4}
+              textAlignVertical="top"
+            />
+            <View style={styles.editNotesButtons}>
+              <Pressable
+                style={[styles.editNotesCancelBtn, { backgroundColor: theme.border }]}
+                onPress={() => setEditingOccurrence(null)}
+              >
+                <ThemedText style={styles.editNotesBtnText}>Cancel</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.editNotesSaveBtn, { backgroundColor: theme.primary }]}
+                onPress={() => {
+                  if (editingOccurrence) {
+                    updateOccurrence(editingOccurrence.id, { notes: editingOccurrence.notes || undefined });
+                    setEditingOccurrence(null);
+                  }
+                }}
+              >
+                <ThemedText style={[styles.editNotesBtnText, { color: "#FFFFFF" }]}>Save</ThemedText>
+              </Pressable>
+            </View>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1017,16 +1132,44 @@ const styles = StyleSheet.create({
   historyItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    justifyContent: "space-between",
     marginBottom: 4,
+  },
+  historyItemContent: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    flex: 1,
+  },
+  historyItemActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  historyActionBtn: {
+    padding: 4,
   },
   historyDate: {
     fontSize: 12,
+    flex: 1,
   },
   historyMore: {
     fontSize: 11,
     fontStyle: "italic",
     marginTop: 4,
+  },
+  checkboxContainer: {
+    alignItems: "center",
+  },
+  completeUntilIndicator: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 2,
+    gap: 2,
+  },
+  completeUntilDate: {
+    fontSize: 9,
+    fontWeight: "500",
   },
   children: {
     marginTop: Spacing.sm,
@@ -1083,6 +1226,49 @@ const styles = StyleSheet.create({
   },
   reorderButtonText: {
     fontSize: 16,
+    fontWeight: "600",
+  },
+  editNotesModal: {
+    width: Math.min(SCREEN_WIDTH - Spacing.xl * 2, 340),
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+  },
+  editNotesHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.md,
+  },
+  editNotesTitle: {
+    fontSize: 18,
+    fontWeight: "700",
+  },
+  editNotesInput: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    minHeight: 100,
+    fontSize: 14,
+  },
+  editNotesButtons: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  editNotesCancelBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+  },
+  editNotesSaveBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+  },
+  editNotesBtnText: {
+    fontSize: 14,
     fontWeight: "600",
   },
 });

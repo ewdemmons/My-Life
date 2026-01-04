@@ -48,6 +48,7 @@ interface AppContextType {
   updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
   addOccurrence: (occurrence: Omit<Occurrence, "id" | "createdAt">) => Promise<Occurrence | null>;
+  updateOccurrence: (id: string, updates: Partial<Occurrence>) => Promise<void>;
   deleteOccurrence: (id: string) => Promise<void>;
   getOccurrencesForItem: (itemId: string, itemType: OccurrenceItemType) => Occurrence[];
   restoreFromRecycleBin: (id: string) => Promise<void>;
@@ -1712,6 +1713,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     return newOccurrence;
   }, [user]);
 
+  const updateOccurrence = useCallback(async (id: string, updates: Partial<Occurrence>) => {
+    if (!user) return;
+
+    const supabaseUpdates: Record<string, any> = {};
+    if (updates.notes !== undefined) supabaseUpdates.notes = updates.notes || null;
+    if (updates.occurredAt !== undefined) {
+      supabaseUpdates.occurred_at = new Date(updates.occurredAt).toISOString();
+    }
+    if (updates.occurredDate !== undefined) {
+      supabaseUpdates.occurred_date = updates.occurredDate;
+    }
+
+    const { error } = await supabase
+      .from("occurrences")
+      .update(supabaseUpdates)
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error updating occurrence:", error.message);
+      return;
+    }
+
+    setOccurrences((prev) =>
+      prev.map((occurrence) =>
+        occurrence.id === id ? { ...occurrence, ...updates } : occurrence
+      )
+    );
+  }, [user]);
+
   const deleteOccurrence = useCallback(async (id: string) => {
     if (!user) return;
 
@@ -1901,6 +1932,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateHabit,
         deleteHabit,
         addOccurrence,
+        updateOccurrence,
         deleteOccurrence,
         getOccurrencesForItem,
         restoreFromRecycleBin,
