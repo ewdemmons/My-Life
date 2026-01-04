@@ -16,6 +16,7 @@ import {
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
 import * as Haptics from "expo-haptics";
+import DateTimePicker from "@react-native-community/datetimepicker";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -399,7 +400,8 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits } = useApp();
-  const [editingOccurrence, setEditingOccurrence] = useState<{ id: string; notes: string } | null>(null);
+  const [editingOccurrence, setEditingOccurrence] = useState<{ id: string; notes: string; date: Date } | null>(null);
+  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const tempComplete = isTemporarilyComplete(task);
   const showAsComplete = task.status === "completed" || tempComplete;
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
@@ -769,11 +771,15 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                         </View>
                         <View style={styles.historyItemActions}>
                           <Pressable
-                            onPress={() => setEditingOccurrence({ id: occ.id, notes: occ.notes || "" })}
-                            hitSlop={8}
+                            onPress={() => setEditingOccurrence({ 
+                              id: occ.id, 
+                              notes: occ.notes || "", 
+                              date: new Date(occ.occurredAt) 
+                            })}
+                            hitSlop={10}
                             style={styles.historyActionBtn}
                           >
-                            <Feather name="edit-2" size={12} color={theme.primary} />
+                            <Feather name="edit-2" size={16} color={theme.primary} />
                           </Pressable>
                           <Pressable
                             onPress={() => {
@@ -790,10 +796,10 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                                 ]
                               );
                             }}
-                            hitSlop={8}
+                            hitSlop={10}
                             style={styles.historyActionBtn}
                           >
-                            <Feather name="trash-2" size={12} color={theme.error} />
+                            <Feather name="trash-2" size={16} color={theme.error} />
                           </Pressable>
                         </View>
                       </View>
@@ -850,19 +856,60 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
         visible={editingOccurrence !== null}
         transparent
         animationType="fade"
-        onRequestClose={() => setEditingOccurrence(null)}
+        onRequestClose={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => setEditingOccurrence(null)}>
+        <Pressable style={styles.modalOverlay} onPress={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }}>
           <Pressable 
             style={[styles.editNotesModal, { backgroundColor: theme.backgroundDefault }]}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.editNotesHeader}>
-              <ThemedText style={styles.editNotesTitle}>Edit Notes</ThemedText>
-              <Pressable onPress={() => setEditingOccurrence(null)} hitSlop={10}>
+              <ThemedText style={styles.editNotesTitle}>Edit Completion</ThemedText>
+              <Pressable onPress={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }} hitSlop={10}>
                 <Feather name="x" size={22} color={theme.textSecondary} />
               </Pressable>
             </View>
+
+            <ThemedText style={[styles.editFieldLabel, { color: theme.textSecondary }]}>Completed On</ThemedText>
+            <Pressable 
+              style={[styles.editDateButton, { backgroundColor: theme.backgroundSecondary, borderColor: theme.border }]}
+              onPress={() => setShowEditDatePicker(true)}
+            >
+              <Feather name="calendar" size={16} color={theme.primary} />
+              <ThemedText style={{ color: theme.text, marginLeft: Spacing.sm }}>
+                {editingOccurrence?.date.toLocaleDateString("en-US", { 
+                  month: "short", 
+                  day: "numeric", 
+                  year: "numeric" 
+                })}
+              </ThemedText>
+            </Pressable>
+            {showEditDatePicker ? (
+              <DateTimePicker
+                value={editingOccurrence?.date || new Date()}
+                mode="date"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                onChange={(event, selectedDate) => {
+                  if (Platform.OS !== "ios") {
+                    setShowEditDatePicker(false);
+                  }
+                  if (selectedDate) {
+                    setEditingOccurrence(prev => prev ? { ...prev, date: selectedDate } : null);
+                  }
+                }}
+                maximumDate={new Date()}
+              />
+            ) : null}
+            {Platform.OS === "ios" && showEditDatePicker ? (
+              <Pressable 
+                style={[styles.editDateDoneBtn, { backgroundColor: theme.primary }]}
+                onPress={() => setShowEditDatePicker(false)}
+              >
+                <ThemedText style={{ color: "#FFFFFF", fontWeight: "600" }}>Done</ThemedText>
+              </Pressable>
+            ) : null}
+
+            <ThemedText style={[styles.editFieldLabel, { color: theme.textSecondary, marginTop: Spacing.md }]}>Notes</ThemedText>
             <TextInput
               style={[styles.editNotesInput, { 
                 backgroundColor: theme.backgroundSecondary, 
@@ -874,13 +921,13 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
               value={editingOccurrence?.notes || ""}
               onChangeText={(text) => setEditingOccurrence(prev => prev ? { ...prev, notes: text } : null)}
               multiline
-              numberOfLines={4}
+              numberOfLines={3}
               textAlignVertical="top"
             />
             <View style={styles.editNotesButtons}>
               <Pressable
                 style={[styles.editNotesCancelBtn, { backgroundColor: theme.border }]}
-                onPress={() => setEditingOccurrence(null)}
+                onPress={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }}
               >
                 <ThemedText style={styles.editNotesBtnText}>Cancel</ThemedText>
               </Pressable>
@@ -888,8 +935,14 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                 style={[styles.editNotesSaveBtn, { backgroundColor: theme.primary }]}
                 onPress={() => {
                   if (editingOccurrence) {
-                    updateOccurrence(editingOccurrence.id, { notes: editingOccurrence.notes || undefined });
+                    const dateStr = editingOccurrence.date.toISOString().split("T")[0];
+                    updateOccurrence(editingOccurrence.id, { 
+                      notes: editingOccurrence.notes || undefined,
+                      occurredAt: editingOccurrence.date.getTime(),
+                      occurredDate: dateStr,
+                    });
                     setEditingOccurrence(null);
+                    setShowEditDatePicker(false);
                   }
                 }}
               >
@@ -1147,7 +1200,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   historyActionBtn: {
-    padding: 4,
+    padding: 8,
   },
   historyDate: {
     fontSize: 12,
@@ -1270,5 +1323,24 @@ const styles = StyleSheet.create({
   editNotesBtnText: {
     fontSize: 14,
     fontWeight: "600",
+  },
+  editFieldLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginBottom: Spacing.xs,
+  },
+  editDateButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.md,
+    borderWidth: 1,
+    borderRadius: BorderRadius.md,
+    marginBottom: Spacing.sm,
+  },
+  editDateDoneBtn: {
+    alignItems: "center",
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.sm,
   },
 });
