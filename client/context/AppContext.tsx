@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES } from "@/types";
 import { generateRecurringInstances, generateUUID } from "@/utils/recurrence";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
 import { DEFAULT_BUBBLES } from "@/lib/defaultBubbles";
+import { scheduleEventNotifications, cancelEventNotifications } from "@/utils/notifications";
 
 const TASKS_KEY = "@mylife_tasks";
 const EVENTS_KEY = "@mylife_events";
@@ -228,6 +229,8 @@ function mapSupabaseEventToEvent(event: any): CalendarEvent {
     isException: event.is_exception || false,
     originalDate: event.original_date || undefined,
     attendeeIds: event.attendee_ids || [],
+    notificationIdAdvance: event.notification_id_advance || null,
+    notificationIdAtStart: event.notification_id_at_start || null,
   };
 }
 
@@ -264,6 +267,8 @@ function mapEventToSupabase(event: Partial<CalendarEvent>, userId: string, exist
   if (event.isException !== undefined) result.is_exception = event.isException;
   if (event.originalDate !== undefined) result.original_date = event.originalDate;
   if (event.attendeeIds !== undefined) result.attendee_ids = event.attendeeIds;
+  if (event.notificationIdAdvance !== undefined) result.notification_id_advance = event.notificationIdAdvance;
+  if (event.notificationIdAtStart !== undefined) result.notification_id_at_start = event.notificationIdAtStart;
   return result;
 }
 
@@ -1035,13 +1040,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
     if (!user) return;
 
+    const getBubbleName = (categoryId: string | null) => {
+      if (!categoryId) return "";
+      const bubble = categories.find((c) => c.id === categoryId);
+      return bubble?.name || "";
+    };
+
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("notification_preferences")
+      .eq("id", user.id)
+      .single();
+    
+    const prefs = profileData?.notification_preferences || DEFAULT_NOTIFICATION_PREFERENCES;
+    const shouldSchedule = prefs.enabled && prefs.eventReminders;
+    const minutesBefore = prefs.reminderMinutesBefore || 60;
+
     if (event.recurrence && event.recurrence !== "none") {
       const seriesId = generateUUID();
       const instances = generateRecurringInstances(event, seriesId);
 
       const supabaseInstances = instances.map(instance => {
         const supabaseEvent = mapEventToSupabase(instance, user.id);
-        // Ensure valid linked_task_id
         if (event.linkedTaskId && !event.linkedTaskId.match(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i)) {
           delete supabaseEvent.linked_task_id;
         }
@@ -1064,6 +1084,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (data) {
         const newEvents = data.map(mapSupabaseEventToEvent);
+        
+        if (shouldSchedule) {
+          for (const newEvent of newEvents) {
+            const bubbleName = getBubbleName(newEvent.categoryId);
+            const { advanceId, atStartId } = await scheduleEventNotifications(newEvent, bubbleName, minutesBefore);
+            
+            if (advanceId || atStartId) {
+              await supabase
+                .from("events")
+                .update({ 
+                  notification_id_advance: advanceId, 
+                  notification_id_at_start: atStartId 
+                })
+                .eq("id", newEvent.id)
+                .eq("user_id", user.id);
+              
+              newEvent.notificationIdAdvance = advanceId;
+              newEvent.notificationIdAtStart = atStartId;
+            }
+          }
+        }
+        
         setEvents((prev) => [...prev, ...newEvents]);
       }
     } else {
@@ -1076,16 +1118,72 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const newEvent = mapSupabaseEventToEvent(data);
+      
+      if (shouldSchedule) {
+        const bubbleName = getBubbleName(newEvent.categoryId);
+        const { advanceId, atStartId } = await scheduleEventNotifications(newEvent, bubbleName, minutesBefore);
+        
+        if (advanceId || atStartId) {
+          await supabase
+            .from("events")
+            .update({ 
+              notification_id_advance: advanceId, 
+              notification_id_at_start: atStartId 
+            })
+            .eq("id", newEvent.id)
+            .eq("user_id", user.id);
+          
+          newEvent.notificationIdAdvance = advanceId;
+          newEvent.notificationIdAtStart = atStartId;
+        }
+      }
+      
       setEvents((prev) => [...prev, newEvent]);
     }
-  }, [user]);
+  }, [user, categories]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     if (!user) return;
 
     const existingEvent = events.find((e) => e.id === id);
+    if (!existingEvent) return;
+
+    const getBubbleName = (categoryId: string | null) => {
+      if (!categoryId) return "";
+      const bubble = categories.find((c) => c.id === categoryId);
+      return bubble?.name || "";
+    };
+
+    await cancelEventNotifications(
+      existingEvent.notificationIdAdvance,
+      existingEvent.notificationIdAtStart
+    );
+
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("notification_preferences")
+      .eq("id", user.id)
+      .single();
+    
+    const prefs = profileData?.notification_preferences || DEFAULT_NOTIFICATION_PREFERENCES;
+    const shouldSchedule = prefs.enabled && prefs.eventReminders;
+    const minutesBefore = prefs.reminderMinutesBefore || 60;
+
+    const updatedEvent: CalendarEvent = { ...existingEvent, ...updates };
+    let notificationIdAdvance: string | null = null;
+    let notificationIdAtStart: string | null = null;
+
+    if (shouldSchedule) {
+      const bubbleName = getBubbleName(updatedEvent.categoryId);
+      const result = await scheduleEventNotifications(updatedEvent, bubbleName, minutesBefore);
+      notificationIdAdvance = result.advanceId;
+      notificationIdAtStart = result.atStartId;
+    }
+
     const supabaseUpdates = mapEventToSupabase(updates, user.id, existingEvent);
     delete supabaseUpdates.user_id;
+    supabaseUpdates.notification_id_advance = notificationIdAdvance;
+    supabaseUpdates.notification_id_at_start = notificationIdAtStart;
 
     const { error } = await supabase
       .from("events")
@@ -1098,11 +1196,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       return;
     }
 
-    setEvents((prev) => prev.map((event) => (event.id === id ? { ...event, ...updates } : event)));
-  }, [user, events]);
+    setEvents((prev) => prev.map((event) => (event.id === id ? { 
+      ...event, 
+      ...updates,
+      notificationIdAdvance,
+      notificationIdAtStart
+    } : event)));
+  }, [user, events, categories]);
 
   const deleteEvent = useCallback(async (id: string) => {
     if (!user) return;
+
+    const existingEvent = events.find((e) => e.id === id);
+    if (existingEvent) {
+      await cancelEventNotifications(
+        existingEvent.notificationIdAdvance,
+        existingEvent.notificationIdAtStart
+      );
+    }
 
     const { error } = await supabase
       .from("events")
@@ -1116,7 +1227,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEvents((prev) => prev.filter((event) => event.id !== id));
-  }, [user]);
+  }, [user, events]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>, editedEventId?: string): Promise<boolean> => {
     if (!user) return false;
