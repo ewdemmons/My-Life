@@ -1054,7 +1054,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     
     const prefs = profileData?.notification_preferences || DEFAULT_NOTIFICATION_PREFERENCES;
     const shouldSchedule = prefs.enabled && prefs.eventReminders;
-    const minutesBefore = prefs.reminderMinutesBefore || 60;
+    const minutesBefore = prefs.reminderMinutesBefore ?? 60;
 
     if (event.recurrence && event.recurrence !== "none") {
       const seriesId = generateUUID();
@@ -1167,7 +1167,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     
     const prefs = profileData?.notification_preferences || DEFAULT_NOTIFICATION_PREFERENCES;
     const shouldSchedule = prefs.enabled && prefs.eventReminders;
-    const minutesBefore = prefs.reminderMinutesBefore || 60;
+    const minutesBefore = prefs.reminderMinutesBefore ?? 60;
 
     const updatedEvent: CalendarEvent = { ...existingEvent, ...updates };
     let notificationIdAdvance: string | null = null;
