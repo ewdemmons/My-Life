@@ -125,8 +125,8 @@ export default function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <AppProvider>
-          <NotificationProvider>
+        <NotificationProvider>
+          <AppProvider>
             <QueryClientProvider client={queryClient}>
               <SafeAreaProvider>
                 <GestureHandlerRootView style={styles.root}>
@@ -139,8 +139,8 @@ export default function App() {
                 </GestureHandlerRootView>
               </SafeAreaProvider>
             </QueryClientProvider>
-          </NotificationProvider>
-        </AppProvider>
+          </AppProvider>
+        </NotificationProvider>
       </AuthProvider>
     </ErrorBoundary>
   );
