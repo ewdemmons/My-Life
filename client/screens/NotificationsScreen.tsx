@@ -80,7 +80,7 @@ export default function NotificationsScreen() {
               initialTab: "calendar",
             });
           } else {
-            navigation.navigate("Calendar");
+            navigation.navigate("Main", { screen: "CalendarTab" });
           }
           break;
         case "bubble_shared":
