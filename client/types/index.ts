@@ -141,6 +141,8 @@ export interface CalendarEvent {
   originalDate?: string;
   attendeeIds?: string[];
   sharedWith?: ShareRecord[];
+  notificationIdAdvance?: string | null;
+  notificationIdAtStart?: string | null;
 }
 
 export const EVENT_TYPES: { value: EventType; label: string; icon: string; color: string }[] = [

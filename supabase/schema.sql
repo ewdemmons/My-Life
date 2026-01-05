@@ -62,6 +62,8 @@ CREATE TABLE IF NOT EXISTS events (
   is_exception BOOLEAN DEFAULT FALSE,
   original_date TEXT,
   attendee_ids UUID[],
+  notification_id_advance TEXT,
+  notification_id_at_start TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
