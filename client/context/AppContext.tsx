@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
 import { DEFAULT_BUBBLES } from "@/lib/defaultBubbles";
 import { scheduleEventNotifications, cancelEventNotifications } from "@/utils/notifications";
+import { useNotifications } from "./NotificationContext";
 
 const TASKS_KEY = "@mylife_tasks";
 const EVENTS_KEY = "@mylife_events";
@@ -327,6 +328,7 @@ interface RegenState {
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const { user } = useAuth();
+  const notificationContext = useNotifications();
   const [categories, setCategories] = useState<LifeCategory[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
@@ -1040,6 +1042,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
     if (!user) return;
 
+    const { addNotification } = notificationContext;
+
     const getBubbleName = (categoryId: string | null) => {
       if (!categoryId) return "";
       const bubble = categories.find((c) => c.id === categoryId);
@@ -1103,6 +1107,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               newEvent.notificationIdAdvance = advanceId;
               newEvent.notificationIdAtStart = atStartId;
             }
+            
+            // Persist to notifications table
+            await addNotification(
+              "event_reminder",
+              newEvent.title,
+              `Scheduled for ${newEvent.startDate} at ${newEvent.startTime}`,
+              { eventId: newEvent.id, bubbleId: newEvent.categoryId }
+            );
           }
         }
         
@@ -1136,11 +1148,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           newEvent.notificationIdAdvance = advanceId;
           newEvent.notificationIdAtStart = atStartId;
         }
+
+        // Persist to notifications table
+        await addNotification(
+          "event_reminder",
+          newEvent.title,
+          `Scheduled for ${newEvent.startDate} at ${newEvent.startTime}`,
+          { eventId: newEvent.id, bubbleId: newEvent.categoryId }
+        );
       }
       
       setEvents((prev) => [...prev, newEvent]);
     }
-  }, [user, categories]);
+  }, [user, categories, notificationContext]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     if (!user) return;
@@ -1178,6 +1198,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const result = await scheduleEventNotifications(updatedEvent, bubbleName, minutesBefore);
       notificationIdAdvance = result.advanceId;
       notificationIdAtStart = result.atStartId;
+
+      // Update in notifications table
+      await notificationContext.addNotification(
+        "event_reminder",
+        updatedEvent.title,
+        `Updated: ${updatedEvent.startDate} at ${updatedEvent.startTime}`,
+        { eventId: id, bubbleId: updatedEvent.categoryId }
+      );
     }
 
     const supabaseUpdates = mapEventToSupabase(updates, user.id, existingEvent);
@@ -1202,7 +1230,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       notificationIdAdvance,
       notificationIdAtStart
     } : event)));
-  }, [user, events, categories]);
+  }, [user, events, categories, notificationContext]);
 
   const deleteEvent = useCallback(async (id: string) => {
     if (!user) return;
@@ -1227,7 +1255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEvents((prev) => prev.filter((event) => event.id !== id));
-  }, [user, events]);
+  }, [user, events, notificationContext]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>, editedEventId?: string): Promise<boolean> => {
     if (!user) return false;
