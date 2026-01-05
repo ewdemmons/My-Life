@@ -2,6 +2,7 @@ import React from "react";
 import { View, FlatList, StyleSheet, Pressable, RefreshControl } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { useNavigation } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
@@ -45,6 +46,7 @@ export default function NotificationsScreen() {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const navigation = useNavigation<any>();
   const {
     notifications,
     markAsRead,
@@ -63,6 +65,44 @@ export default function NotificationsScreen() {
   const handleNotificationPress = (notification: AppNotification) => {
     if (!notification.isRead) {
       markAsRead(notification.id);
+    }
+
+    const { metadata, type } = notification;
+    const bubbleId = metadata?.bubbleId as string | undefined;
+    const eventId = metadata?.eventId as string | undefined;
+
+    try {
+      switch (type) {
+        case "event_reminder":
+          if (bubbleId) {
+            navigation.navigate("CategoryDetail", {
+              categoryId: bubbleId,
+              initialTab: "calendar",
+            });
+          } else {
+            navigation.navigate("Calendar");
+          }
+          break;
+        case "bubble_shared":
+          if (bubbleId) {
+            navigation.navigate("CategoryDetail", {
+              categoryId: bubbleId,
+            });
+          }
+          break;
+        case "task_assigned":
+          if (bubbleId) {
+            navigation.navigate("CategoryDetail", {
+              categoryId: bubbleId,
+              initialTab: "tasks",
+            });
+          }
+          break;
+        default:
+          break;
+      }
+    } catch (error) {
+      console.error("Error navigating from notification:", error);
     }
   };
 
