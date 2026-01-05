@@ -14,6 +14,7 @@ import { ThemedText } from "./ThemedText";
 import { PeopleSelector } from "./PeopleSelector";
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
+import { useNotifications } from "@/context/NotificationContext";
 import {
   CalendarEvent,
   EventType,
@@ -24,6 +25,7 @@ import {
 } from "@/types";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { getRecurrenceDescription } from "@/utils/recurrence";
+import { scheduleEventReminder, calculateReminderTime } from "@/utils/notifications";
 
 interface SchedulingModalProps {
   visible: boolean;
@@ -48,6 +50,7 @@ export function SchedulingModal({
 }: SchedulingModalProps) {
   const { theme } = useTheme();
   const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories } = useApp();
+  const { preferences } = useNotifications();
 
   const getInitialStartDate = () => {
     if (editingEvent) return new Date(editingEvent.startDate + "T" + editingEvent.startTime);
@@ -231,6 +234,21 @@ export function SchedulingModal({
         }
       } else {
         await addEvent(eventData);
+        
+        if (preferences.enabled && preferences.eventReminders) {
+          const reminderTime = calculateReminderTime(
+            eventData.startDate,
+            eventData.startTime,
+            preferences.reminderMinutesBefore
+          );
+          const notificationEventId = `${eventData.startDate}-${eventData.startTime}-${Date.now()}`;
+          await scheduleEventReminder(
+            notificationEventId,
+            eventData.title,
+            `Reminder: "${eventData.title}" starts in ${preferences.reminderMinutesBefore} minutes`,
+            reminderTime
+          );
+        }
       }
       onClose();
     } finally {

@@ -39,6 +39,7 @@
     "expo-image-picker": "^17.0.10",
     "expo-linking": "~8.0.8",
     "expo-mail-composer": "^15.0.8",
+    "expo-notifications": "^0.32.15",
     "expo-sms": "^14.0.8",
     "expo-splash-screen": "~31.0.10",
     "expo-status-bar": "~3.0.8",

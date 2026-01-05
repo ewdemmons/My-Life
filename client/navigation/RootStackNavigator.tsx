@@ -6,6 +6,7 @@ import AuthNavigator from "@/navigation/AuthNavigator";
 import CategoryDetailScreen from "@/screens/CategoryDetailScreen";
 import AddCategoryScreen from "@/screens/AddCategoryScreen";
 import AddTaskScreen from "@/screens/AddTaskScreen";
+import NotificationsScreen from "@/screens/NotificationsScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -16,6 +17,7 @@ export type RootStackParamList = {
   CategoryDetail: { category: LifeCategory };
   AddCategory: { category?: LifeCategory };
   AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
+  Notifications: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -49,6 +51,13 @@ function MainAppNavigator() {
         options={{
           presentation: "modal",
           headerTitle: "Add Task",
+        }}
+      />
+      <Stack.Screen
+        name="Notifications"
+        component={NotificationsScreen}
+        options={{
+          headerTitle: "Notifications",
         }}
       />
     </Stack.Navigator>

@@ -537,3 +537,46 @@ CREATE INDEX IF NOT EXISTS idx_occurrences_occurred_date ON occurrences(occurred
 CREATE TRIGGER update_habits_updated_at
   BEFORE UPDATE ON habits
   FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
+
+-- ============================================
+-- NOTIFICATIONS SYSTEM
+-- ============================================
+
+-- Add notification preferences column to profiles
+ALTER TABLE profiles ADD COLUMN IF NOT EXISTS notification_preferences JSONB DEFAULT '{"enabled": true, "bubbleShares": true, "taskAssignments": true, "eventReminders": true, "reminderMinutesBefore": 60}'::jsonb;
+
+-- NOTIFICATIONS TABLE (in-app notifications)
+CREATE TABLE IF NOT EXISTS notifications (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
+  type TEXT NOT NULL, -- 'bubble_shared', 'task_assigned', 'event_reminder', 'event_updated', 'bubble_updated'
+  title TEXT NOT NULL,
+  body TEXT NOT NULL,
+  data JSONB DEFAULT '{}'::jsonb,
+  is_read BOOLEAN DEFAULT FALSE,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Enable RLS on notifications
+ALTER TABLE notifications ENABLE ROW LEVEL SECURITY;
+
+-- NOTIFICATIONS policies
+CREATE POLICY "Users can view own notifications" ON notifications
+  FOR SELECT USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can insert own notifications" ON notifications
+  FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+CREATE POLICY "Service can insert notifications for any user" ON notifications
+  FOR INSERT WITH CHECK (true);
+
+CREATE POLICY "Users can update own notifications" ON notifications
+  FOR UPDATE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can delete own notifications" ON notifications
+  FOR DELETE USING (auth.uid() = user_id);
+
+-- Index for notifications
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
+CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);

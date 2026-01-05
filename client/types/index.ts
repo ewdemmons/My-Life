@@ -241,3 +241,38 @@ export const COMPLETION_TYPES: { value: CompletionType; label: string; descripti
   { value: "as_of", label: "Complete as of", description: "Was completed on a specific date" },
   { value: "until", label: "Complete until", description: "Completed until a future date" },
 ];
+
+// Notification Types
+export type NotificationType = 
+  | "bubble_shared"
+  | "task_assigned"
+  | "event_reminder"
+  | "event_updated"
+  | "bubble_updated";
+
+export interface AppNotification {
+  id: string;
+  userId: string;
+  type: NotificationType;
+  title: string;
+  body: string;
+  data?: Record<string, any>;
+  isRead: boolean;
+  createdAt: number;
+}
+
+export interface NotificationPreferences {
+  enabled: boolean;
+  bubbleShares: boolean;
+  taskAssignments: boolean;
+  eventReminders: boolean;
+  reminderMinutesBefore: number;
+}
+
+export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
+  enabled: true,
+  bubbleShares: true,
+  taskAssignments: true,
+  eventReminders: true,
+  reminderMinutesBefore: 60,
+};

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Alert, ScrollView, FlatList } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ScrollView, Switch, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -10,8 +10,10 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
+import { useNotifications } from "@/context/NotificationContext";
 import { DeletedItem, Task, LifeCategory, getTaskTypeInfo } from "@/types";
 import InviteCodeModal from "@/components/InviteCodeModal";
+import { requestNotificationPermissions } from "@/utils/notifications";
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
@@ -22,7 +24,23 @@ export default function ProfileScreen() {
   const { theme, isDark } = useTheme();
   const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin, clearAllData, refreshData } = useApp();
   const { user, signOut } = useAuth();
+  const { preferences, updatePreferences } = useNotifications();
   const [showInviteCodeModal, setShowInviteCodeModal] = useState(false);
+
+  const handleToggleNotifications = async (enabled: boolean) => {
+    if (enabled && Platform.OS !== "web") {
+      const granted = await requestNotificationPermissions();
+      if (!granted) {
+        Alert.alert(
+          "Permission Required",
+          "Please enable notifications in your device settings to receive reminders."
+        );
+        updatePreferences({ enabled: false });
+        return;
+      }
+    }
+    updatePreferences({ enabled });
+  };
 
   const completedTasks = tasks.filter((t) => t.status === "completed").length;
   const totalTasks = tasks.length;
@@ -261,6 +279,78 @@ export default function ProfileScreen() {
           <ThemedText style={[styles.settingHint, { color: theme.textSecondary }]}>
             Dark mode follows your system settings
           </ThemedText>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.sectionTitle}>Notifications</ThemedText>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <View style={[styles.settingIcon, { backgroundColor: theme.warning + "20" }]}>
+                <Feather name="bell" size={20} color={theme.warning} />
+              </View>
+              <ThemedText style={styles.settingText}>Push Notifications</ThemedText>
+            </View>
+            <Switch
+              value={preferences.enabled}
+              onValueChange={handleToggleNotifications}
+              trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "80" }}
+              thumbColor={preferences.enabled ? theme.primary : theme.backgroundTertiary}
+            />
+          </View>
+          {preferences.enabled ? (
+            <>
+              <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <View style={[styles.settingIcon, { backgroundColor: theme.secondary + "20" }]}>
+                    <Feather name="share-2" size={20} color={theme.secondary} />
+                  </View>
+                  <ThemedText style={styles.settingText}>Bubble Shares</ThemedText>
+                </View>
+                <Switch
+                  value={preferences.bubbleShares}
+                  onValueChange={(value) => updatePreferences({ bubbleShares: value })}
+                  trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "80" }}
+                  thumbColor={preferences.bubbleShares ? theme.primary : theme.backgroundTertiary}
+                />
+              </View>
+              <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <View style={[styles.settingIcon, { backgroundColor: theme.success + "20" }]}>
+                    <Feather name="user-plus" size={20} color={theme.success} />
+                  </View>
+                  <ThemedText style={styles.settingText}>Task Assignments</ThemedText>
+                </View>
+                <Switch
+                  value={preferences.taskAssignments}
+                  onValueChange={(value) => updatePreferences({ taskAssignments: value })}
+                  trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "80" }}
+                  thumbColor={preferences.taskAssignments ? theme.primary : theme.backgroundTertiary}
+                />
+              </View>
+              <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+              <View style={styles.settingRow}>
+                <View style={styles.settingInfo}>
+                  <View style={[styles.settingIcon, { backgroundColor: theme.primary + "20" }]}>
+                    <Feather name="clock" size={20} color={theme.primary} />
+                  </View>
+                  <ThemedText style={styles.settingText}>Event Reminders</ThemedText>
+                </View>
+                <Switch
+                  value={preferences.eventReminders}
+                  onValueChange={(value) => updatePreferences({ eventReminders: value })}
+                  trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "80" }}
+                  thumbColor={preferences.eventReminders ? theme.primary : theme.backgroundTertiary}
+                />
+              </View>
+              <ThemedText style={[styles.settingHint, { color: theme.textSecondary }]}>
+                Reminder {preferences.reminderMinutesBefore} minutes before events
+              </ThemedText>
+            </>
+          ) : null}
         </View>
       </View>
 

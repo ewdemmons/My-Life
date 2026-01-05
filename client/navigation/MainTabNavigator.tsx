@@ -13,6 +13,7 @@ import ProfileScreen from "@/screens/ProfileScreen";
 import { FAB } from "@/components/FAB";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { AddPersonModal } from "@/components/AddPersonModal";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useTheme } from "@/hooks/useTheme";
 import { HeaderTitle } from "@/components/HeaderTitle";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -60,6 +61,11 @@ export default function MainTabNavigator() {
           headerStyle: {
             backgroundColor: "transparent",
           },
+          headerRight: () => (
+            <View style={{ marginRight: 16 }}>
+              <NotificationBell />
+            </View>
+          ),
           tabBarActiveTintColor: theme.tabIconSelected,
           tabBarInactiveTintColor: theme.tabIconDefault,
           tabBarStyle: {

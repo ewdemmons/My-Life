@@ -301,6 +301,23 @@ export function BubbleShareModal({
       console.error("Error creating direct share:", error);
       throw error;
     }
+
+    const { data: profileData } = await supabase
+      .from("profiles")
+      .select("display_name, email")
+      .eq("id", user?.id)
+      .single();
+    
+    const senderName = profileData?.display_name || profileData?.email?.split("@")[0] || "Someone";
+    const permissionInfo = SHARE_PERMISSIONS.find((p) => p.value === permission);
+    
+    await supabase.from("notifications").insert({
+      user_id: sharedWithId,
+      type: "bubble_shared",
+      title: "Bubble Shared With You",
+      body: `${senderName} shared "${category.name}" with you (${permissionInfo?.label || permission})`,
+      data: { bubbleId: category.id, permission },
+    });
   };
 
   const getInviteUrl = (inviteCode: string): string => {
