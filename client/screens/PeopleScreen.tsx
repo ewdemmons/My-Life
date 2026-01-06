@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -9,6 +9,7 @@ import {
   Modal,
   Platform,
   Linking,
+  ActivityIndicator,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -25,6 +26,8 @@ import { useApp } from "@/context/AppContext";
 import { Person, RelationshipType, RELATIONSHIP_TYPES, LifeCategory } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { InviteModal } from "@/components/InviteModal";
+import { supabase } from "@/lib/supabase";
+import { useAuth } from "@/context/AuthContext";
 
 export default function PeopleScreen() {
   const insets = useSafeAreaInsets();
@@ -32,6 +35,7 @@ export default function PeopleScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const { people, addPerson, updatePerson, deletePerson, categories } = useApp();
+  const { user } = useAuth();
 
   const [searchQuery, setSearchQuery] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
@@ -49,6 +53,109 @@ export default function PeopleScreen() {
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [personToInvite, setPersonToInvite] = useState<Person | null>(null);
   const [showNewInviteModal, setShowNewInviteModal] = useState(false);
+
+  const [checkingForLink, setCheckingForLink] = useState(false);
+  const [showLinkPrompt, setShowLinkPrompt] = useState(false);
+  const [personToLink, setPersonToLink] = useState<Person | null>(null);
+  const [matchedUser, setMatchedUser] = useState<{ userId: string; displayName: string } | null>(null);
+
+  const lookupUserByEmail = useCallback(async (emailToLookup: string): Promise<{ userId: string; displayName: string } | null> => {
+    if (!emailToLookup.trim()) return null;
+    
+    try {
+      const { data, error } = await supabase.rpc("lookup_user_by_email", { 
+        lookup_email: emailToLookup.trim() 
+      });
+      
+      if (error || !data || data.length === 0) {
+        return null;
+      }
+      
+      return {
+        userId: data[0].user_id,
+        displayName: data[0].display_name,
+      };
+    } catch (err) {
+      console.error("Error looking up user:", err);
+      return null;
+    }
+  }, []);
+
+  const handleLinkPerson = async (person: Person) => {
+    if (!person.email) {
+      Alert.alert("No Email", "This person needs an email address to link to an app user.");
+      return;
+    }
+
+    if (person.linkedUserId) {
+      Alert.alert("Already Linked", `${person.name} is already linked to an app user.`);
+      return;
+    }
+
+    setCheckingForLink(true);
+    const matched = await lookupUserByEmail(person.email);
+    setCheckingForLink(false);
+
+    if (matched) {
+      setMatchedUser(matched);
+      setPersonToLink(person);
+      setShowLinkPrompt(true);
+    } else {
+      Alert.alert(
+        "No Match Found",
+        `No app user found with the email "${person.email}". You can invite them to join the app instead.`
+      );
+    }
+  };
+
+  const handleLinkConfirm = async (shouldLink: boolean) => {
+    if (!shouldLink || !personToLink || !matchedUser || !user) {
+      setShowLinkPrompt(false);
+      setPersonToLink(null);
+      setMatchedUser(null);
+      return;
+    }
+
+    try {
+      await updatePerson(personToLink.id, {
+        linkedUserId: matchedUser.userId,
+        linkedConsentStatus: "pending",
+      });
+
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+
+      const senderName = profileData?.display_name || user.email?.split("@")[0] || "Someone";
+
+      await supabase.from("notifications").insert({
+        user_id: matchedUser.userId,
+        type: "connection_request",
+        title: "Connection Request",
+        body: `${senderName} wants to connect with you and share tasks/events.`,
+        data: {
+          personId: personToLink.id,
+          requesterId: user.id,
+          requesterName: senderName,
+        },
+        is_read: false,
+      });
+
+      Alert.alert(
+        "Link Request Sent",
+        `A connection request has been sent to ${matchedUser.displayName}. They'll need to approve it before you can notify them.`
+      );
+    } catch (error) {
+      console.error("Error linking person:", error);
+      Alert.alert("Error", "Failed to send link request. Please try again.");
+    }
+
+    setShowLinkPrompt(false);
+    setPersonToLink(null);
+    setMatchedUser(null);
+  };
 
   const generateInviteCode = () => {
     return 'MYLIFE-' + Math.random().toString(36).substring(2, 8).toUpperCase();
@@ -320,6 +427,17 @@ export default function PeopleScreen() {
             ) : null}
           </View>
           <View style={styles.personActions}>
+            {item.linkedUserId ? null : (
+              <Pressable
+                style={[styles.linkButton, { backgroundColor: theme.primary + "15" }]}
+                onPress={(e) => {
+                  e.stopPropagation();
+                  handleLinkPerson(item);
+                }}
+              >
+                <Feather name="link" size={14} color={theme.primary} />
+              </Pressable>
+            )}
             <Pressable
               style={[styles.inviteButton, { backgroundColor: theme.primary + "15" }]}
               onPress={(e) => {
@@ -727,6 +845,59 @@ export default function PeopleScreen() {
           preSelectedCategoryIds={personToInvite.categoryIds}
         />
       ) : null}
+
+      <Modal
+        visible={showLinkPrompt}
+        animationType="fade"
+        transparent={true}
+        onRequestClose={() => handleLinkConfirm(false)}
+      >
+        <Pressable
+          style={styles.linkOverlay}
+          onPress={() => handleLinkConfirm(false)}
+        >
+          <View style={[styles.linkPromptContainer, { backgroundColor: theme.backgroundDefault }]}>
+            <View style={[styles.linkIconContainer, { backgroundColor: theme.primary + "20" }]}>
+              <Feather name="link" size={28} color={theme.primary} />
+            </View>
+            <ThemedText style={styles.linkPromptTitle}>
+              Link to App User?
+            </ThemedText>
+            <ThemedText style={[styles.linkPromptBody, { color: theme.textSecondary }]}>
+              This email belongs to {matchedUser?.displayName || "an app user"}. Would you like to link {personToLink?.name} to their account? This enables direct notifications when you assign tasks or events.
+            </ThemedText>
+            <View style={styles.linkPromptButtons}>
+              <Pressable
+                style={[styles.linkPromptButton, styles.linkPromptButtonSecondary, { borderColor: theme.border }]}
+                onPress={() => handleLinkConfirm(false)}
+              >
+                <ThemedText style={[styles.linkPromptButtonText, { color: theme.text }]}>
+                  No, Skip
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.linkPromptButton, { backgroundColor: theme.primary }]}
+                onPress={() => handleLinkConfirm(true)}
+              >
+                <ThemedText style={[styles.linkPromptButtonText, { color: "#FFFFFF" }]}>
+                  Yes, Link
+                </ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        </Pressable>
+      </Modal>
+
+      {checkingForLink ? (
+        <View style={styles.loadingOverlay}>
+          <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundDefault }]}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <ThemedText style={[styles.loadingText, { color: theme.textSecondary }]}>
+              Checking for matching user...
+            </ThemedText>
+          </View>
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -1112,5 +1283,79 @@ const styles = StyleSheet.create({
   linkedBadgeText: {
     fontSize: 10,
     fontWeight: "600",
+  },
+  linkButton: {
+    width: 36,
+    height: 28,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.xl,
+  },
+  linkPromptContainer: {
+    width: "100%",
+    maxWidth: 340,
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    alignItems: "center",
+  },
+  linkIconContainer: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.lg,
+  },
+  linkPromptTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    marginBottom: Spacing.sm,
+    textAlign: "center",
+  },
+  linkPromptBody: {
+    fontSize: 14,
+    textAlign: "center",
+    lineHeight: 20,
+    marginBottom: Spacing.lg,
+  },
+  linkPromptButtons: {
+    flexDirection: "row",
+    gap: Spacing.md,
+    width: "100%",
+  },
+  linkPromptButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+  },
+  linkPromptButtonSecondary: {
+    borderWidth: 1,
+  },
+  linkPromptButtonText: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingContainer: {
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+    gap: Spacing.md,
+  },
+  loadingText: {
+    fontSize: 14,
   },
 });
