@@ -20,16 +20,61 @@ import { savePendingInviteCode } from "@/lib/pendingInvites";
 import { requestNotificationPermissions } from "@/utils/notifications";
 import { NotificationType } from "@/types";
 
-function handleDeepLink(url: string) {
+interface DeepLinkResult {
+  type: "invite" | "bubble" | "task" | "event" | null;
+  bubbleId?: string;
+  taskId?: string;
+  eventId?: string;
+  inviteCode?: string;
+}
+
+function parseDeepLink(url: string): DeepLinkResult {
   try {
     const parsed = Linking.parse(url);
+    
     if (parsed.queryParams?.code) {
-      const inviteCode = parsed.queryParams.code as string;
-      savePendingInviteCode(inviteCode);
-      console.log("Saved invite code from deep link:", inviteCode);
+      return { 
+        type: "invite", 
+        inviteCode: parsed.queryParams.code as string 
+      };
     }
+    
+    const path = parsed.path || "";
+    const pathParts = path.split("/").filter(Boolean);
+    
+    if (pathParts[0] === "bubble" && pathParts[1]) {
+      const bubbleId = pathParts[1];
+      
+      if (pathParts[2] === "task" && pathParts[3]) {
+        return { type: "task", bubbleId, taskId: pathParts[3] };
+      }
+      if (pathParts[2] === "event" && pathParts[3]) {
+        return { type: "event", bubbleId, eventId: pathParts[3] };
+      }
+      
+      return { type: "bubble", bubbleId };
+    }
+    
+    if (pathParts[0] === "task" && pathParts[1]) {
+      return { type: "task", taskId: pathParts[1] };
+    }
+    if (pathParts[0] === "event" && pathParts[1]) {
+      return { type: "event", eventId: pathParts[1] };
+    }
+    
+    return { type: null };
   } catch (error) {
     console.error("Error parsing deep link:", error);
+    return { type: null };
+  }
+}
+
+function handleDeepLink(url: string) {
+  const result = parseDeepLink(url);
+  
+  if (result.type === "invite" && result.inviteCode) {
+    savePendingInviteCode(result.inviteCode);
+    console.log("Saved invite code from deep link:", result.inviteCode);
   }
 }
 
@@ -52,12 +97,38 @@ export default function App() {
     return () => subscription.remove();
   }, []);
 
+  const navigateToDeepLink = (result: DeepLinkResult) => {
+    if (!navigationRef.current) return;
+    
+    const { bubbleId, taskId, eventId } = result;
+    
+    if (!bubbleId) {
+      navigationRef.current.navigate("Main", { screen: "HomeTab" });
+      return;
+    }
+    
+    navigationRef.current.navigate("CategoryDetail", {
+      category: { id: bubbleId } as any,
+      initialTaskId: taskId,
+      initialEventId: eventId,
+    });
+  };
+
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data;
     if (!data) return;
 
+    if (data.url) {
+      const result = parseDeepLink(data.url as string);
+      if (result.type) {
+        navigateToDeepLink(result);
+        return;
+      }
+    }
+
     const notificationType = data.type as NotificationType;
     const bubbleId = data.bubbleId as string | undefined;
+    const itemId = data.itemId as string | undefined;
     const eventId = data.eventId as string | undefined;
     const taskId = data.taskId as string | undefined;
 
@@ -67,32 +138,31 @@ export default function App() {
       switch (notificationType) {
         case "event_reminder":
           if (bubbleId) {
-            navigationRef.current.navigate("Main", {
-              screen: "CategoryDetail",
-              params: { categoryId: bubbleId, initialTab: "calendar" },
+            navigationRef.current.navigate("CategoryDetail", {
+              category: { id: bubbleId } as any,
+              initialEventId: eventId,
             });
           } else {
-            navigationRef.current.navigate("Main", { screen: "Calendar" });
+            navigationRef.current.navigate("Main", { screen: "CalendarTab" });
           }
           break;
         case "bubble_shared":
           if (bubbleId) {
-            navigationRef.current.navigate("Main", {
-              screen: "CategoryDetail",
-              params: { categoryId: bubbleId },
+            navigationRef.current.navigate("CategoryDetail", {
+              category: { id: bubbleId } as any,
             });
           }
           break;
         case "task_assigned":
           if (bubbleId) {
-            navigationRef.current.navigate("Main", {
-              screen: "CategoryDetail",
-              params: { categoryId: bubbleId, initialTab: "tasks" },
+            navigationRef.current.navigate("CategoryDetail", {
+              category: { id: bubbleId } as any,
+              initialTaskId: itemId || taskId,
             });
           }
           break;
         default:
-          navigationRef.current.navigate("Main", { screen: "Home" });
+          navigationRef.current.navigate("Main", { screen: "HomeTab" });
       }
     } catch (error) {
       console.error("Error navigating from notification:", error);

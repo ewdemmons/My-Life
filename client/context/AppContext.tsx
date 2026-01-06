@@ -331,7 +331,9 @@ async function notifyLinkedUsers(
   assigneeIds: string[] | undefined,
   people: Person[],
   itemType: "task" | "event",
+  itemId: string,
   itemTitle: string,
+  bubbleId: string | null,
   bubbleName: string,
   senderName: string
 ): Promise<void> {
@@ -341,13 +343,24 @@ async function notifyLinkedUsers(
     const person = people.find((p) => p.id === assigneeId);
     if (!person?.linkedUserId || person.linkedConsentStatus !== "approved") continue;
 
+    const deepLinkUrl = bubbleId 
+      ? `mylife://bubble/${bubbleId}/${itemType}/${itemId}`
+      : `mylife://${itemType}/${itemId}`;
+
     try {
       await supabase.rpc("notify_linked_user", {
         target_user_id: person.linkedUserId,
         notification_type: "task_assigned",
-        notification_title: `Assigned: ${itemTitle}`,
-        notification_body: `${senderName} assigned you a ${itemType} in ${bubbleName}`,
-        notification_data: { itemType, assigneeId, bubbleName },
+        notification_title: `New ${itemType} assigned`,
+        notification_body: `${senderName} assigned "${itemTitle}" in ${bubbleName}`,
+        notification_data: { 
+          itemType, 
+          itemId,
+          assigneeId, 
+          bubbleId,
+          bubbleName,
+          url: deepLinkUrl 
+        },
       });
     } catch (err) {
       console.error("Error notifying linked user:", err);
@@ -972,7 +985,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         task.assigneeIds,
         people,
         "task",
+        newTask.id,
         task.title,
+        task.categoryId || null,
         bubble?.name || "a bubble",
         senderName
       );
@@ -1005,7 +1020,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const newAssignees = updates.assigneeIds.filter((id) => !previousAssignees.includes(id));
       
       if (newAssignees.length > 0) {
-        const bubble = categories.find((c) => c.id === (updates.categoryId || existingTask.categoryId));
+        const categoryId = updates.categoryId || existingTask.categoryId;
+        const bubble = categories.find((c) => c.id === categoryId);
         const { data: profile } = await supabase
           .from("profiles")
           .select("display_name, email")
@@ -1017,7 +1033,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           newAssignees,
           people,
           "task",
+          id,
           updates.title || existingTask.title,
+          categoryId || null,
           bubble?.name || "a bubble",
           senderName
         );
@@ -1258,7 +1276,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           event.attendeeIds,
           people,
           "event",
+          newEvent.id,
           newEvent.title,
+          newEvent.categoryId,
           bubbleName || "a bubble",
           senderName
         );

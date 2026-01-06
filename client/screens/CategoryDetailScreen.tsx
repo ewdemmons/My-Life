@@ -59,7 +59,13 @@ export default function CategoryDetailScreen() {
 
   const categoryFromState = categories.find(c => c.id === route.params.category.id) || route.params.category;
   const category = categoryFromState;
-  const [activeTab, setActiveTab] = useState<TabType>("entries");
+  const initialTaskId = route.params.initialTaskId;
+  const initialEventId = route.params.initialEventId;
+  
+  const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (initialEventId) return "calendar";
+    return "entries";
+  });
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
@@ -70,6 +76,7 @@ export default function CategoryDetailScreen() {
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editingAsInstance, setEditingAsInstance] = useState(false);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
+  const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(initialTaskId || null);
   const categoryTasks = getTasksByCategory(category.id);
 
   const handleUpdateSharing = async (shares: ShareRecord[]) => {
@@ -289,7 +296,12 @@ export default function CategoryDetailScreen() {
           paddingBottom: insets.bottom + Spacing.xl,
         }}
       >
-        <HierarchicalTaskList tasks={categoryTasks} filterType={selectedType} />
+        <HierarchicalTaskList 
+          tasks={categoryTasks} 
+          filterType={selectedType}
+          highlightedTaskId={highlightedTaskId}
+          onHighlightCleared={() => setHighlightedTaskId(null)}
+        />
       </ScrollView>
     </>
   );

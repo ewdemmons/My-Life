@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback, createContext, useContext } from "react";
+import React, { useState, useMemo, useCallback, createContext, useContext, useEffect, useRef } from "react";
 import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -63,26 +63,38 @@ const TYPE_COLORS: Record<TaskType, string> = {
 interface DragContextType {
   draggedTaskId: string | null;
   targetTaskId: string | null;
+  highlightedTaskId: string | null;
   setDraggedTaskId: (id: string | null) => void;
   handleTaskTap: (taskId: string, toggleDetails: () => void) => void;
   cancelDrag: () => void;
+  clearHighlight: () => void;
 }
 
 const DragContext = createContext<DragContextType>({
   draggedTaskId: null,
   targetTaskId: null,
+  highlightedTaskId: null,
   setDraggedTaskId: () => {},
   handleTaskTap: () => {},
   cancelDrag: () => {},
+  clearHighlight: () => {},
 });
 
 interface HierarchicalTaskListProps {
   tasks: Task[];
   showCategory?: boolean;
   filterType?: TaskType | null;
+  highlightedTaskId?: string | null;
+  onHighlightCleared?: () => void;
 }
 
-export function HierarchicalTaskList({ tasks, showCategory = false, filterType = null }: HierarchicalTaskListProps) {
+export function HierarchicalTaskList({ 
+  tasks, 
+  showCategory = false, 
+  filterType = null,
+  highlightedTaskId = null,
+  onHighlightCleared,
+}: HierarchicalTaskListProps) {
   const { categories, moveTaskToParent, reorderTasks } = useApp();
   const { theme } = useTheme();
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
@@ -292,14 +304,20 @@ export function HierarchicalTaskList({ tasks, showCategory = false, filterType =
     );
   }
 
+  const clearHighlight = useCallback(() => {
+    onHighlightCleared?.();
+  }, [onHighlightCleared]);
+
   return (
     <DragContext.Provider
       value={{
         draggedTaskId,
         targetTaskId,
+        highlightedTaskId,
         setDraggedTaskId,
         handleTaskTap,
         cancelDrag,
+        clearHighlight,
       }}
     >
       <GestureHandlerRootView style={styles.gestureRoot}>
@@ -406,9 +424,9 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   const showAsComplete = task.status === "completed" || tempComplete;
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
   const taskOccurrences = getOccurrencesForItem(task.id, "task");
-  const { draggedTaskId, targetTaskId, setDraggedTaskId, handleTaskTap, cancelDrag } = useContext(DragContext);
+  const { draggedTaskId, targetTaskId, highlightedTaskId, setDraggedTaskId, handleTaskTap, cancelDrag, clearHighlight } = useContext(DragContext);
   const [isExpanded, setIsExpanded] = useState(false);
-  const [showDetails, setShowDetails] = useState(false);
+  const [showDetails, setShowDetails] = useState(() => highlightedTaskId === task.id);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showHabitModal, setShowHabitModal] = useState(false);
@@ -417,6 +435,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   const isDragging = draggedTaskId === task.id;
   const isValidDropTarget = draggedTaskId !== null && draggedTaskId !== task.id;
   const isSelectedTarget = targetTaskId === task.id;
+  const isHighlighted = highlightedTaskId === task.id;
 
   const typeInfo = getTaskTypeInfo(task.type);
   const category = categories.find((c) => c.id === task.categoryId);
@@ -491,6 +510,23 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
   const priorityColor = task.priority === "high" ? theme.error : 
                         task.priority === "medium" ? theme.warning : theme.success;
 
+  const prevHighlighted = useRef(isHighlighted);
+  useEffect(() => {
+    if (isHighlighted && !prevHighlighted.current) {
+      setShowDetails(true);
+    }
+    prevHighlighted.current = isHighlighted;
+  }, [isHighlighted]);
+
+  useEffect(() => {
+    if (isHighlighted) {
+      const timer = setTimeout(() => {
+        clearHighlight();
+      }, 5000);
+      return () => clearTimeout(timer);
+    }
+  }, [isHighlighted, clearHighlight]);
+
   const cardShadow = Platform.select({
     ios: {
       shadowColor: "#000",
@@ -511,7 +547,10 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
 
   const toggleDetails = useCallback(() => {
     setShowDetails(!showDetails);
-  }, [showDetails]);
+    if (isHighlighted) {
+      clearHighlight();
+    }
+  }, [showDetails, isHighlighted, clearHighlight]);
 
   const onTapHandler = useCallback(() => {
     handleTaskTap(task.id, toggleDetails);
@@ -554,13 +593,17 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
               cardShadow,
               itemAnimatedStyle,
               { 
-                backgroundColor: isDark ? theme.backgroundDefault : "#FFFFFF",
-                borderColor: isSelectedTarget 
-                  ? theme.primary 
-                  : isValidDropTarget 
-                    ? theme.primary + "50" 
-                    : (isDark ? theme.border : "transparent"),
-                borderWidth: isSelectedTarget ? 2 : isValidDropTarget ? 1.5 : 1,
+                backgroundColor: isHighlighted 
+                  ? theme.primary + "10"
+                  : isDark ? theme.backgroundDefault : "#FFFFFF",
+                borderColor: isHighlighted
+                  ? theme.primary
+                  : isSelectedTarget 
+                    ? theme.primary 
+                    : isValidDropTarget 
+                      ? theme.primary + "50" 
+                      : (isDark ? theme.border : "transparent"),
+                borderWidth: isHighlighted ? 2 : isSelectedTarget ? 2 : isValidDropTarget ? 1.5 : 1,
               },
               showAsComplete && styles.itemCompleted,
             ]}
