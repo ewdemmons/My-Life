@@ -71,6 +71,7 @@ export function PeopleSelector({
   const renderPersonItem = ({ item }: { item: Person }) => {
     const isSelected = selectedIds.includes(item.id);
     const relInfo = getRelationshipInfo(item.relationship);
+    const isLinked = item.linkedUserId && item.linkedConsentStatus === "approved";
 
     return (
       <Pressable
@@ -90,12 +91,24 @@ export function PeopleSelector({
           </View>
         )}
         <View style={styles.personInfo}>
-          <ThemedText style={styles.personName}>{item.name}</ThemedText>
+          <View style={styles.nameRow}>
+            <ThemedText style={styles.personName}>{item.name}</ThemedText>
+            {isLinked ? (
+              <View style={[styles.linkedIndicator, { backgroundColor: theme.primary + "20" }]}>
+                <Feather name="link" size={8} color={theme.primary} />
+              </View>
+            ) : null}
+          </View>
           <View style={styles.relationshipRow}>
             <Feather name={relInfo.icon as any} size={10} color={theme.textSecondary} />
             <ThemedText style={[styles.relationshipText, { color: theme.textSecondary }]}>
               {relInfo.label}
             </ThemedText>
+            {isLinked ? (
+              <ThemedText style={[styles.linkedText, { color: theme.primary }]}>
+                Will notify
+              </ThemedText>
+            ) : null}
           </View>
         </View>
         <View
@@ -410,9 +423,26 @@ const styles = StyleSheet.create({
     flex: 1,
     gap: 2,
   },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
   personName: {
     fontSize: 15,
     fontWeight: "500",
+  },
+  linkedIndicator: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  linkedText: {
+    fontSize: 10,
+    fontWeight: "500",
+    marginLeft: 4,
   },
   relationshipRow: {
     flexDirection: "row",

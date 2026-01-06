@@ -307,13 +307,25 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
       try {
         await markAsRead(notificationId);
 
+        const newConsentStatus = accept ? "approved" : "declined";
+        
+        const { error: updateError } = await supabase.rpc("respond_to_connection", {
+          person_id: personId,
+          responder_user_id: user.id,
+          new_consent_status: newConsentStatus,
+        });
+
+        if (updateError) {
+          console.error("Error updating consent status:", updateError);
+        }
+
         const { data: profileData } = await supabase
           .from("profiles")
           .select("display_name")
           .eq("id", user.id)
           .single();
 
-        const displayName = profileData?.display_name || "A user";
+        const displayName = profileData?.display_name || user.email?.split("@")[0] || "A user";
 
         const notificationType = accept ? "connection_accepted" : "connection_declined";
         const title = accept ? "Connection Accepted" : "Connection Declined";

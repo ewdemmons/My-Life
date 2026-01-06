@@ -43,7 +43,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { addPerson, categories, updatePerson } = useApp();
-  const { user, displayName } = useAuth();
+  const { user } = useAuth();
 
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState<RelationshipType>("friend");
@@ -158,16 +158,17 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
     const newPerson = await addPerson(dataToSave);
 
     if (shouldLink && matchedUser && newPerson && user) {
+      const requesterName = user.email?.split("@")[0] || "Someone";
       try {
         await supabase.from("notifications").insert({
           user_id: matchedUser.userId,
           type: "connection_request",
           title: "Connection Request",
-          body: `${displayName || "Someone"} wants to connect with you. When connected, you'll receive notifications when assigned to their tasks or events.`,
+          body: `${requesterName} wants to connect with you. When connected, you'll receive notifications when assigned to their tasks or events.`,
           data: { 
             personId: newPerson.id, 
             requesterId: user.id,
-            requesterName: displayName || "A user",
+            requesterName,
           },
           is_read: false,
         });

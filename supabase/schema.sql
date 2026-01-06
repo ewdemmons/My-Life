@@ -639,3 +639,31 @@ $$;
 
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION notify_linked_user(UUID, TEXT, TEXT, TEXT, JSONB) TO authenticated;
+
+-- Function to update consent status on a person record (for connection responses)
+-- This allows the linked user to approve/decline the connection request
+CREATE OR REPLACE FUNCTION respond_to_connection(
+  person_id UUID,
+  responder_user_id UUID,
+  new_consent_status TEXT
+)
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  affected_rows INTEGER;
+BEGIN
+  UPDATE people 
+  SET linked_consent_status = new_consent_status,
+      updated_at = NOW()
+  WHERE id = person_id 
+    AND linked_user_id = responder_user_id;
+  
+  GET DIAGNOSTICS affected_rows = ROW_COUNT;
+  RETURN affected_rows > 0;
+END;
+$$;
+
+-- Grant execute permission to authenticated users
+GRANT EXECUTE ON FUNCTION respond_to_connection(UUID, UUID, TEXT) TO authenticated;

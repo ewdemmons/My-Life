@@ -435,8 +435,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         "postgres_changes",
         { event: "*", schema: "public", table: "tasks" },
         (payload) => {
-          const bubbleId = payload.new?.bubble_id || payload.old?.bubble_id;
-          const taskUserId = payload.new?.user_id || payload.old?.user_id;
+          const newRecord = payload.new as Record<string, any> | null;
+          const oldRecord = payload.old as Record<string, any> | null;
+          const bubbleId = newRecord?.bubble_id || oldRecord?.bubble_id;
+          const taskUserId = newRecord?.user_id || oldRecord?.user_id;
           const isOwnTask = taskUserId === user.id;
           const isInOwnedBubble = bubbleId && ownedBubbleIdsRef.current.has(bubbleId);
           const isInSharedBubble = bubbleId && sharedBubbleIdsRef.current.has(bubbleId);
@@ -461,16 +463,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         "postgres_changes",
         { event: "*", schema: "public", table: "events" },
         (payload) => {
-          const bubbleId = payload.new?.bubble_id || payload.old?.bubble_id;
-          const eventUserId = payload.new?.user_id || payload.old?.user_id;
+          const newRecord = payload.new as Record<string, any> | null;
+          const oldRecord = payload.old as Record<string, any> | null;
+          const bubbleId = newRecord?.bubble_id || oldRecord?.bubble_id;
+          const eventUserId = newRecord?.user_id || oldRecord?.user_id;
           const isOwnEvent = eventUserId === user.id;
           const isInOwnedBubble = bubbleId && ownedBubbleIdsRef.current.has(bubbleId);
           const isInSharedBubble = bubbleId && sharedBubbleIdsRef.current.has(bubbleId);
           // Accept event if: user owns it, OR it's in a bubble user owns, OR it's in a shared bubble
           if (!isOwnEvent && !isInOwnedBubble && !isInSharedBubble) return;
 
-          const eventId = payload.new?.id || payload.old?.id;
-          const eventSeriesId = payload.new?.series_id || payload.old?.series_id;
+          const eventId = newRecord?.id || oldRecord?.id;
+          const eventSeriesId = newRecord?.series_id || oldRecord?.series_id;
           
           if (regenStateRef.current.activeSeries && eventSeriesId === regenStateRef.current.activeSeries) {
             return;
