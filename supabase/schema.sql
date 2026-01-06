@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS people (
   photo_uri TEXT,
   notes TEXT,
   category_ids UUID[],
+  linked_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
+  linked_consent_status TEXT DEFAULT NULL, -- 'pending', 'approved', 'declined', or null
+  linked_user_display_name TEXT,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -582,3 +585,57 @@ CREATE POLICY "Users can delete own notifications" ON notifications
 CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON notifications(user_id);
 CREATE INDEX IF NOT EXISTS idx_notifications_is_read ON notifications(is_read);
 CREATE INDEX IF NOT EXISTS idx_notifications_created_at ON notifications(created_at DESC);
+
+-- ============================================
+-- PEOPLE-TO-USER LINKAGE
+-- ============================================
+
+-- Index for linked_user_id lookup
+CREATE INDEX IF NOT EXISTS idx_people_linked_user_id ON people(linked_user_id);
+
+-- Secure RPC function to lookup users by email for linking
+-- Returns minimal info: id and display_name only (never exposes sensitive data)
+CREATE OR REPLACE FUNCTION lookup_user_by_email(lookup_email TEXT)
+RETURNS TABLE (user_id UUID, display_name TEXT) 
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+BEGIN
+  RETURN QUERY
+  SELECT 
+    p.id as user_id,
+    COALESCE(p.display_name, p.email) as display_name
+  FROM profiles p
+  WHERE LOWER(p.email) = LOWER(lookup_email)
+  LIMIT 1;
+END;
+$$;
+
+-- Grant execute permission to authenticated users
+GRANT EXECUTE ON FUNCTION lookup_user_by_email(TEXT) TO authenticated;
+
+-- Function to send notification to linked user when assigned to task/event
+CREATE OR REPLACE FUNCTION notify_linked_user(
+  target_user_id UUID,
+  notification_type TEXT,
+  notification_title TEXT,
+  notification_body TEXT,
+  notification_data JSONB DEFAULT '{}'::jsonb
+)
+RETURNS UUID
+LANGUAGE plpgsql
+SECURITY DEFINER
+AS $$
+DECLARE
+  notification_id UUID;
+BEGIN
+  INSERT INTO notifications (user_id, type, title, body, data, is_read)
+  VALUES (target_user_id, notification_type, notification_title, notification_body, notification_data, false)
+  RETURNING id INTO notification_id;
+  
+  RETURN notification_id;
+END;
+$$;
+
+-- Grant execute permission to authenticated users
+GRANT EXECUTE ON FUNCTION notify_linked_user(UUID, TEXT, TEXT, TEXT, JSONB) TO authenticated;

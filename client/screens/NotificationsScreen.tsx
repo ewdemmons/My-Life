@@ -1,5 +1,5 @@
 import React from "react";
-import { View, FlatList, StyleSheet, Pressable, RefreshControl } from "react-native";
+import { View, FlatList, StyleSheet, Pressable, RefreshControl, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation } from "@react-navigation/native";
@@ -23,6 +23,12 @@ function getNotificationIcon(type: string): keyof typeof Feather.glyphMap {
       return "calendar";
     case "bubble_updated":
       return "edit-3";
+    case "connection_request":
+      return "link";
+    case "connection_accepted":
+      return "check-circle";
+    case "connection_declined":
+      return "x-circle";
     default:
       return "bell";
   }
@@ -53,6 +59,7 @@ export default function NotificationsScreen() {
     markAllAsRead,
     deleteNotification,
     refreshNotifications,
+    respondToConnectionRequest,
   } = useNotifications();
   const [refreshing, setRefreshing] = React.useState(false);
 
@@ -67,9 +74,9 @@ export default function NotificationsScreen() {
       markAsRead(notification.id);
     }
 
-    const { metadata, type } = notification;
-    const bubbleId = metadata?.bubbleId as string | undefined;
-    const eventId = metadata?.eventId as string | undefined;
+    const { data, type } = notification;
+    const bubbleId = data?.bubbleId as string | undefined;
+    const eventId = data?.eventId as string | undefined;
 
     try {
       switch (type) {
@@ -106,8 +113,28 @@ export default function NotificationsScreen() {
     }
   };
 
+  const handleConnectionResponse = async (notification: AppNotification, accept: boolean) => {
+    const personId = notification.data?.personId as string;
+    const requesterId = notification.data?.requesterId as string;
+
+    if (!personId || !requesterId) {
+      Alert.alert("Error", "Invalid connection request data.");
+      return;
+    }
+
+    await respondToConnectionRequest(notification.id, personId, requesterId, accept);
+    
+    if (accept) {
+      Alert.alert("Connected", "You are now connected and can receive notifications when assigned to tasks or events.");
+    } else {
+      Alert.alert("Declined", "Connection request has been declined.");
+    }
+  };
+
   const renderNotification = ({ item }: { item: AppNotification }) => {
     const icon = getNotificationIcon(item.type);
+    const isConnectionRequest = item.type === "connection_request" && !item.isRead;
+
     return (
       <Pressable
         style={[
@@ -143,9 +170,30 @@ export default function NotificationsScreen() {
           <ThemedText style={[styles.body, { color: theme.textSecondary }]}>
             {item.body}
           </ThemedText>
-          <ThemedText style={[styles.time, { color: theme.textSecondary }]}>
-            {formatTimeAgo(item.createdAt)}
-          </ThemedText>
+          {isConnectionRequest ? (
+            <View style={styles.actionButtons}>
+              <Pressable
+                style={[styles.acceptButton, { backgroundColor: theme.primary }]}
+                onPress={() => handleConnectionResponse(item, true)}
+              >
+                <Feather name="check" size={14} color="#FFFFFF" />
+                <ThemedText style={styles.acceptButtonText}>Accept</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.declineButton, { borderColor: theme.textSecondary }]}
+                onPress={() => handleConnectionResponse(item, false)}
+              >
+                <Feather name="x" size={14} color={theme.textSecondary} />
+                <ThemedText style={[styles.declineButtonText, { color: theme.textSecondary }]}>
+                  Decline
+                </ThemedText>
+              </Pressable>
+            </View>
+          ) : (
+            <ThemedText style={[styles.time, { color: theme.textSecondary }]}>
+              {formatTimeAgo(item.createdAt)}
+            </ThemedText>
+          )}
         </View>
         {!item.isRead ? (
           <View style={[styles.unreadDot, { backgroundColor: theme.primary }]} />
@@ -298,5 +346,36 @@ const styles = StyleSheet.create({
     textAlign: "center",
     marginTop: Spacing.sm,
     lineHeight: 20,
+  },
+  actionButtons: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginTop: Spacing.sm,
+  },
+  acceptButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    gap: 4,
+  },
+  acceptButtonText: {
+    fontSize: 13,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  declineButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    gap: 4,
+  },
+  declineButtonText: {
+    fontSize: 13,
+    fontWeight: "500",
   },
 });

@@ -19,6 +19,8 @@ export interface CategoryInvite {
   acceptedAt?: number;
 }
 
+export type LinkedConsentStatus = "pending" | "approved" | "declined" | null;
+
 export interface Person {
   id: string;
   name: string;
@@ -33,6 +35,9 @@ export interface Person {
   inviteCode?: string;
   inviteSentAt?: number;
   isAppUser?: boolean;
+  linkedUserId?: string | null;
+  linkedConsentStatus?: LinkedConsentStatus;
+  linkedUserDisplayName?: string | null;
 }
 
 export const RELATIONSHIP_TYPES: { value: RelationshipType; label: string; icon: string }[] = [
@@ -250,7 +255,10 @@ export type NotificationType =
   | "task_assigned"
   | "event_reminder"
   | "event_updated"
-  | "bubble_updated";
+  | "bubble_updated"
+  | "connection_request"
+  | "connection_accepted"
+  | "connection_declined";
 
 export interface AppNotification {
   id: string;

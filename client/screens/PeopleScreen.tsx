@@ -282,7 +282,31 @@ export default function PeopleScreen() {
             </View>
           )}
           <View style={styles.personInfo}>
-            <ThemedText style={styles.personName}>{item.name}</ThemedText>
+            <View style={styles.nameRow}>
+              <ThemedText style={styles.personName}>{item.name}</ThemedText>
+              {item.linkedUserId ? (
+                <View style={[
+                  styles.linkedBadge, 
+                  { 
+                    backgroundColor: item.linkedConsentStatus === "approved" 
+                      ? theme.primary + "20" 
+                      : theme.textSecondary + "20" 
+                  }
+                ]}>
+                  <Feather 
+                    name={item.linkedConsentStatus === "approved" ? "link" : "clock"} 
+                    size={10} 
+                    color={item.linkedConsentStatus === "approved" ? theme.primary : theme.textSecondary} 
+                  />
+                  <ThemedText style={[
+                    styles.linkedBadgeText, 
+                    { color: item.linkedConsentStatus === "approved" ? theme.primary : theme.textSecondary }
+                  ]}>
+                    {item.linkedConsentStatus === "approved" ? "Linked" : "Pending"}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </View>
             <View style={styles.relationshipRow}>
               <Feather name={relInfo.icon as any} size={12} color={theme.textSecondary} />
               <ThemedText style={[styles.relationshipText, { color: theme.textSecondary }]}>
@@ -1069,6 +1093,24 @@ const styles = StyleSheet.create({
   pickerDoneText: {
     color: "#FFFFFF",
     fontSize: 16,
+    fontWeight: "600",
+  },
+  nameRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flexWrap: "wrap",
+  },
+  linkedBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: BorderRadius.sm,
+    gap: 4,
+  },
+  linkedBadgeText: {
+    fontSize: 10,
     fontWeight: "600",
   },
 });

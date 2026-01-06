@@ -42,7 +42,7 @@ interface AppContextType {
   getEventsByDate: (date: string) => CalendarEvent[];
   getEventsByTask: (taskId: string) => CalendarEvent[];
   getEventsBySeries: (seriesId: string) => CalendarEvent[];
-  addPerson: (person: Omit<Person, "id" | "createdAt">) => Promise<void>;
+  addPerson: (person: Omit<Person, "id" | "createdAt">) => Promise<Person | null>;
   updatePerson: (id: string, updates: Partial<Person>) => Promise<void>;
   deletePerson: (id: string) => Promise<void>;
   getPersonById: (id: string) => Person | undefined;
@@ -284,6 +284,9 @@ function mapSupabasePersonToPerson(person: any): Person {
     notes: person.notes || undefined,
     createdAt: new Date(person.created_at).getTime(),
     categoryIds: person.category_ids || [],
+    linkedUserId: person.linked_user_id || null,
+    linkedConsentStatus: person.linked_consent_status || null,
+    linkedUserDisplayName: person.linked_user_display_name || null,
   };
 }
 
@@ -308,6 +311,9 @@ function mapPersonToSupabase(person: Partial<Person>, userId: string) {
   if (person.photoUri !== undefined) result.photo_uri = person.photoUri || null;
   if (person.notes !== undefined) result.notes = person.notes || null;
   if (person.categoryIds !== undefined) result.category_ids = person.categoryIds;
+  if (person.linkedUserId !== undefined) result.linked_user_id = person.linkedUserId;
+  if (person.linkedConsentStatus !== undefined) result.linked_consent_status = person.linkedConsentStatus;
+  if (person.linkedUserDisplayName !== undefined) result.linked_user_display_name = person.linkedUserDisplayName;
   return result;
 }
 
@@ -319,6 +325,34 @@ function mapSupabaseRecycleBinToDeletedItem(item: any): DeletedItem {
     relatedTasks: item.related_items || [],
     deletedAt: new Date(item.deleted_at).getTime(),
   };
+}
+
+async function notifyLinkedUsers(
+  assigneeIds: string[] | undefined,
+  people: Person[],
+  itemType: "task" | "event",
+  itemTitle: string,
+  bubbleName: string,
+  senderName: string
+): Promise<void> {
+  if (!assigneeIds || assigneeIds.length === 0) return;
+
+  for (const assigneeId of assigneeIds) {
+    const person = people.find((p) => p.id === assigneeId);
+    if (!person?.linkedUserId || person.linkedConsentStatus !== "approved") continue;
+
+    try {
+      await supabase.rpc("notify_linked_user", {
+        target_user_id: person.linkedUserId,
+        notification_type: "task_assigned",
+        notification_title: `Assigned: ${itemTitle}`,
+        notification_body: `${senderName} assigned you a ${itemType} in ${bubbleName}`,
+        notification_data: { itemType, assigneeId, bubbleName },
+      });
+    } catch (err) {
+      console.error("Error notifying linked user:", err);
+    }
+  }
 }
 
 interface RegenState {
@@ -919,11 +953,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const newTask = mapSupabaseTaskToTask(data);
     setTasks((prev) => [...prev, newTask]);
-  }, [user]);
+
+    // Notify linked users when assigned
+    if (task.assigneeIds && task.assigneeIds.length > 0) {
+      const bubble = categories.find((c) => c.id === task.categoryId);
+      const { data: profile } = await supabase
+        .from("profiles")
+        .select("display_name, email")
+        .eq("id", user.id)
+        .single();
+      const senderName = profile?.display_name || profile?.email || "Someone";
+      
+      await notifyLinkedUsers(
+        task.assigneeIds,
+        people,
+        "task",
+        task.title,
+        bubble?.name || "a bubble",
+        senderName
+      );
+    }
+  }, [user, categories, people]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
     if (!user) return;
 
+    const existingTask = tasks.find((t) => t.id === id);
     const supabaseUpdates = mapTaskToSupabase(updates, user.id);
     delete supabaseUpdates.user_id;
 
@@ -939,7 +994,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...updates } : task)));
-  }, [user]);
+
+    // Notify newly assigned linked users
+    if (updates.assigneeIds && existingTask) {
+      const previousAssignees = existingTask.assigneeIds || [];
+      const newAssignees = updates.assigneeIds.filter((id) => !previousAssignees.includes(id));
+      
+      if (newAssignees.length > 0) {
+        const bubble = categories.find((c) => c.id === (updates.categoryId || existingTask.categoryId));
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("display_name, email")
+          .eq("id", user.id)
+          .single();
+        const senderName = profile?.display_name || profile?.email || "Someone";
+        
+        await notifyLinkedUsers(
+          newAssignees,
+          people,
+          "task",
+          updates.title || existingTask.title,
+          bubble?.name || "a bubble",
+          senderName
+        );
+      }
+    }
+  }, [user, tasks, categories, people]);
 
   const deleteTask = useCallback(async (id: string) => {
     if (!user) return;
@@ -1159,8 +1239,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       
       setEvents((prev) => [...prev, newEvent]);
+
+      // Notify linked attendees
+      if (event.attendeeIds && event.attendeeIds.length > 0) {
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("display_name, email")
+          .eq("id", user.id)
+          .single();
+        const senderName = profile?.display_name || profile?.email || "Someone";
+        const bubbleName = getBubbleName(newEvent.categoryId);
+        
+        await notifyLinkedUsers(
+          event.attendeeIds,
+          people,
+          "event",
+          newEvent.title,
+          bubbleName || "a bubble",
+          senderName
+        );
+      }
     }
-  }, [user, categories, notificationContext]);
+  }, [user, categories, people, notificationContext]);
 
   const updateEvent = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     if (!user) return;
@@ -1684,8 +1784,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [events]
   );
 
-  const addPerson = useCallback(async (person: Omit<Person, "id" | "createdAt">) => {
-    if (!user) return;
+  const addPerson = useCallback(async (person: Omit<Person, "id" | "createdAt">): Promise<Person | null> => {
+    if (!user) return null;
 
     const { data, error } = await supabase
       .from("people")
@@ -1695,11 +1795,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (error) {
       console.error("Error adding person:", error.message);
-      return;
+      return null;
     }
 
     const newPerson = mapSupabasePersonToPerson(data);
     setPeople((prev) => [...prev, newPerson]);
+    return newPerson;
   }, [user]);
 
   const updatePerson = useCallback(async (id: string, updates: Partial<Person>) => {

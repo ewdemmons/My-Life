@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useCallback } from "react";
 import {
   View,
   StyleSheet,
@@ -20,8 +20,10 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
-import { RelationshipType, RELATIONSHIP_TYPES, LifeCategory } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+import { RelationshipType, RELATIONSHIP_TYPES, LifeCategory, LinkedConsentStatus } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { supabase } from "@/lib/supabase";
 
 interface AddPersonModalProps {
   visible: boolean;
@@ -41,6 +43,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { addPerson, categories, updatePerson } = useApp();
+  const { user, displayName } = useAuth();
 
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState<RelationshipType>("friend");
@@ -55,6 +58,32 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
   const [contacts, setContacts] = useState<ContactItem[]>([]);
   const [contactSearch, setContactSearch] = useState("");
   const [loadingContacts, setLoadingContacts] = useState(false);
+  const [showLinkPrompt, setShowLinkPrompt] = useState(false);
+  const [matchedUser, setMatchedUser] = useState<{ userId: string; displayName: string } | null>(null);
+  const [pendingPersonData, setPendingPersonData] = useState<any>(null);
+  const [checkingForMatch, setCheckingForMatch] = useState(false);
+
+  const lookupUserByEmail = useCallback(async (emailToLookup: string): Promise<{ userId: string; displayName: string } | null> => {
+    if (!emailToLookup.trim()) return null;
+    
+    try {
+      const { data, error } = await supabase.rpc("lookup_user_by_email", { 
+        lookup_email: emailToLookup.trim() 
+      });
+      
+      if (error || !data || data.length === 0) {
+        return null;
+      }
+      
+      return {
+        userId: data[0].user_id,
+        displayName: data[0].display_name,
+      };
+    } catch (err) {
+      console.error("Error looking up user:", err);
+      return null;
+    }
+  }, []);
 
   React.useEffect(() => {
     if (visible && preSelectedCategoryId) {
@@ -72,6 +101,10 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
     setPhotoUri("");
     setNotes("");
     setSelectedCategoryIds([]);
+    setShowLinkPrompt(false);
+    setMatchedUser(null);
+    setPendingPersonData(null);
+    setCheckingForMatch(false);
   };
 
   const handleSave = async () => {
@@ -90,7 +123,59 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
       categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
     };
 
+    // Check for matching user by email
+    if (email.trim()) {
+      setCheckingForMatch(true);
+      const matched = await lookupUserByEmail(email.trim());
+      setCheckingForMatch(false);
+      
+      if (matched) {
+        setMatchedUser(matched);
+        setPendingPersonData(personData);
+        setShowLinkPrompt(true);
+        return;
+      }
+    }
+
     await addPerson(personData);
+    resetForm();
+    onClose();
+  };
+
+  const handleLinkConfirm = async (shouldLink: boolean) => {
+    if (!pendingPersonData) return;
+    
+    const dataToSave = shouldLink && matchedUser
+      ? {
+          ...pendingPersonData,
+          linkedUserId: matchedUser.userId,
+          linkedConsentStatus: "pending" as LinkedConsentStatus,
+          linkedUserDisplayName: matchedUser.displayName,
+          isAppUser: true,
+        }
+      : pendingPersonData;
+
+    const newPerson = await addPerson(dataToSave);
+
+    if (shouldLink && matchedUser && newPerson && user) {
+      try {
+        await supabase.from("notifications").insert({
+          user_id: matchedUser.userId,
+          type: "connection_request",
+          title: "Connection Request",
+          body: `${displayName || "Someone"} wants to connect with you. When connected, you'll receive notifications when assigned to their tasks or events.`,
+          data: { 
+            personId: newPerson.id, 
+            requesterId: user.id,
+            requesterName: displayName || "A user",
+          },
+          is_read: false,
+        });
+      } catch (error) {
+        console.error("Error sending connection request notification:", error);
+      }
+    }
+
     resetForm();
     onClose();
   };
@@ -575,6 +660,71 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
             />
           </View>
         </Modal>
+
+        <Modal
+          visible={showLinkPrompt}
+          animationType="fade"
+          transparent={true}
+          onRequestClose={() => {
+            setShowLinkPrompt(false);
+            handleLinkConfirm(false);
+          }}
+        >
+          <Pressable
+            style={styles.pickerOverlay}
+            onPress={() => {
+              setShowLinkPrompt(false);
+              handleLinkConfirm(false);
+            }}
+          >
+            <View style={[styles.linkPromptContainer, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={[styles.linkIconContainer, { backgroundColor: theme.primary + "20" }]}>
+                <Feather name="link" size={28} color={theme.primary} />
+              </View>
+              <ThemedText style={styles.linkPromptTitle}>
+                Link to App User?
+              </ThemedText>
+              <ThemedText style={[styles.linkPromptBody, { color: theme.textSecondary }]}>
+                This email belongs to {matchedUser?.displayName || "an app user"}. Would you like to link this person to their account? This enables direct notifications when you assign tasks or events.
+              </ThemedText>
+              <View style={styles.linkPromptButtons}>
+                <Pressable
+                  style={[styles.linkPromptButton, styles.linkPromptButtonSecondary, { borderColor: theme.border }]}
+                  onPress={() => {
+                    setShowLinkPrompt(false);
+                    handleLinkConfirm(false);
+                  }}
+                >
+                  <ThemedText style={[styles.linkPromptButtonText, { color: theme.text }]}>
+                    No, Skip
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.linkPromptButton, { backgroundColor: theme.primary }]}
+                  onPress={() => {
+                    setShowLinkPrompt(false);
+                    handleLinkConfirm(true);
+                  }}
+                >
+                  <ThemedText style={[styles.linkPromptButtonText, { color: "#FFFFFF" }]}>
+                    Yes, Link
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
+
+        {checkingForMatch ? (
+          <View style={styles.loadingOverlay}>
+            <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundDefault }]}>
+              <ActivityIndicator size="large" color={theme.primary} />
+              <ThemedText style={[styles.loadingText, { color: theme.textSecondary }]}>
+                Checking for matching user...
+              </ThemedText>
+            </View>
+          </View>
+        ) : null}
       </View>
     </Modal>
   );
@@ -817,5 +967,64 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 16,
     fontWeight: "600",
+  },
+  linkPromptContainer: {
+    width: "85%",
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.xl,
+    alignItems: "center",
+  },
+  linkIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
+  linkPromptTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: Spacing.sm,
+    textAlign: "center",
+  },
+  linkPromptBody: {
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: "center",
+    marginBottom: Spacing.lg,
+  },
+  linkPromptButtons: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    width: "100%",
+  },
+  linkPromptButton: {
+    flex: 1,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.md,
+    alignItems: "center",
+  },
+  linkPromptButtonSecondary: {
+    borderWidth: 1,
+  },
+  linkPromptButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingContainer: {
+    padding: Spacing.xl,
+    borderRadius: BorderRadius.lg,
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: Spacing.md,
+    fontSize: 14,
   },
 });
