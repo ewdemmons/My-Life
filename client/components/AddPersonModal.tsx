@@ -518,6 +518,44 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
         </KeyboardAwareScrollViewCompat>
 
         <Modal
+          visible={showLinkPrompt}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowLinkPrompt(false)}
+        >
+          <Pressable
+            style={styles.pickerOverlay}
+            onPress={() => setShowLinkPrompt(false)}
+          >
+            <View style={[styles.linkPromptContainer, { backgroundColor: theme.backgroundDefault }]}>
+              <View style={[styles.linkIconContainer, { backgroundColor: theme.primary + "15" }]}>
+                <Feather name="user-check" size={32} color={theme.primary} />
+              </View>
+              <ThemedText style={styles.linkPromptTitle}>App User Found!</ThemedText>
+              <ThemedText style={[styles.linkPromptBody, { color: theme.textSecondary }]}>
+                {matchedUser?.displayName} is already using My Life. Would you like to link this contact to their account?
+              </ThemedText>
+              
+              <View style={styles.linkPromptButtons}>
+                <Pressable
+                  style={[styles.linkPromptButton, { backgroundColor: theme.primary }]}
+                  onPress={() => handleLinkConfirm(true)}
+                >
+                  <ThemedText style={[styles.linkPromptButtonText, { color: "#FFFFFF" }]}>Yes, Link Account</ThemedText>
+                </Pressable>
+                
+                <Pressable
+                  style={[styles.linkPromptButton, styles.linkPromptButtonSecondary, { borderColor: theme.border }]}
+                  onPress={() => handleLinkConfirm(false)}
+                >
+                  <ThemedText style={[styles.linkPromptButtonText, { color: theme.textSecondary }]}>No, Save Locally</ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
+
+        <Modal
           visible={showRelationshipPicker}
           transparent
           animationType="fade"

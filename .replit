@@ -58,5 +58,5 @@ ensurePreviewReachable = "/status"
 [userenv]
 
 [userenv.shared]
-EXPO_PUBLIC_SUPABASE_URL = "https://dukhghtcjsoodblsundw.supabase.co"
-EXPO_PUBLIC_SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1a2hnaHRjanNvb2RibHN1bmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMjMzNTcsImV4cCI6MjA4MjU5OTM1N30.8_9lLNaKSq_M8TMginAbFPDHcLoVtjYtCTN4bOLkDoE"
+EXPO_PUBLIC_SUPABASE_URL = "process.env.SUPABASE_URL"
+EXPO_PUBLIC_SUPABASE_ANON_KEY = "process.env.SUPABASE_ANON_KEY"
