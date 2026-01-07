@@ -122,7 +122,7 @@ export default function App() {
     }
     
     navigationRef.current.navigate("CategoryDetail", {
-      category: { id: bubbleId } as any,
+      categoryId: bubbleId,
       initialTaskId: taskId,
       initialEventId: eventId,
     });
@@ -178,7 +178,7 @@ export default function App() {
         case "event_reminder":
           if (bubbleId) {
             navigationRef.current.navigate("CategoryDetail", {
-              category: { id: bubbleId } as any,
+              categoryId: bubbleId,
               initialEventId: eventId,
             });
           } else {
@@ -188,14 +188,14 @@ export default function App() {
         case "bubble_shared":
           if (bubbleId) {
             navigationRef.current.navigate("CategoryDetail", {
-              category: { id: bubbleId } as any,
+              categoryId: bubbleId,
             });
           }
           break;
         case "task_assigned":
           if (bubbleId) {
             navigationRef.current.navigate("CategoryDetail", {
-              category: { id: bubbleId } as any,
+              categoryId: bubbleId,
               initialTaskId: itemId || taskId,
             });
           }

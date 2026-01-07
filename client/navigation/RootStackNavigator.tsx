@@ -14,7 +14,7 @@ import { LifeCategory, Task } from "@/types";
 
 export type RootStackParamList = {
   Main: undefined;
-  CategoryDetail: { category: LifeCategory; initialTaskId?: string; initialEventId?: string };
+  CategoryDetail: { category?: LifeCategory; categoryId?: string; initialTaskId?: string; initialEventId?: string };
   AddCategory: { category?: LifeCategory };
   AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
   Notifications: undefined;

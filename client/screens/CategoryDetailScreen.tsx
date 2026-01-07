@@ -1,5 +1,5 @@
 import React, { useState, useLayoutEffect, useMemo, useCallback } from "react";
-import { View, StyleSheet, Pressable, ScrollView, FlatList } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, FlatList, ActivityIndicator, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -57,10 +57,20 @@ export default function CategoryDetailScreen() {
   const route = useRoute<RouteParams>();
   const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem } = useApp();
 
-  const categoryFromState = categories.find(c => c.id === route.params.category.id) || route.params.category;
-  const category = categoryFromState;
+  const categoryId = route.params.category?.id ?? route.params.categoryId;
+  const categoryFromState = categories.find(c => c.id === categoryId);
+  const category = categoryFromState || route.params.category;
   const initialTaskId = route.params.initialTaskId;
   const initialEventId = route.params.initialEventId;
+  
+  if (!category) {
+    return (
+      <View style={[styles.loadingContainer, { paddingTop: headerHeight }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+        <Text style={[styles.loadingText, { color: theme.textSecondary }]}>Loading category...</Text>
+      </View>
+    );
+  }
   
   const [activeTab, setActiveTab] = useState<TabType>(() => {
     if (initialEventId) return "calendar";
@@ -1121,5 +1131,14 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
+  },
+  loadingContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  loadingText: {
+    marginTop: Spacing.md,
+    fontSize: 14,
   },
 });
