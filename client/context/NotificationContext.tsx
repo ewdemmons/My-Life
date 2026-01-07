@@ -338,7 +338,7 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
           type: notificationType,
           title,
           body,
-          data: { personId, responderId: user.id, accepted: accept },
+          data: { personId, responderId: user.id, accepted: accept, url: "mylife://people" },
           is_read: false,
         });
       } catch (error) {

@@ -169,6 +169,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
             personId: newPerson.id, 
             requesterId: user.id,
             requesterName,
+            url: "mylife://people",
           },
           is_read: false,
         });

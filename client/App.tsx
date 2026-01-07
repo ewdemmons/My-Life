@@ -21,7 +21,7 @@ import { requestNotificationPermissions } from "@/utils/notifications";
 import { NotificationType } from "@/types";
 
 interface DeepLinkResult {
-  type: "invite" | "bubble" | "task" | "event" | null;
+  type: "invite" | "bubble" | "task" | "event" | "people" | "notifications" | null;
   bubbleId?: string;
   taskId?: string;
   eventId?: string;
@@ -61,6 +61,12 @@ function parseDeepLink(url: string): DeepLinkResult {
     if (pathParts[0] === "event" && pathParts[1]) {
       return { type: "event", eventId: pathParts[1] };
     }
+    if (pathParts[0] === "people") {
+      return { type: "people" };
+    }
+    if (pathParts[0] === "notifications") {
+      return { type: "notifications" };
+    }
     
     return { type: null };
   } catch (error) {
@@ -69,38 +75,46 @@ function parseDeepLink(url: string): DeepLinkResult {
   }
 }
 
-function handleDeepLink(url: string) {
+let pendingDeepLink: DeepLinkResult | null = null;
+
+function handleDeepLink(url: string): DeepLinkResult | null {
   const result = parseDeepLink(url);
   
   if (result.type === "invite" && result.inviteCode) {
     savePendingInviteCode(result.inviteCode);
     console.log("Saved invite code from deep link:", result.inviteCode);
   }
+  
+  return result.type ? result : null;
 }
 
 export default function App() {
   const navigationRef = useRef<NavigationContainerRef<any>>(null);
   const notificationListener = useRef<Notifications.EventSubscription | null>(null);
   const responseListener = useRef<Notifications.EventSubscription | null>(null);
+  const isNavigationReady = useRef(false);
 
-  useEffect(() => {
-    Linking.getInitialURL().then((url) => {
-      if (url) {
-        handleDeepLink(url);
-      }
-    });
-
-    const subscription = Linking.addEventListener("url", ({ url }) => {
-      handleDeepLink(url);
-    });
-
-    return () => subscription.remove();
-  }, []);
+  const processPendingDeepLink = () => {
+    if (pendingDeepLink && isNavigationReady.current && navigationRef.current) {
+      navigateToDeepLink(pendingDeepLink);
+      pendingDeepLink = null;
+    }
+  };
 
   const navigateToDeepLink = (result: DeepLinkResult) => {
     if (!navigationRef.current) return;
     
-    const { bubbleId, taskId, eventId } = result;
+    const { type, bubbleId, taskId, eventId } = result;
+    
+    if (type === "people") {
+      navigationRef.current.navigate("Main", { screen: "PeopleTab" });
+      return;
+    }
+    
+    if (type === "notifications") {
+      navigationRef.current.navigate("Notifications");
+      return;
+    }
     
     if (!bubbleId) {
       navigationRef.current.navigate("Main", { screen: "HomeTab" });
@@ -113,6 +127,31 @@ export default function App() {
       initialEventId: eventId,
     });
   };
+
+  useEffect(() => {
+    Linking.getInitialURL().then((url) => {
+      if (url) {
+        const result = handleDeepLink(url);
+        if (result && result.type !== "invite") {
+          pendingDeepLink = result;
+          processPendingDeepLink();
+        }
+      }
+    });
+
+    const subscription = Linking.addEventListener("url", ({ url }) => {
+      const result = handleDeepLink(url);
+      if (result && result.type !== "invite") {
+        if (isNavigationReady.current && navigationRef.current) {
+          navigateToDeepLink(result);
+        } else {
+          pendingDeepLink = result;
+        }
+      }
+    });
+
+    return () => subscription.remove();
+  }, []);
 
   const handleNotificationResponse = (response: Notifications.NotificationResponse) => {
     const data = response.notification.request.content.data;
@@ -201,7 +240,13 @@ export default function App() {
               <SafeAreaProvider>
                 <GestureHandlerRootView style={styles.root}>
                   <KeyboardProvider>
-                    <NavigationContainer ref={navigationRef}>
+                    <NavigationContainer 
+                      ref={navigationRef}
+                      onReady={() => {
+                        isNavigationReady.current = true;
+                        processPendingDeepLink();
+                      }}
+                    >
                       <RootStackNavigator />
                     </NavigationContainer>
                     <StatusBar style="auto" />

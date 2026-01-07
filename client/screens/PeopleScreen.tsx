@@ -139,6 +139,7 @@ export default function PeopleScreen() {
           personId: personToLink.id,
           requesterId: user.id,
           requesterName: senderName,
+          url: "mylife://people",
         },
         is_read: false,
       });

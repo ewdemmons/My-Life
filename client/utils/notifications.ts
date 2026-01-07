@@ -218,7 +218,8 @@ export async function sendBubbleShareNotification(
     `${senderName} shared "${bubbleName}" with you`,
     { 
       type: "bubble_shared" as NotificationType, 
-      bubbleId 
+      bubbleId,
+      url: `mylife://bubble/${bubbleId}`,
     }
   );
 }
