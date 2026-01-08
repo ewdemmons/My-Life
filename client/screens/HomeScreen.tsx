@@ -106,6 +106,7 @@ export default function HomeScreen() {
             categories={categories}
             onCategoryPress={handleCategoryPress}
             onCategoryLongPress={handleCategoryLongPress}
+            onCenterPress={() => navigation.navigate("CentralDashboard")}
             enlarged
           />
         ) : (
