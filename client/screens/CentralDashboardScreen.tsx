@@ -20,16 +20,24 @@ export default function CentralDashboardScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { pinnedTasks, unpinTask, updateTask, categories, events } = useApp();
 
+  const parseLocalDate = (dateStr: string): Date => {
+    const [year, month, day] = dateStr.split("-").map(Number);
+    return new Date(year, month - 1, day);
+  };
+
+  const getLocalToday = (): Date => {
+    const now = new Date();
+    return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  };
+
   const upcomingEvents = useMemo(() => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const today = getLocalToday();
     const endDate = new Date(today);
     endDate.setDate(endDate.getDate() + 7);
 
     return events
       .filter((event) => {
-        const eventDate = new Date(event.startDate);
-        eventDate.setHours(0, 0, 0, 0);
+        const eventDate = parseLocalDate(event.startDate);
         return eventDate >= today && eventDate <= endDate;
       })
       .sort((a, b) => {
@@ -41,17 +49,14 @@ export default function CentralDashboardScreen() {
   }, [events]);
 
   const formatEventDate = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const eventDate = parseLocalDate(dateStr);
+    const today = getLocalToday();
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
-    const eventDate = new Date(dateStr);
-    eventDate.setHours(0, 0, 0, 0);
 
     if (eventDate.getTime() === today.getTime()) return "Today";
     if (eventDate.getTime() === tomorrow.getTime()) return "Tomorrow";
-    return date.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
+    return eventDate.toLocaleDateString("en-US", { weekday: "short", month: "short", day: "numeric" });
   };
 
   const formatTime = (timeStr: string) => {
