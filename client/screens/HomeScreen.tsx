@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Modal, Alert, Image } from "react-native";
+import { View, StyleSheet, Pressable, Modal, Alert, Image, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
@@ -13,7 +13,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { LifeWheel } from "@/components/LifeWheel";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { LifeCategory } from "@/types";
+import { LifeCategory, Task, getTaskTypeInfo } from "@/types";
 
 const appIcon = require("../../assets/images/icon.png");
 
@@ -22,7 +22,7 @@ export default function HomeScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { categories, tasks, deleteCategory, isLoading } = useApp();
+  const { categories, tasks, deleteCategory, isLoading, pinnedTasks, unpinTask, updateTask } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
 
   const handleCategoryPress = (category: LifeCategory) => {
@@ -118,6 +118,80 @@ export default function HomeScreen() {
           </View>
         )}
       </View>
+
+      {pinnedTasks.length > 0 ? (
+        <View style={styles.pinnedSection}>
+          <View style={styles.pinnedHeader}>
+            <View style={styles.pinnedTitleRow}>
+              <Feather name="star" size={18} color="#F59E0B" />
+              <ThemedText style={styles.pinnedTitle}>Master To Do</ThemedText>
+            </View>
+            <Pressable
+              onPress={() => navigation.navigate("CentralDashboard")}
+              style={styles.viewAllBtn}
+            >
+              <ThemedText style={[styles.viewAllText, { color: theme.primary }]}>View All</ThemedText>
+              <Feather name="chevron-right" size={16} color={theme.primary} />
+            </Pressable>
+          </View>
+          <ScrollView 
+            horizontal 
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.pinnedList}
+          >
+            {pinnedTasks.slice(0, 5).map((task) => {
+              const category = categories.find((c) => c.id === task.categoryId);
+              const typeInfo = getTaskTypeInfo(task.type);
+              return (
+                <Pressable
+                  key={task.id}
+                  style={[styles.pinnedCard, { backgroundColor: theme.backgroundDefault }]}
+                  onPress={() => {
+                    if (category) {
+                      navigation.navigate("CategoryDetail", { 
+                        category, 
+                        initialTaskId: task.id 
+                      });
+                    }
+                  }}
+                >
+                  <View style={styles.pinnedCardHeader}>
+                    <View style={[styles.categoryDot, { backgroundColor: category?.color || "#6B7280" }]} />
+                    <Pressable
+                      onPress={() => unpinTask(task.id)}
+                      hitSlop={8}
+                      style={styles.unpinBtn}
+                    >
+                      <Feather name="x" size={14} color={theme.textSecondary} />
+                    </Pressable>
+                  </View>
+                  <ThemedText style={styles.pinnedTaskTitle} numberOfLines={2}>
+                    {task.title}
+                  </ThemedText>
+                  <View style={styles.pinnedCardFooter}>
+                    <View style={[styles.typeBadge, { backgroundColor: typeInfo.icon ? "#6B7280" + "20" : "transparent" }]}>
+                      <Feather name={typeInfo.icon as any} size={10} color={theme.textSecondary} />
+                    </View>
+                    <Pressable
+                      onPress={() => {
+                        const newStatus = task.status === "completed" ? "pending" : "completed";
+                        updateTask(task.id, { status: newStatus });
+                      }}
+                      hitSlop={8}
+                    >
+                      <Feather 
+                        name={task.status === "completed" ? "check-circle" : "circle"} 
+                        size={18} 
+                        color={task.status === "completed" ? theme.success : theme.textSecondary} 
+                      />
+                    </Pressable>
+                  </View>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        </View>
+      ) : null}
 
       <View style={{ height: tabBarHeight }} />
 
@@ -298,5 +372,73 @@ const styles = StyleSheet.create({
     textAlign: "center",
     padding: Spacing.md,
     fontStyle: "italic",
+  },
+  pinnedSection: {
+    paddingTop: Spacing.lg,
+    paddingBottom: Spacing.md,
+  },
+  pinnedHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  pinnedTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  pinnedTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+  },
+  viewAllBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  viewAllText: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  pinnedList: {
+    paddingHorizontal: Spacing.lg,
+    gap: Spacing.md,
+  },
+  pinnedCard: {
+    width: 140,
+    padding: Spacing.md,
+    borderRadius: BorderRadius.sm,
+  },
+  pinnedCardHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: Spacing.sm,
+  },
+  categoryDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  unpinBtn: {
+    padding: 2,
+  },
+  pinnedTaskTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+    marginBottom: Spacing.sm,
+    minHeight: 36,
+  },
+  pinnedCardFooter: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+  },
+  typeBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
   },
 });
