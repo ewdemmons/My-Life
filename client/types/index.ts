@@ -93,6 +93,8 @@ export interface Task {
   completionType?: CompletionType;
   completionDate?: string;
   isRecurring?: boolean;
+  isPinned?: boolean;
+  pinnedOrder?: number;
 }
 
 export interface DeletedItem {

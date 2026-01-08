@@ -33,6 +33,10 @@ interface AppContextType {
   reorderTasks: (taskIds: string[], parentId: string | null) => Promise<void>;
   moveTaskToParent: (taskId: string, newParentId: string | null, newCategoryId?: string) => Promise<void>;
   getTasksByCategory: (categoryId: string) => Task[];
+  pinnedTasks: Task[];
+  pinTask: (taskId: string) => Promise<void>;
+  unpinTask: (taskId: string) => Promise<void>;
+  reorderPinnedTasks: (taskIds: string[]) => Promise<void>;
   addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => Promise<void>;
   updateEvent: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
@@ -105,6 +109,8 @@ function mapSupabaseTaskToTask(task: any): Task {
     completionType: task.completion_type || null,
     completionDate: task.completion_date || undefined,
     isRecurring: task.is_recurring || false,
+    isPinned: task.is_pinned || false,
+    pinnedOrder: task.pinned_order || 0,
   };
 }
 
@@ -149,6 +155,8 @@ function mapTaskToSupabase(task: Partial<Task>, userId: string) {
   if (task.completionType !== undefined) result.completion_type = task.completionType;
   if (task.completionDate !== undefined) result.completion_date = task.completionDate || null;
   if (task.isRecurring !== undefined) result.is_recurring = task.isRecurring;
+  if (task.isPinned !== undefined) result.is_pinned = task.isPinned;
+  if (task.pinnedOrder !== undefined) result.pinned_order = task.pinnedOrder;
   return result;
 }
 
@@ -2139,6 +2147,67 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [tasks]
   );
 
+  const pinnedTasks = React.useMemo(() => {
+    return tasks
+      .filter((task) => task.isPinned)
+      .sort((a, b) => (a.pinnedOrder || 0) - (b.pinnedOrder || 0));
+  }, [tasks]);
+
+  const pinTask = useCallback(async (taskId: string) => {
+    if (!user) return;
+    const maxOrder = Math.max(0, ...tasks.filter(t => t.isPinned).map(t => t.pinnedOrder || 0));
+    const { error } = await supabase
+      .from("tasks")
+      .update({ is_pinned: true, pinned_order: maxOrder + 1 })
+      .eq("id", taskId);
+    if (error) {
+      console.error("Error pinning task:", error.message);
+      return;
+    }
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, isPinned: true, pinnedOrder: maxOrder + 1 } : t
+      )
+    );
+  }, [user, tasks]);
+
+  const unpinTask = useCallback(async (taskId: string) => {
+    if (!user) return;
+    const { error } = await supabase
+      .from("tasks")
+      .update({ is_pinned: false, pinned_order: 0 })
+      .eq("id", taskId);
+    if (error) {
+      console.error("Error unpinning task:", error.message);
+      return;
+    }
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === taskId ? { ...t, isPinned: false, pinnedOrder: 0 } : t
+      )
+    );
+  }, [user]);
+
+  const reorderPinnedTasks = useCallback(async (taskIds: string[]) => {
+    if (!user) return;
+    const updates = taskIds.map((id, index) => ({
+      id,
+      pinned_order: index + 1,
+    }));
+    for (const update of updates) {
+      await supabase.from("tasks").update({ pinned_order: update.pinned_order }).eq("id", update.id);
+    }
+    setTasks((prev) =>
+      prev.map((t) => {
+        const idx = taskIds.indexOf(t.id);
+        if (idx !== -1) {
+          return { ...t, pinnedOrder: idx + 1 };
+        }
+        return t;
+      })
+    );
+  }, [user]);
+
   const clearAllData = useCallback(async () => {
     if (!user) return;
 
@@ -2179,6 +2248,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         reorderTasks,
         moveTaskToParent,
         getTasksByCategory,
+        pinnedTasks,
+        pinTask,
+        unpinTask,
+        reorderPinnedTasks,
         addEvent,
         updateEvent,
         deleteEvent,
