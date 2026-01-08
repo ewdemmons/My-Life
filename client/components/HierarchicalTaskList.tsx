@@ -417,7 +417,7 @@ interface TaskItemProps {
 function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits } = useApp();
+  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits, pinTask, unpinTask } = useApp();
   const [editingOccurrence, setEditingOccurrence] = useState<{ id: string; notes: string; date: Date } | null>(null);
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const tempComplete = isTemporarilyComplete(task);
@@ -763,6 +763,15 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                   >
                     <Feather name="calendar" size={14} color="#3B82F6" />
                     <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionButton, { backgroundColor: task.isPinned ? "#F59E0B" + "25" : "#F59E0B" + "15" }]}
+                    onPress={() => task.isPinned ? unpinTask(task.id) : pinTask(task.id)}
+                  >
+                    <Feather name="star" size={14} color="#F59E0B" style={{ opacity: task.isPinned ? 1 : 0.7 }} />
+                    <ThemedText style={[styles.actionText, { color: "#F59E0B" }]}>
+                      {task.isPinned ? "Unpin" : "Pin"}
+                    </ThemedText>
                   </Pressable>
                   {linkedHabit ? (
                     <View style={[styles.actionButton, { backgroundColor: "#22C55E" + "15" }]}>
