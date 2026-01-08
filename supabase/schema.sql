@@ -40,6 +40,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   completion_type TEXT, -- 'as_of', 'until', or null for standard completion
   completion_date TEXT, -- YYYY-MM-DD for time-bound completions
   is_recurring BOOLEAN DEFAULT FALSE,
+  is_pinned BOOLEAN DEFAULT FALSE, -- Master To Do List pinning
+  pinned_order INTEGER DEFAULT 0, -- Sort order for pinned tasks
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -385,6 +387,7 @@ CREATE INDEX IF NOT EXISTS idx_life_bubbles_user_id ON life_bubbles(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_user_id ON tasks(user_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_bubble_id ON tasks(bubble_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_parent_id ON tasks(parent_id);
+CREATE INDEX IF NOT EXISTS idx_tasks_is_pinned ON tasks(is_pinned) WHERE is_pinned = TRUE;
 CREATE INDEX IF NOT EXISTS idx_events_user_id ON events(user_id);
 CREATE INDEX IF NOT EXISTS idx_events_start_time ON events(start_time);
 CREATE INDEX IF NOT EXISTS idx_people_user_id ON people(user_id);
