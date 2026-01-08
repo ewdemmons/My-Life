@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, FlatList, Alert } from "react-native";
+import { View, StyleSheet, Pressable, FlatList, Alert, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -9,20 +9,30 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, Occurrence } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
+import { HabitProgressChart } from "@/components/HabitProgressChart";
+import { HabitHeatMap, HeatMapLegend } from "@/components/HabitHeatMap";
+import { HabitsSummaryHeader } from "@/components/HabitsSummaryHeader";
+import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
 import { calculateStreak, getLast7DaysStatus } from "@/utils/habitStreaks";
 
 interface HabitsListProps {
   categoryId: string;
 }
 
+type ViewMode = "week" | "month" | "year";
+
 export function HabitsList({ categoryId }: HabitsListProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { habits, addOccurrence, getOccurrencesForItem } = useApp();
+  const { habits, addOccurrence, getOccurrencesForItem, deleteOccurrence } = useApp();
 
   const [showAddHabitModal, setShowAddHabitModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
   const [expandedHabitId, setExpandedHabitId] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<ViewMode>("week");
+  const [showLogModal, setShowLogModal] = useState(false);
+  const [logModalHabit, setLogModalHabit] = useState<Habit | null>(null);
+  const [logModalDate, setLogModalDate] = useState<string | undefined>(undefined);
 
   const categoryHabits = useMemo(
     () => habits.filter((h) => h.categoryId === categoryId && h.isActive),
@@ -93,6 +103,48 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     const days = ["S", "M", "T", "W", "T", "F", "S"];
     return days[date.getDay()];
   };
+
+  const handleBarPress = (habit: Habit, dateKey: string, count: number) => {
+    setLogModalHabit(habit);
+    setLogModalDate(dateKey);
+    setShowLogModal(true);
+  };
+
+  const handleHeatMapDayPress = (habit: Habit, date: string, count: number) => {
+    setLogModalHabit(habit);
+    setLogModalDate(date);
+    setShowLogModal(true);
+  };
+
+  const handleViewAllLogs = (habit: Habit) => {
+    setLogModalHabit(habit);
+    setLogModalDate(undefined);
+    setShowLogModal(true);
+  };
+
+  const renderViewModeToggle = () => (
+    <View style={[styles.viewModeToggle, { backgroundColor: theme.backgroundDefault }]}>
+      {(["week", "month", "year"] as ViewMode[]).map((mode) => (
+        <Pressable
+          key={mode}
+          style={[
+            styles.viewModeBtn,
+            viewMode === mode && { backgroundColor: theme.primary },
+          ]}
+          onPress={() => setViewMode(mode)}
+        >
+          <ThemedText
+            style={[
+              styles.viewModeBtnText,
+              { color: viewMode === mode ? "#FFFFFF" : theme.textSecondary },
+            ]}
+          >
+            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+          </ThemedText>
+        </Pressable>
+      ))}
+    </View>
+  );
 
   const renderWeeklyDots = (habit: Habit) => {
     const last7Days = getLast7Days(habit);
@@ -194,6 +246,7 @@ export function HabitsList({ categoryId }: HabitsListProps) {
           {isExpanded ? (
             <View style={styles.expandedContent}>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
+              
               <View style={styles.streakDetailsRow}>
                 <View style={styles.streakDetail}>
                   <Feather name="zap" size={16} color={theme.warning} />
@@ -218,15 +271,56 @@ export function HabitsList({ categoryId }: HabitsListProps) {
                   </View>
                 </View>
               </View>
-              <Pressable
-                style={[styles.editButton, { backgroundColor: theme.primary + "15" }]}
-                onPress={() => handleEditHabit(item)}
-              >
-                <Feather name="edit-2" size={14} color={theme.primary} />
-                <ThemedText style={[styles.editButtonText, { color: theme.primary }]}>
-                  Edit Habit
+
+              <View style={styles.chartSection}>
+                <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
+                  Progress Chart
                 </ThemedText>
-              </Pressable>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <HabitProgressChart
+                    habit={item}
+                    occurrences={getOccurrencesForItem(item.id, "habit")}
+                    viewMode={viewMode}
+                    onBarPress={(dateKey, count) => handleBarPress(item, dateKey, count)}
+                  />
+                </ScrollView>
+              </View>
+
+              <View style={styles.heatMapSection}>
+                <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
+                  Activity Heatmap
+                </ThemedText>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <HabitHeatMap
+                    habit={item}
+                    occurrences={getOccurrencesForItem(item.id, "habit")}
+                    weeks={viewMode === "year" ? 52 : viewMode === "month" ? 12 : 8}
+                    onDayPress={(date, count) => handleHeatMapDayPress(item, date, count)}
+                  />
+                </ScrollView>
+                <HeatMapLegend habitType={item.habitType} />
+              </View>
+
+              <View style={styles.actionButtons}>
+                <Pressable
+                  style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
+                  onPress={() => handleViewAllLogs(item)}
+                >
+                  <Feather name="list" size={14} color={theme.primary} />
+                  <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
+                    View Logs
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
+                  onPress={() => handleEditHabit(item)}
+                >
+                  <Feather name="edit-2" size={14} color={theme.primary} />
+                  <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
+                    Edit Habit
+                  </ThemedText>
+                </Pressable>
+              </View>
             </View>
           ) : null}
         </View>
@@ -264,6 +358,18 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     </View>
   );
 
+  const renderListHeader = () => (
+    <View>
+      <HabitsSummaryHeader
+        habits={categoryHabits}
+        getOccurrencesForItem={getOccurrencesForItem}
+      />
+      <View style={styles.toggleContainer}>
+        {renderViewModeToggle()}
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.container}>
       {categoryHabits.length > 0 ? (
@@ -271,12 +377,13 @@ export function HabitsList({ categoryId }: HabitsListProps) {
           data={categoryHabits}
           keyExtractor={(item) => item.id}
           renderItem={renderHabitItem}
+          ListHeaderComponent={renderListHeader}
           contentContainerStyle={[
             styles.listContent,
             { paddingBottom: insets.bottom + Spacing.xl + 60 },
           ]}
           showsVerticalScrollIndicator={false}
-          extraData={expandedHabitId}
+          extraData={[expandedHabitId, viewMode]}
         />
       ) : (
         renderEmptyState()
@@ -303,6 +410,19 @@ export function HabitsList({ categoryId }: HabitsListProps) {
         }}
         categoryId={categoryId}
         editingHabit={editingHabit}
+      />
+
+      <OccurrenceLogModal
+        visible={showLogModal}
+        onClose={() => {
+          setShowLogModal(false);
+          setLogModalHabit(null);
+          setLogModalDate(undefined);
+        }}
+        habit={logModalHabit}
+        occurrences={logModalHabit ? getOccurrencesForItem(logModalHabit.id, "habit") : []}
+        onDeleteOccurrence={deleteOccurrence}
+        filterDate={logModalDate}
       />
     </View>
   );
@@ -510,6 +630,56 @@ const styles = StyleSheet.create({
   addButtonText: {
     color: "#FFFFFF",
     fontSize: 16,
+    fontWeight: "600",
+  },
+  toggleContainer: {
+    paddingHorizontal: Spacing.lg,
+    marginBottom: Spacing.md,
+  },
+  viewModeToggle: {
+    flexDirection: "row",
+    borderRadius: BorderRadius.full,
+    padding: 4,
+  },
+  viewModeBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    alignItems: "center",
+    borderRadius: BorderRadius.full,
+  },
+  viewModeBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  chartSection: {
+    marginTop: Spacing.md,
+  },
+  chartTitle: {
+    fontSize: 11,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+    marginBottom: Spacing.xs,
+  },
+  heatMapSection: {
+    marginTop: Spacing.md,
+  },
+  actionButtons: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    marginTop: Spacing.md,
+  },
+  actionButton: {
+    flex: 1,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    gap: Spacing.xs,
+  },
+  actionButtonText: {
+    fontSize: 13,
     fontWeight: "600",
   },
 });
