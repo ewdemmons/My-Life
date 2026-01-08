@@ -42,12 +42,23 @@ export function HabitHeatMap({
 
       let status: "met" | "partial" | "missed" | "future" = "future";
       if (!isFuture) {
-        if (count >= habit.goalCount) {
-          status = "met";
-        } else if (count > 0) {
-          status = "partial";
+        const isNegative = habit.habitType === "negative";
+        if (isNegative) {
+          if (count === 0) {
+            status = "met";
+          } else if (count <= habit.goalCount) {
+            status = "partial";
+          } else {
+            status = "missed";
+          }
         } else {
-          status = "missed";
+          if (count >= habit.goalCount) {
+            status = "met";
+          } else if (count > 0) {
+            status = "partial";
+          } else {
+            status = "missed";
+          }
         }
       }
 
@@ -63,14 +74,13 @@ export function HabitHeatMap({
   }, [habit, occurrences, weeks]);
 
   const getStatusColor = (status: "met" | "partial" | "missed" | "future") => {
-    const isPositive = habit.habitType === "positive";
     switch (status) {
       case "met":
-        return isPositive ? theme.success : theme.error;
+        return theme.success;
       case "partial":
         return theme.warning;
       case "missed":
-        return isPositive ? theme.error + "40" : theme.success + "40";
+        return theme.error + "60";
       case "future":
         return theme.textSecondary + "20";
     }
@@ -121,16 +131,20 @@ export function HeatMapLegend({ habitType }: HeatMapLegendProps) {
   return (
     <View style={styles.legend}>
       <View style={styles.legendItem}>
-        <View style={[styles.legendDot, { backgroundColor: isPositive ? theme.success : theme.error }]} />
-        <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>Met</ThemedText>
+        <View style={[styles.legendDot, { backgroundColor: theme.success }]} />
+        <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
+          {isPositive ? "Goal Met" : "Avoided"}
+        </ThemedText>
       </View>
       <View style={styles.legendItem}>
         <View style={[styles.legendDot, { backgroundColor: theme.warning }]} />
         <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>Partial</ThemedText>
       </View>
       <View style={styles.legendItem}>
-        <View style={[styles.legendDot, { backgroundColor: isPositive ? theme.error + "40" : theme.success + "40" }]} />
-        <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>Missed</ThemedText>
+        <View style={[styles.legendDot, { backgroundColor: theme.error + "60" }]} />
+        <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
+          {isPositive ? "Missed" : "Slipped"}
+        </ThemedText>
       </View>
     </View>
   );

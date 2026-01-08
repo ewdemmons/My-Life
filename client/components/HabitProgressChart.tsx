@@ -32,11 +32,20 @@ export function HabitProgressChart({
         const dateStr = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
         const count = occurrences.filter((o) => o.occurredDate === dateStr).length;
         const dayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        
+        let dailyGoal: number;
+        switch (habit.goalFrequency) {
+          case "daily": dailyGoal = habit.goalCount; break;
+          case "weekly": dailyGoal = habit.goalCount / 7; break;
+          case "monthly": dailyGoal = habit.goalCount / 30; break;
+          default: dailyGoal = habit.goalCount;
+        }
+        
         data.push({
           key: dateStr,
           label: dayLabels[date.getDay()],
           count,
-          goal: habit.goalFrequency === "daily" ? habit.goalCount : Math.ceil(habit.goalCount / 7),
+          goal: dailyGoal,
         });
       }
     } else if (viewMode === "month") {
@@ -55,26 +64,45 @@ export function HabitProgressChart({
         });
 
         const weekLabel = `${weekStart.getMonth() + 1}/${weekStart.getDate()}`;
+        
+        let weeklyGoal: number;
+        switch (habit.goalFrequency) {
+          case "daily": weeklyGoal = habit.goalCount * 7; break;
+          case "weekly": weeklyGoal = habit.goalCount; break;
+          case "monthly": weeklyGoal = habit.goalCount / 4.33; break;
+          default: weeklyGoal = habit.goalCount;
+        }
+        
         data.push({
           key: `week-${i}`,
           label: weekLabel,
           count,
-          goal: habit.goalFrequency === "weekly" ? habit.goalCount : habit.goalCount * 7,
+          goal: weeklyGoal,
         });
       }
     } else {
       for (let i = 11; i >= 0; i--) {
         const monthDate = new Date(now.getFullYear(), now.getMonth() - i, 1);
         const monthKey = `${monthDate.getFullYear()}-${String(monthDate.getMonth() + 1).padStart(2, "0")}`;
+        const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+        const weeksInMonth = daysInMonth / 7;
         
         const count = occurrences.filter((o) => o.occurredDate.startsWith(monthKey)).length;
         const monthLabels = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+        
+        let monthlyGoal: number;
+        switch (habit.goalFrequency) {
+          case "daily": monthlyGoal = habit.goalCount * daysInMonth; break;
+          case "weekly": monthlyGoal = habit.goalCount * weeksInMonth; break;
+          case "monthly": monthlyGoal = habit.goalCount; break;
+          default: monthlyGoal = habit.goalCount;
+        }
         
         data.push({
           key: monthKey,
           label: monthLabels[monthDate.getMonth()],
           count,
-          goal: habit.goalFrequency === "monthly" ? habit.goalCount : habit.goalCount * 30,
+          goal: monthlyGoal,
         });
       }
     }
@@ -96,7 +124,19 @@ export function HabitProgressChart({
   const paddingBottom = 24;
 
   const isPositive = habit.habitType === "positive";
-  const fillColor = isPositive ? theme.success : theme.error;
+  
+  const getBarSuccess = (count: number, goal: number) => {
+    if (isPositive) {
+      return count >= goal;
+    } else {
+      return count <= goal;
+    }
+  };
+
+  const getBarColor = (count: number, goal: number) => {
+    const success = getBarSuccess(count, goal);
+    return success ? theme.success : theme.error;
+  };
 
   return (
     <View style={styles.container}>
@@ -105,6 +145,7 @@ export function HabitProgressChart({
           const barHeight = (item.count / maxValue) * (chartHeight - paddingBottom - 10);
           const goalLineY = chartHeight - paddingBottom - (item.goal / maxValue) * (chartHeight - paddingBottom - 10);
           const x = paddingLeft + index * (barWidth + barSpacing);
+          const success = getBarSuccess(item.count, item.goal);
 
           return (
             <React.Fragment key={item.key}>
@@ -114,8 +155,8 @@ export function HabitProgressChart({
                 width={barWidth}
                 height={Math.max(barHeight, 2)}
                 rx={4}
-                fill={fillColor}
-                opacity={item.count >= item.goal ? 1 : 0.6}
+                fill={getBarColor(item.count, item.goal)}
+                opacity={success ? 1 : 0.7}
                 onPress={() => onBarPress?.(item.key, item.count)}
               />
               <Line
@@ -163,9 +204,15 @@ export function HabitProgressChart({
       </Svg>
       <View style={styles.legend}>
         <View style={styles.legendItem}>
-          <View style={[styles.legendBar, { backgroundColor: fillColor }]} />
+          <View style={[styles.legendBar, { backgroundColor: theme.success }]} />
           <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
-            Actual
+            {isPositive ? "Met" : "Avoided"}
+          </ThemedText>
+        </View>
+        <View style={styles.legendItem}>
+          <View style={[styles.legendBar, { backgroundColor: theme.error, opacity: 0.7 }]} />
+          <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
+            {isPositive ? "Missed" : "Slipped"}
           </ThemedText>
         </View>
         <View style={styles.legendItem}>
