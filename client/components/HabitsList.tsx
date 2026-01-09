@@ -10,7 +10,6 @@ import { useApp } from "@/context/AppContext";
 import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, Occurrence } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { HabitProgressChart } from "@/components/HabitProgressChart";
-import { HabitsSummaryHeader } from "@/components/HabitsSummaryHeader";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
 import { calculateStreak } from "@/utils/habitStreaks";
 
@@ -119,6 +118,32 @@ export function HabitsList({ categoryId }: HabitsListProps) {
   const getStreakInfo = (habit: Habit) => {
     const occurrences = getOccurrencesForItem(habit.id, "habit");
     return calculateStreak(occurrences, habit.goalFrequency, habit.goalCount);
+  };
+
+  const getOccurrenceCounts = (habit: Habit) => {
+    const occurrences = getOccurrencesForItem(habit.id, "habit");
+    const now = new Date();
+    const today = getTodayDateString();
+    
+    const todayCount = occurrences.filter((o) => o.occurredDate === today).length;
+    
+    const startOfWeek = new Date(now);
+    startOfWeek.setDate(now.getDate() - now.getDay());
+    startOfWeek.setHours(0, 0, 0, 0);
+    const weekCount = occurrences.filter((o) => {
+      const [y, m, d] = o.occurredDate.split("-").map(Number);
+      const occDate = new Date(y, m - 1, d);
+      return occDate >= startOfWeek;
+    }).length;
+    
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+    const monthCount = occurrences.filter((o) => {
+      const [y, m, d] = o.occurredDate.split("-").map(Number);
+      const occDate = new Date(y, m - 1, d);
+      return occDate >= startOfMonth;
+    }).length;
+    
+    return { todayCount, weekCount, monthCount };
   };
 
   const handleDecrement = async (habit: Habit) => {
@@ -239,7 +264,7 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     const typeInfo = getHabitTypeInfo(item.habitType);
     const periodCount = getPeriodCount(item);
     const goalMet = periodCount >= item.goalCount;
-    const streakInfo = getStreakInfo(item);
+    const counts = getOccurrenceCounts(item);
     const isExpanded = expandedHabitId === item.id;
 
     return (
@@ -271,13 +296,15 @@ export function HabitsList({ categoryId }: HabitsListProps) {
           
           {renderProgressBar(item)}
           
-          <View style={styles.streakRow}>
-            <Feather name="zap" size={14} color={theme.warning} />
-            <ThemedText style={[styles.streakRowText, { color: theme.textSecondary }]}>
-              Current Streak: {streakInfo.currentStreak} {item.goalFrequency === "daily" ? "days" : item.goalFrequency === "weekly" ? "weeks" : "months"}
+          <View style={styles.countsRow}>
+            <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
+              Today: {counts.todayCount}
             </ThemedText>
-            <ThemedText style={[styles.streakRowText, { color: theme.textSecondary }]}>
-              {" "}|{" "}Best Streak: {streakInfo.bestStreak} {item.goalFrequency === "daily" ? "days" : item.goalFrequency === "weekly" ? "weeks" : "months"}
+            <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
+              This Week: {counts.weekCount}
+            </ThemedText>
+            <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
+              This Month: {counts.monthCount}
             </ThemedText>
           </View>
           
@@ -375,29 +402,32 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     </View>
   );
 
-  const renderListHeader = () => (
-    <View>
-      <HabitsSummaryHeader
-        habits={categoryHabits}
-        getOccurrencesForItem={getOccurrencesForItem}
-      />
-      <View style={styles.toggleContainer}>
-        {renderViewModeToggle()}
-      </View>
-    </View>
-  );
-
   return (
     <View style={styles.container}>
+      <View style={[styles.stickyHeader, { backgroundColor: theme.backgroundSecondary }]}>
+        <View style={styles.headerRow}>
+          <Pressable
+            style={[styles.addButtonSmall, { backgroundColor: theme.primary }]}
+            onPress={() => {
+              setEditingHabit(null);
+              setShowAddHabitModal(true);
+            }}
+          >
+            <Feather name="plus" size={16} color="#FFFFFF" />
+            <ThemedText style={styles.addButtonSmallText}>Add Habit</ThemedText>
+          </Pressable>
+          {renderViewModeToggle()}
+        </View>
+      </View>
+      
       {categoryHabits.length > 0 ? (
         <FlatList
           data={categoryHabits}
           keyExtractor={(item) => item.id}
           renderItem={renderHabitItem}
-          ListHeaderComponent={renderListHeader}
           contentContainerStyle={[
             styles.listContent,
-            { paddingBottom: insets.bottom + Spacing.xl + 60 },
+            { paddingBottom: insets.bottom + Spacing.xl },
           ]}
           showsVerticalScrollIndicator={false}
           extraData={[expandedHabitId, viewMode]}
@@ -405,19 +435,6 @@ export function HabitsList({ categoryId }: HabitsListProps) {
       ) : (
         renderEmptyState()
       )}
-
-      <View style={[styles.addButtonContainer, { bottom: insets.bottom + Spacing.lg }]}>
-        <Pressable
-          style={[styles.addButton, { backgroundColor: theme.primary }]}
-          onPress={() => {
-            setEditingHabit(null);
-            setShowAddHabitModal(true);
-          }}
-        >
-          <Feather name="plus" size={20} color="#FFFFFF" />
-          <ThemedText style={styles.addButtonText}>Add Habit</ThemedText>
-        </Pressable>
-      </View>
 
       <AddHabitModal
         visible={showAddHabitModal}
@@ -744,5 +761,36 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     borderRadius: BorderRadius.full,
     marginTop: Spacing.xs,
+  },
+  stickyHeader: {
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.sm,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  addButtonSmall: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.md,
+    borderRadius: BorderRadius.full,
+    gap: Spacing.xs,
+  },
+  addButtonSmallText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  countsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: Spacing.sm,
+    gap: Spacing.md,
+  },
+  countText: {
+    fontSize: 11,
   },
 });

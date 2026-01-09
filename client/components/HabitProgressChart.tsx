@@ -125,17 +125,8 @@ export function HabitProgressChart({
 
   const isPositive = habit.habitType === "positive";
   
-  const getBarSuccess = (count: number, goal: number) => {
-    if (isPositive) {
-      return count >= goal;
-    } else {
-      return count <= goal;
-    }
-  };
-
-  const getBarColor = (count: number, goal: number) => {
-    const success = getBarSuccess(count, goal);
-    return success ? theme.success : theme.error;
+  const getBarColor = () => {
+    return isPositive ? theme.success : theme.error;
   };
 
   return (
@@ -145,7 +136,6 @@ export function HabitProgressChart({
           const barHeight = (item.count / maxValue) * (chartHeight - paddingBottom - 10);
           const goalLineY = chartHeight - paddingBottom - (item.goal / maxValue) * (chartHeight - paddingBottom - 10);
           const x = paddingLeft + index * (barWidth + barSpacing);
-          const success = getBarSuccess(item.count, item.goal);
 
           return (
             <React.Fragment key={item.key}>
@@ -155,8 +145,7 @@ export function HabitProgressChart({
                 width={barWidth}
                 height={Math.max(barHeight, 2)}
                 rx={4}
-                fill={getBarColor(item.count, item.goal)}
-                opacity={success ? 1 : 0.7}
+                fill={getBarColor()}
                 onPress={() => onBarPress?.(item.key, item.count)}
               />
               <Line
@@ -202,26 +191,6 @@ export function HabitProgressChart({
           </React.Fragment>
         ))}
       </Svg>
-      <View style={styles.legend}>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendBar, { backgroundColor: theme.success }]} />
-          <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
-            {isPositive ? "Met" : "Avoided"}
-          </ThemedText>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendBar, { backgroundColor: theme.error, opacity: 0.7 }]} />
-          <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
-            {isPositive ? "Missed" : "Slipped"}
-          </ThemedText>
-        </View>
-        <View style={styles.legendItem}>
-          <View style={[styles.legendDash, { borderColor: theme.textSecondary }]} />
-          <ThemedText style={[styles.legendText, { color: theme.textSecondary }]}>
-            Goal
-          </ThemedText>
-        </View>
-      </View>
     </View>
   );
 }
@@ -235,30 +204,5 @@ const styles = StyleSheet.create({
   container: {
     alignItems: "center",
     paddingVertical: Spacing.sm,
-  },
-  legend: {
-    flexDirection: "row",
-    justifyContent: "center",
-    gap: Spacing.lg,
-    marginTop: Spacing.sm,
-  },
-  legendItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-  },
-  legendBar: {
-    width: 12,
-    height: 8,
-    borderRadius: 2,
-  },
-  legendDash: {
-    width: 12,
-    height: 0,
-    borderTopWidth: 2,
-    borderStyle: "dashed",
-  },
-  legendText: {
-    fontSize: 10,
   },
 });
