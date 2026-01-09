@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, FlatList, Alert, ScrollView } from "react-native";
+import { View, StyleSheet, Pressable, FlatList, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
@@ -262,121 +262,121 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     const isExpanded = expandedHabitId === item.id;
 
     return (
-      <Pressable
-        style={[styles.habitCard, { backgroundColor: theme.backgroundDefault }]}
-        onPress={() => handleHabitPress(item)}
-      >
-        <View style={styles.habitContent}>
-          <View style={styles.habitHeader}>
-            <View style={styles.habitTitleRow}>
-              <ThemedText style={styles.habitName} numberOfLines={1}>
-                {item.name}
+      <View style={[styles.habitCard, { backgroundColor: theme.backgroundDefault }]}>
+        <Pressable
+          style={styles.habitMainRow}
+          onPress={() => handleHabitPress(item)}
+        >
+          <View style={styles.habitContent}>
+            <View style={styles.habitHeader}>
+              <View style={styles.habitTitleRow}>
+                <ThemedText style={styles.habitName} numberOfLines={1}>
+                  {item.name}
+                </ThemedText>
+              </View>
+              <View style={styles.badges}>
+                <View style={[styles.typeBadge, { backgroundColor: typeInfo.color + "20" }]}>
+                  <Feather name={typeInfo.icon as any} size={12} color={typeInfo.color} />
+                  <ThemedText style={[styles.typeBadgeText, { color: typeInfo.color }]}>
+                    {typeInfo.label}
+                  </ThemedText>
+                </View>
+                <View style={[styles.frequencyBadge, { backgroundColor: theme.primary + "15" }]}>
+                  <ThemedText style={[styles.frequencyBadgeText, { color: theme.primary }]}>
+                    {item.goalCount}x {getFrequencyLabel(item.goalFrequency)}
+                  </ThemedText>
+                </View>
+              </View>
+            </View>
+            
+            {renderProgressBar(item)}
+            
+            <View style={styles.countsRow}>
+              <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
+                Today: {counts.todayCount}
+              </ThemedText>
+              <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
+                This Week: {counts.weekCount}
+              </ThemedText>
+              <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
+                This Month: {counts.monthCount}
               </ThemedText>
             </View>
-            <View style={styles.badges}>
-              <View style={[styles.typeBadge, { backgroundColor: typeInfo.color + "20" }]}>
-                <Feather name={typeInfo.icon as any} size={12} color={typeInfo.color} />
-                <ThemedText style={[styles.typeBadgeText, { color: typeInfo.color }]}>
-                  {typeInfo.label}
-                </ThemedText>
-              </View>
-              <View style={[styles.frequencyBadge, { backgroundColor: theme.primary + "15" }]}>
-                <ThemedText style={[styles.frequencyBadgeText, { color: theme.primary }]}>
-                  {item.goalCount}x {getFrequencyLabel(item.goalFrequency)}
-                </ThemedText>
-              </View>
-            </View>
           </View>
-          
-          {renderProgressBar(item)}
-          
-          <View style={styles.countsRow}>
-            <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
-              Today: {counts.todayCount}
-            </ThemedText>
-            <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
-              This Week: {counts.weekCount}
-            </ThemedText>
-            <ThemedText style={[styles.countText, { color: theme.textSecondary }]}>
-              This Month: {counts.monthCount}
-            </ThemedText>
-          </View>
-          
-          {isExpanded ? (
-            <View style={styles.expandedContent}>
-              <View style={[styles.divider, { backgroundColor: theme.border }]} />
-
-              <View style={styles.chartSection}>
-                <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
-                  Progress Chart
-                </ThemedText>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <HabitProgressChart
-                    habit={item}
-                    occurrences={getOccurrencesForItem(item.id, "habit")}
-                    viewMode={viewMode}
-                    onBarPress={(dateKey, count) => handleBarPress(item, dateKey, count)}
-                  />
-                </ScrollView>
-              </View>
-
-              <View style={styles.actionButtons}>
-                <Pressable
-                  style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
-                  onPress={() => handleViewAllLogs(item)}
-                >
-                  <Feather name="list" size={14} color={theme.primary} />
-                  <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
-                    View Logs
-                  </ThemedText>
-                </Pressable>
-                <Pressable
-                  style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
-                  onPress={() => handleEditHabit(item)}
-                >
-                  <Feather name="edit-2" size={14} color={theme.primary} />
-                  <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
-                    Edit Habit
-                  </ThemedText>
-                </Pressable>
-              </View>
-            </View>
-          ) : null}
-        </View>
-        <View style={styles.logButtonsContainer}>
-          <Pressable
-            style={[
-              styles.quickLogButton,
-              { backgroundColor: goalMet ? theme.success + "20" : theme.primary + "15" },
-            ]}
-            onPress={() => handleQuickLog(item)}
-            hitSlop={8}
-          >
-            <Feather
-              name="plus"
-              size={24}
-              color={goalMet ? theme.success : theme.primary}
-            />
-          </Pressable>
-          {isExpanded ? (
+          <View style={styles.logButtonsContainer}>
             <Pressable
               style={[
-                styles.decrementButton,
-                { backgroundColor: periodCount > 0 ? theme.error + "15" : theme.border },
+                styles.quickLogButton,
+                { backgroundColor: goalMet ? theme.success + "20" : theme.primary + "15" },
               ]}
-              onPress={() => handleDecrement(item)}
-              disabled={periodCount === 0}
+              onPress={() => handleQuickLog(item)}
               hitSlop={8}
             >
               <Feather
-                name="minus"
+                name="plus"
                 size={24}
-                color={periodCount > 0 ? theme.error : theme.textSecondary}
+                color={goalMet ? theme.success : theme.primary}
               />
             </Pressable>
-          ) : null}
-        </View>
-      </Pressable>
+            {isExpanded ? (
+              <Pressable
+                style={[
+                  styles.decrementButton,
+                  { backgroundColor: periodCount > 0 ? theme.error + "15" : theme.border },
+                ]}
+                onPress={() => handleDecrement(item)}
+                disabled={periodCount === 0}
+                hitSlop={8}
+              >
+                <Feather
+                  name="minus"
+                  size={24}
+                  color={periodCount > 0 ? theme.error : theme.textSecondary}
+                />
+              </Pressable>
+            ) : null}
+          </View>
+        </Pressable>
+        
+        {isExpanded ? (
+          <View style={styles.expandedContent}>
+            <View style={[styles.divider, { backgroundColor: theme.border }]} />
+
+            <View style={styles.chartSection}>
+              <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
+                Progress Chart
+              </ThemedText>
+              <HabitProgressChart
+                habit={item}
+                occurrences={getOccurrencesForItem(item.id, "habit")}
+                viewMode={viewMode}
+                onBarPress={(dateKey, count) => handleBarPress(item, dateKey, count)}
+              />
+            </View>
+
+            <View style={styles.actionButtons}>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
+                onPress={() => handleViewAllLogs(item)}
+              >
+                <Feather name="list" size={14} color={theme.primary} />
+                <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
+                  View Logs
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
+                onPress={() => handleEditHabit(item)}
+              >
+                <Feather name="edit-2" size={14} color={theme.primary} />
+                <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
+                  Edit Habit
+                </ThemedText>
+              </Pressable>
+            </View>
+          </View>
+        ) : null}
+      </View>
     );
   };
 
@@ -465,10 +465,12 @@ const styles = StyleSheet.create({
     paddingTop: Spacing.md,
   },
   habitCard: {
-    flexDirection: "row",
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
     overflow: "hidden",
+  },
+  habitMainRow: {
+    flexDirection: "row",
   },
   habitContent: {
     flex: 1,
@@ -515,7 +517,8 @@ const styles = StyleSheet.create({
     fontWeight: "500",
   },
   expandedContent: {
-    marginTop: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    paddingBottom: Spacing.md,
   },
   divider: {
     height: 1,
@@ -569,16 +572,17 @@ const styles = StyleSheet.create({
   viewModeToggle: {
     flexDirection: "row",
     borderRadius: BorderRadius.full,
-    padding: 4,
+    padding: 2,
   },
   viewModeBtn: {
     flex: 1,
-    paddingVertical: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    paddingHorizontal: Spacing.sm,
     alignItems: "center",
     borderRadius: BorderRadius.full,
   },
   viewModeBtnText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: "600",
   },
   chartSection: {
