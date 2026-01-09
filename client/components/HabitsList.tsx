@@ -10,10 +10,9 @@ import { useApp } from "@/context/AppContext";
 import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, Occurrence } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { HabitProgressChart } from "@/components/HabitProgressChart";
-import { HabitHeatMap, HeatMapLegend } from "@/components/HabitHeatMap";
 import { HabitsSummaryHeader } from "@/components/HabitsSummaryHeader";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
-import { calculateStreak, getLast7DaysStatus } from "@/utils/habitStreaks";
+import { calculateStreak } from "@/utils/habitStreaks";
 
 interface HabitsListProps {
   categoryId: string;
@@ -82,10 +81,39 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     setShowAddHabitModal(true);
   };
 
-  const getTodayCount = (habitId: string) => {
-    const today = getTodayDateString();
-    const occurrences = getOccurrencesForItem(habitId, "habit");
-    return occurrences.filter((o) => o.occurredDate === today).length;
+  const getPeriodCount = (habit: Habit) => {
+    const occurrences = getOccurrencesForItem(habit.id, "habit");
+    const now = new Date();
+    
+    if (habit.goalFrequency === "daily") {
+      const today = getTodayDateString();
+      return occurrences.filter((o) => o.occurredDate === today).length;
+    } else if (habit.goalFrequency === "weekly") {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      return occurrences.filter((o) => {
+        const [y, m, d] = o.occurredDate.split("-").map(Number);
+        const occDate = new Date(y, m - 1, d);
+        return occDate >= startOfWeek;
+      }).length;
+    } else {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      return occurrences.filter((o) => {
+        const [y, m, d] = o.occurredDate.split("-").map(Number);
+        const occDate = new Date(y, m - 1, d);
+        return occDate >= startOfMonth;
+      }).length;
+    }
+  };
+
+  const getPeriodLabel = (frequency: string) => {
+    switch (frequency) {
+      case "daily": return "Today";
+      case "weekly": return "This Week";
+      case "monthly": return "This Month";
+      default: return "Today";
+    }
   };
 
   const getStreakInfo = (habit: Habit) => {
@@ -93,26 +121,48 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     return calculateStreak(occurrences, habit.goalFrequency, habit.goalCount);
   };
 
-  const getLast7Days = (habit: Habit) => {
+  const handleDecrement = async (habit: Habit) => {
     const occurrences = getOccurrencesForItem(habit.id, "habit");
-    return getLast7DaysStatus(occurrences, habit.goalCount);
-  };
-
-  const getDayLabel = (dateStr: string) => {
-    const date = new Date(dateStr);
-    const days = ["S", "M", "T", "W", "T", "F", "S"];
-    return days[date.getDay()];
+    const now = new Date();
+    
+    let periodOccurrences: Occurrence[] = [];
+    
+    if (habit.goalFrequency === "daily") {
+      const today = getTodayDateString();
+      periodOccurrences = occurrences.filter((o) => o.occurredDate === today);
+    } else if (habit.goalFrequency === "weekly") {
+      const startOfWeek = new Date(now);
+      startOfWeek.setDate(now.getDate() - now.getDay());
+      startOfWeek.setHours(0, 0, 0, 0);
+      periodOccurrences = occurrences.filter((o) => {
+        const [y, m, d] = o.occurredDate.split("-").map(Number);
+        const occDate = new Date(y, m - 1, d);
+        return occDate >= startOfWeek;
+      });
+    } else {
+      const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+      periodOccurrences = occurrences.filter((o) => {
+        const [y, m, d] = o.occurredDate.split("-").map(Number);
+        const occDate = new Date(y, m - 1, d);
+        return occDate >= startOfMonth;
+      });
+    }
+    
+    if (periodOccurrences.length === 0) return;
+    
+    const lastOccurrence = periodOccurrences.sort((a, b) => b.occurredAt - a.occurredAt)[0];
+    
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      await deleteOccurrence(lastOccurrence.id);
+    } catch (error) {
+      Alert.alert("Error", "Failed to remove occurrence. Please try again.");
+    }
   };
 
   const handleBarPress = (habit: Habit, dateKey: string, count: number) => {
     setLogModalHabit(habit);
     setLogModalDate(dateKey);
-    setShowLogModal(true);
-  };
-
-  const handleHeatMapDayPress = (habit: Habit, date: string, count: number) => {
-    setLogModalHabit(habit);
-    setLogModalDate(date);
     setShowLogModal(true);
   };
 
@@ -146,43 +196,49 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     </View>
   );
 
-  const renderWeeklyDots = (habit: Habit) => {
-    const last7Days = getLast7Days(habit);
-    const isNegativeHabit = habit.habitType === "negative";
+  const renderProgressBar = (habit: Habit) => {
+    const periodCount = getPeriodCount(habit);
+    const goal = habit.goalCount;
+    const isNegative = habit.habitType === "negative";
+    const progressPercent = goal > 0 ? Math.min((periodCount / goal) * 100, 100) : 0;
+    const goalLinePercent = 100;
+    
+    const barColor = isNegative ? theme.error : theme.success;
+    const periodLabel = getPeriodLabel(habit.goalFrequency);
 
     return (
-      <View style={styles.weeklyDotsContainer}>
-        {last7Days.map((day, index) => {
-          let dotColor = theme.textSecondary + "40";
-          
-          if (isNegativeHabit) {
-            dotColor = day.count === 0 ? theme.success : theme.error;
-          } else {
-            dotColor = day.met ? theme.success : theme.textSecondary + "40";
-          }
-
-          return (
-            <View key={day.date} style={styles.dayDotWrapper}>
-              <View
-                style={[
-                  styles.weeklyDot,
-                  { backgroundColor: dotColor },
-                ]}
-              />
-              <ThemedText style={[styles.dayLabel, { color: theme.textSecondary }]}>
-                {getDayLabel(day.date)}
-              </ThemedText>
-            </View>
-          );
-        })}
+      <View style={styles.progressBarContainer}>
+        <View style={[styles.progressBarBackground, { backgroundColor: theme.border }]}>
+          <View 
+            style={[
+              styles.progressBarFill, 
+              { 
+                backgroundColor: barColor,
+                width: `${progressPercent}%`,
+              }
+            ]} 
+          />
+          <View 
+            style={[
+              styles.goalLine,
+              { 
+                left: `${goalLinePercent}%`,
+                borderColor: theme.textSecondary,
+              }
+            ]}
+          />
+        </View>
+        <ThemedText style={[styles.progressLabel, { color: theme.textSecondary }]}>
+          {periodLabel}: {periodCount}/{goal}
+        </ThemedText>
       </View>
     );
   };
 
   const renderHabitItem = ({ item }: { item: Habit }) => {
     const typeInfo = getHabitTypeInfo(item.habitType);
-    const todayCount = getTodayCount(item.id);
-    const goalMet = todayCount >= item.goalCount;
+    const periodCount = getPeriodCount(item);
+    const goalMet = periodCount >= item.goalCount;
     const streakInfo = getStreakInfo(item);
     const isExpanded = expandedHabitId === item.id;
 
@@ -197,14 +253,6 @@ export function HabitsList({ categoryId }: HabitsListProps) {
               <ThemedText style={styles.habitName} numberOfLines={1}>
                 {item.name}
               </ThemedText>
-              {streakInfo.currentStreak > 0 ? (
-                <View style={[styles.streakBadge, { backgroundColor: theme.warning + "20" }]}>
-                  <Feather name="zap" size={12} color={theme.warning} />
-                  <ThemedText style={[styles.streakText, { color: theme.warning }]}>
-                    {streakInfo.currentStreak}
-                  </ThemedText>
-                </View>
-              ) : null}
             </View>
             <View style={styles.badges}>
               <View style={[styles.typeBadge, { backgroundColor: typeInfo.color + "20" }]}>
@@ -221,56 +269,21 @@ export function HabitsList({ categoryId }: HabitsListProps) {
             </View>
           </View>
           
-          {item.description ? (
-            <ThemedText style={[styles.habitDescription, { color: theme.textSecondary }]} numberOfLines={isExpanded ? undefined : 2}>
-              {item.description}
-            </ThemedText>
-          ) : null}
+          {renderProgressBar(item)}
           
-          {renderWeeklyDots(item)}
-          
-          <View style={styles.progressRow}>
-            <ThemedText style={[styles.progressText, { color: theme.textSecondary }]}>
-              Today: {todayCount}/{item.goalCount}
+          <View style={styles.streakRow}>
+            <Feather name="zap" size={14} color={theme.warning} />
+            <ThemedText style={[styles.streakRowText, { color: theme.textSecondary }]}>
+              Current Streak: {streakInfo.currentStreak} {item.goalFrequency === "daily" ? "days" : item.goalFrequency === "weekly" ? "weeks" : "months"}
             </ThemedText>
-            {goalMet ? (
-              <View style={[styles.goalMetBadge, { backgroundColor: theme.success + "20" }]}>
-                <Feather name="check" size={12} color={theme.success} />
-                <ThemedText style={[styles.goalMetText, { color: theme.success }]}>
-                  Goal met
-                </ThemedText>
-              </View>
-            ) : null}
+            <ThemedText style={[styles.streakRowText, { color: theme.textSecondary }]}>
+              {" "}|{" "}Best Streak: {streakInfo.bestStreak} {item.goalFrequency === "daily" ? "days" : item.goalFrequency === "weekly" ? "weeks" : "months"}
+            </ThemedText>
           </View>
           
           {isExpanded ? (
             <View style={styles.expandedContent}>
               <View style={[styles.divider, { backgroundColor: theme.border }]} />
-              
-              <View style={styles.streakDetailsRow}>
-                <View style={styles.streakDetail}>
-                  <Feather name="zap" size={16} color={theme.warning} />
-                  <View style={styles.streakDetailText}>
-                    <ThemedText style={[styles.streakDetailLabel, { color: theme.textSecondary }]}>
-                      Current Streak
-                    </ThemedText>
-                    <ThemedText style={styles.streakDetailValue}>
-                      {streakInfo.currentStreak} {item.goalFrequency === "daily" ? "days" : item.goalFrequency === "weekly" ? "weeks" : "months"}
-                    </ThemedText>
-                  </View>
-                </View>
-                <View style={styles.streakDetail}>
-                  <Feather name="award" size={16} color={theme.primary} />
-                  <View style={styles.streakDetailText}>
-                    <ThemedText style={[styles.streakDetailLabel, { color: theme.textSecondary }]}>
-                      Best Streak
-                    </ThemedText>
-                    <ThemedText style={styles.streakDetailValue}>
-                      {streakInfo.bestStreak} {item.goalFrequency === "daily" ? "days" : item.goalFrequency === "weekly" ? "weeks" : "months"}
-                    </ThemedText>
-                  </View>
-                </View>
-              </View>
 
               <View style={styles.chartSection}>
                 <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
@@ -284,21 +297,6 @@ export function HabitsList({ categoryId }: HabitsListProps) {
                     onBarPress={(dateKey, count) => handleBarPress(item, dateKey, count)}
                   />
                 </ScrollView>
-              </View>
-
-              <View style={styles.heatMapSection}>
-                <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
-                  Activity Heatmap
-                </ThemedText>
-                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-                  <HabitHeatMap
-                    habit={item}
-                    occurrences={getOccurrencesForItem(item.id, "habit")}
-                    weeks={viewMode === "year" ? 52 : viewMode === "month" ? 12 : 8}
-                    onDayPress={(date, count) => handleHeatMapDayPress(item, date, count)}
-                  />
-                </ScrollView>
-                <HeatMapLegend habitType={item.habitType} />
               </View>
 
               <View style={styles.actionButtons}>
@@ -324,20 +322,39 @@ export function HabitsList({ categoryId }: HabitsListProps) {
             </View>
           ) : null}
         </View>
-        <Pressable
-          style={[
-            styles.quickLogButton,
-            { backgroundColor: goalMet ? theme.success + "20" : theme.primary + "15" },
-          ]}
-          onPress={() => handleQuickLog(item)}
-          hitSlop={8}
-        >
-          <Feather
-            name="plus"
-            size={24}
-            color={goalMet ? theme.success : theme.primary}
-          />
-        </Pressable>
+        <View style={styles.logButtonsContainer}>
+          <Pressable
+            style={[
+              styles.quickLogButton,
+              { backgroundColor: goalMet ? theme.success + "20" : theme.primary + "15" },
+            ]}
+            onPress={() => handleQuickLog(item)}
+            hitSlop={8}
+          >
+            <Feather
+              name="plus"
+              size={24}
+              color={goalMet ? theme.success : theme.primary}
+            />
+          </Pressable>
+          {isExpanded ? (
+            <Pressable
+              style={[
+                styles.decrementButton,
+                { backgroundColor: periodCount > 0 ? theme.error + "15" : theme.border },
+              ]}
+              onPress={() => handleDecrement(item)}
+              disabled={periodCount === 0}
+              hitSlop={8}
+            >
+              <Feather
+                name="minus"
+                size={24}
+                color={periodCount > 0 ? theme.error : theme.textSecondary}
+              />
+            </Pressable>
+          ) : null}
+        </View>
       </Pressable>
     );
   };
@@ -681,5 +698,54 @@ const styles = StyleSheet.create({
   actionButtonText: {
     fontSize: 13,
     fontWeight: "600",
+  },
+  progressBarContainer: {
+    marginTop: Spacing.md,
+  },
+  progressBarBackground: {
+    height: 8,
+    borderRadius: 4,
+    overflow: "hidden",
+    position: "relative",
+  },
+  progressBarFill: {
+    height: "100%",
+    borderRadius: 4,
+  },
+  goalLine: {
+    position: "absolute",
+    top: -2,
+    bottom: -2,
+    width: 0,
+    borderRightWidth: 2,
+    borderStyle: "dashed",
+    marginLeft: -2,
+  },
+  progressLabel: {
+    fontSize: 12,
+    marginTop: Spacing.xs,
+  },
+  streakRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: Spacing.sm,
+    gap: 4,
+    flexWrap: "wrap",
+  },
+  streakRowText: {
+    fontSize: 12,
+  },
+  logButtonsContainer: {
+    width: 56,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  decrementButton: {
+    width: 44,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: BorderRadius.full,
+    marginTop: Spacing.xs,
   },
 });
