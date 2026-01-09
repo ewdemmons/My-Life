@@ -299,6 +299,25 @@ export function HabitsList({ categoryId }: HabitsListProps) {
                 </ScrollView>
               </View>
 
+              <View style={styles.heatMapSection}>
+                <ThemedText style={[styles.chartTitle, { color: theme.textSecondary }]}>
+                  Activity Heatmap
+                </ThemedText>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                  <HabitHeatMap
+                    habit={item}
+                    occurrences={getOccurrencesForItem(item.id, "habit")}
+                    weeks={viewMode === "year" ? 52 : viewMode === "month" ? 12 : 8}
+                    onDayPress={(date, count) => {
+                      setLogModalHabit(item);
+                      setLogModalDate(date);
+                      setShowLogModal(true);
+                    }}
+                  />
+                </ScrollView>
+                <HeatMapLegend habitType={item.habitType} />
+              </View>
+
               <View style={styles.actionButtons}>
                 <Pressable
                   style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
