@@ -570,19 +570,19 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   viewModeToggle: {
+    flex: 1,
     flexDirection: "row",
     borderRadius: BorderRadius.full,
     padding: 2,
   },
   viewModeBtn: {
     flex: 1,
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.sm,
+    paddingVertical: 6,
     alignItems: "center",
     borderRadius: BorderRadius.full,
   },
   viewModeBtnText: {
-    fontSize: 11,
+    fontSize: 10,
     fontWeight: "600",
   },
   chartSection: {
@@ -664,14 +664,15 @@ const styles = StyleSheet.create({
   addButtonSmall: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: Spacing.xs,
-    paddingHorizontal: Spacing.md,
+    paddingVertical: 6,
+    paddingHorizontal: Spacing.sm,
     borderRadius: BorderRadius.full,
-    gap: Spacing.xs,
+    gap: 4,
+    flexShrink: 0,
   },
   addButtonSmallText: {
     color: "#FFFFFF",
-    fontSize: 13,
+    fontSize: 11,
     fontWeight: "600",
   },
   countsRow: {
