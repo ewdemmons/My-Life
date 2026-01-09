@@ -78,6 +78,7 @@ export default function CategoryDetailScreen() {
   });
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
   const [selectedDate, setSelectedDate] = useState<string | null>(null);
+  const [calendarViewMode, setCalendarViewMode] = useState<"upcoming" | "day" | "week" | "month">("upcoming");
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showRecurringModal, setShowRecurringModal] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
@@ -316,91 +317,249 @@ export default function CategoryDetailScreen() {
     </>
   );
 
-  const renderCalendarTab = () => (
-    <ScrollView
-      style={styles.calendarContainer}
-      contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xl }}
-    >
-      <Calendar
-        theme={{
-          backgroundColor: theme.backgroundRoot,
-          calendarBackground: theme.backgroundRoot,
-          textSectionTitleColor: theme.textSecondary,
-          selectedDayBackgroundColor: category.color,
-          selectedDayTextColor: "#FFFFFF",
-          todayTextColor: category.color,
-          dayTextColor: theme.text,
-          textDisabledColor: theme.textSecondary,
-          monthTextColor: theme.text,
-          arrowColor: category.color,
-        }}
-        markedDates={markedDates}
-        onDayPress={(day: { dateString: string }) => {
-          setSelectedDate(selectedDate === day.dateString ? null : day.dateString);
-        }}
-      />
-      {selectedDate ? (
-        <View style={styles.selectedDateSection}>
-          <ThemedText style={styles.selectedDateTitle}>Events for {selectedDate}</ThemedText>
-          {categoryEvents.filter(e => e.startDate === selectedDate).length > 0 ? (
-            <View style={styles.eventsList}>
-              {categoryEvents.filter(e => e.startDate === selectedDate).map(event => {
-                const eventTypeInfo = getEventTypeInfo(event.eventType);
-                const isTimedEvent = event.eventType === "appointment" || event.eventType === "meeting";
-                return (
-                  <Pressable 
-                    key={event.id} 
-                    style={[styles.eventCard, { backgroundColor: theme.backgroundDefault }]}
-                    onPress={() => handleEventPress(event)}
-                  >
-                    <View style={[styles.eventTimeBar, { backgroundColor: eventTypeInfo.color }]} />
-                    <View style={styles.eventCardContent}>
-                      <View style={styles.eventHeader}>
-                        <View style={styles.eventBadgeRow}>
-                          <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
-                            <Feather name={eventTypeInfo.icon as any} size={12} color={eventTypeInfo.color} />
-                            <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
-                              {eventTypeInfo.label}
-                            </ThemedText>
-                          </View>
-                          {isRecurringEvent(event) ? (
-                            <View style={[styles.repeatBadge, { backgroundColor: theme.success + "20" }]}>
-                              <Feather name="repeat" size={10} color={theme.success} />
-                            </View>
-                          ) : null}
-                        </View>
-                        {isTimedEvent ? (
-                          <ThemedText style={[styles.eventTimeText, { color: theme.textSecondary }]}>
-                            {formatTime(event.startTime)} - {formatTime(event.endTime)}
-                          </ThemedText>
-                        ) : (
-                          <ThemedText style={[styles.eventTimeText, { color: theme.textSecondary }]}>
-                            {formatTime(event.startTime)}
-                          </ThemedText>
-                        )}
-                      </View>
-                      <ThemedText style={styles.eventCardTitle} numberOfLines={1}>
-                        {event.title}
-                      </ThemedText>
-                      {event.description ? (
-                        <ThemedText style={[styles.eventDescription, { color: theme.textSecondary }]} numberOfLines={2}>
-                          {event.description}
-                        </ThemedText>
-                      ) : null}
-                    </View>
-                  </Pressable>
-                );
-              })}
-            </View>
-          ) : (
-            <ThemedText style={[styles.noEventsText, { color: theme.textSecondary }]}>
-              No events scheduled for this date
-            </ThemedText>
-          )}
-        </View>
-      ) : null}
-    </ScrollView>
+  const now = new Date();
+  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+
+  const getStartOfWeek = (dateStr: string) => {
+    const date = new Date(dateStr + "T00:00:00");
+    const day = date.getDay();
+    const diff = date.getDate() - day;
+    const startOfWeek = new Date(date.setDate(diff));
+    return `${startOfWeek.getFullYear()}-${String(startOfWeek.getMonth() + 1).padStart(2, "0")}-${String(startOfWeek.getDate()).padStart(2, "0")}`;
+  };
+
+  const getEndOfWeek = (dateStr: string) => {
+    const date = new Date(dateStr + "T00:00:00");
+    const day = date.getDay();
+    const diff = date.getDate() + (6 - day);
+    const endOfWeek = new Date(date.setDate(diff));
+    return `${endOfWeek.getFullYear()}-${String(endOfWeek.getMonth() + 1).padStart(2, "0")}-${String(endOfWeek.getDate()).padStart(2, "0")}`;
+  };
+
+  const upcomingEvents = useMemo(() => 
+    categoryEvents
+      .filter((e) => e.startDate >= today)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.startTime.localeCompare(b.startTime)),
+    [categoryEvents, today]
   );
+
+  const selectedDayEvents = useMemo(() =>
+    categoryEvents
+      .filter((e) => e.startDate === (selectedDate || today))
+      .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+    [categoryEvents, selectedDate, today]
+  );
+
+  const selectedWeekEvents = useMemo(() => {
+    const dateToUse = selectedDate || today;
+    const weekStart = getStartOfWeek(dateToUse);
+    const weekEnd = getEndOfWeek(dateToUse);
+    return categoryEvents
+      .filter((e) => e.startDate >= weekStart && e.startDate <= weekEnd)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.startTime.localeCompare(b.startTime));
+  }, [categoryEvents, selectedDate, today]);
+
+  const calendarDisplayedEvents = useMemo(() => {
+    switch (calendarViewMode) {
+      case "upcoming": return upcomingEvents;
+      case "day": return selectedDayEvents;
+      case "week": return selectedWeekEvents;
+      case "month": return selectedDayEvents;
+      default: return [];
+    }
+  }, [calendarViewMode, upcomingEvents, selectedDayEvents, selectedWeekEvents]);
+
+  const formatDateHeader = (dateStr: string) => {
+    const date = new Date(dateStr + "T00:00:00");
+    const options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
+    return date.toLocaleDateString("en-US", options);
+  };
+
+  const navigateCalendarPeriod = (direction: "prev" | "next") => {
+    const dateToUse = selectedDate || today;
+    const date = new Date(dateToUse + "T00:00:00");
+    if (calendarViewMode === "day") {
+      date.setDate(date.getDate() + (direction === "next" ? 1 : -1));
+    } else if (calendarViewMode === "week") {
+      date.setDate(date.getDate() + (direction === "next" ? 7 : -7));
+    } else if (calendarViewMode === "month") {
+      date.setMonth(date.getMonth() + (direction === "next" ? 1 : -1));
+    }
+    const newDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+    setSelectedDate(newDate);
+  };
+
+  const goToToday = () => {
+    setSelectedDate(today);
+  };
+
+  const renderCalendarEventCard = (event: CalendarEvent, showDate: boolean = false) => {
+    const eventTypeInfo = getEventTypeInfo(event.eventType);
+    const isTimedEvent = event.eventType === "appointment" || event.eventType === "meeting";
+    return (
+      <Pressable 
+        key={event.id} 
+        style={[styles.calEventCard, { backgroundColor: theme.backgroundDefault, borderLeftColor: category.color }]}
+        onPress={() => handleEventPress(event)}
+      >
+        <View style={styles.calEventCardHeader}>
+          <View style={styles.eventBadgeRow}>
+            <View style={[styles.eventTypeBadge, { backgroundColor: eventTypeInfo.color + "20" }]}>
+              <Feather name={eventTypeInfo.icon as any} size={14} color={eventTypeInfo.color} />
+              <ThemedText style={[styles.eventTypeText, { color: eventTypeInfo.color }]}>
+                {eventTypeInfo.label}
+              </ThemedText>
+            </View>
+            {isRecurringEvent(event) ? (
+              <View style={[styles.repeatBadge, { backgroundColor: theme.success + "20" }]}>
+                <Feather name="repeat" size={12} color={theme.success} />
+              </View>
+            ) : null}
+          </View>
+          <View style={styles.calEventTimeContainer}>
+            {showDate ? (
+              <ThemedText style={[styles.calEventDate, { color: theme.textSecondary }]}>
+                {formatDateHeader(event.startDate)}
+              </ThemedText>
+            ) : null}
+            <ThemedText style={[styles.eventTimeText, { color: theme.textSecondary }]}>
+              {isTimedEvent ? `${formatTime(event.startTime)} - ${formatTime(event.endTime)}` : formatTime(event.startTime)}
+            </ThemedText>
+          </View>
+        </View>
+        <ThemedText style={styles.calEventCardTitle} numberOfLines={2}>
+          {event.title}
+        </ThemedText>
+        {event.description ? (
+          <ThemedText style={[styles.calEventCardNotes, { color: theme.textSecondary }]} numberOfLines={2}>
+            {event.description}
+          </ThemedText>
+        ) : null}
+      </Pressable>
+    );
+  };
+
+  const renderCalendarTab = () => {
+    const showCalendarGrid = calendarViewMode === "month" || calendarViewMode === "week";
+    const showDateInCards = calendarViewMode === "upcoming" || calendarViewMode === "week";
+    
+    return (
+      <View style={styles.calendarContainer}>
+        <View style={styles.calViewToggleContainer}>
+          <View style={[styles.calViewToggle, { backgroundColor: theme.backgroundDefault }]}>
+            {(["upcoming", "day", "week", "month"] as const).map((mode) => (
+              <Pressable
+                key={mode}
+                style={[
+                  styles.calViewToggleBtn,
+                  calendarViewMode === mode && { backgroundColor: category.color },
+                ]}
+                onPress={() => setCalendarViewMode(mode)}
+              >
+                <ThemedText
+                  style={[
+                    styles.calViewToggleBtnText,
+                    { color: calendarViewMode === mode ? "#FFFFFF" : theme.textSecondary },
+                  ]}
+                >
+                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                </ThemedText>
+              </Pressable>
+            ))}
+          </View>
+        </View>
+
+        {calendarViewMode !== "upcoming" ? (
+          <View style={styles.calNavRow}>
+            <Pressable
+              style={[styles.calNavButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => navigateCalendarPeriod("prev")}
+            >
+              <Feather name="chevron-left" size={20} color={theme.text} />
+            </Pressable>
+            <ThemedText style={styles.calNavTitle} numberOfLines={1}>
+              {calendarViewMode === "day" 
+                ? formatDateHeader(selectedDate || today)
+                : calendarViewMode === "week"
+                  ? `${formatDateHeader(getStartOfWeek(selectedDate || today))} - ${formatDateHeader(getEndOfWeek(selectedDate || today))}`
+                  : new Date((selectedDate || today) + "T00:00:00").toLocaleDateString("en-US", { month: "long", year: "numeric" })}
+            </ThemedText>
+            <Pressable
+              style={[styles.calNavButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => navigateCalendarPeriod("next")}
+            >
+              <Feather name="chevron-right" size={20} color={theme.text} />
+            </Pressable>
+            <Pressable
+              style={[styles.calTodayButton, { backgroundColor: category.color }]}
+              onPress={goToToday}
+            >
+              <ThemedText style={styles.calTodayButtonText}>Today</ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
+
+        {showCalendarGrid ? (
+          <Calendar
+            current={selectedDate || today}
+            theme={{
+              backgroundColor: theme.backgroundRoot,
+              calendarBackground: theme.backgroundRoot,
+              textSectionTitleColor: theme.textSecondary,
+              selectedDayBackgroundColor: category.color,
+              selectedDayTextColor: "#FFFFFF",
+              todayTextColor: category.color,
+              dayTextColor: theme.text,
+              textDisabledColor: theme.textSecondary,
+              monthTextColor: theme.text,
+              arrowColor: category.color,
+            }}
+            markedDates={markedDates}
+            onDayPress={(day: { dateString: string }) => {
+              setSelectedDate(day.dateString);
+            }}
+            hideArrows={true}
+            style={styles.calCompactCalendar}
+          />
+        ) : null}
+
+        <View style={[styles.calEventListHeader, { borderTopColor: theme.border }, !showCalendarGrid && { borderTopWidth: 0 }]}>
+          <ThemedText style={styles.calEventListTitle}>
+            {calendarDisplayedEvents.length} event{calendarDisplayedEvents.length !== 1 ? "s" : ""}
+          </ThemedText>
+        </View>
+
+        <FlatList
+          data={calendarDisplayedEvents}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => renderCalendarEventCard(item, showDateInCards)}
+          contentContainerStyle={{
+            paddingHorizontal: Spacing.lg,
+            paddingBottom: insets.bottom + Spacing.xl,
+            flexGrow: 1,
+          }}
+          ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
+          ListEmptyComponent={
+            <View style={styles.calEmptyContainer}>
+              <Feather name="calendar" size={48} color={theme.textSecondary} />
+              <ThemedText style={[styles.calEmptyText, { color: theme.textSecondary }]}>
+                {calendarViewMode === "upcoming" 
+                  ? "No upcoming events scheduled" 
+                  : `No events for this ${calendarViewMode}`}
+              </ThemedText>
+              <Pressable
+                style={[styles.calAddButton, { backgroundColor: category.color }]}
+                onPress={handleAddEvent}
+              >
+                <Feather name="plus" size={16} color="#FFFFFF" />
+                <ThemedText style={styles.calAddButtonText}>Add Event</ThemedText>
+              </Pressable>
+            </View>
+          }
+        />
+      </View>
+    );
+  };
 
   const renderDashboardTab = () => (
     <ScrollView
@@ -1140,5 +1299,120 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: Spacing.md,
     fontSize: 14,
+  },
+  calViewToggleContainer: {
+    paddingVertical: Spacing.md,
+  },
+  calViewToggle: {
+    flexDirection: "row",
+    borderRadius: BorderRadius.sm,
+    padding: 4,
+  },
+  calViewToggleBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    alignItems: "center",
+    borderRadius: BorderRadius.xs,
+  },
+  calViewToggleBtnText: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  calNavRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  calNavButton: {
+    width: 36,
+    height: 36,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  calNavTitle: {
+    flex: 1,
+    fontSize: 16,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  calTodayButton: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+  },
+  calTodayButtonText: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  calCompactCalendar: {
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.md,
+  },
+  calEventListHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Spacing.md,
+    borderTopWidth: 1,
+    marginBottom: Spacing.sm,
+  },
+  calEventListTitle: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  calEventCard: {
+    borderRadius: BorderRadius.sm,
+    padding: Spacing.md,
+    borderLeftWidth: 4,
+  },
+  calEventCardHeader: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    justifyContent: "space-between",
+    marginBottom: Spacing.sm,
+  },
+  calEventTimeContainer: {
+    alignItems: "flex-end",
+  },
+  calEventDate: {
+    fontSize: 11,
+    marginBottom: 2,
+  },
+  calEventCardTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: Spacing.xs,
+  },
+  calEventCardNotes: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  calEmptyContainer: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: Spacing.xxl,
+    gap: Spacing.md,
+  },
+  calEmptyText: {
+    fontSize: 14,
+    textAlign: "center",
+  },
+  calAddButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.full,
+    marginTop: Spacing.md,
+  },
+  calAddButtonText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "600",
   },
 });
