@@ -11,7 +11,6 @@ import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, Occurrence } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { HabitProgressChart } from "@/components/HabitProgressChart";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
-import { calculateStreak } from "@/utils/habitStreaks";
 
 interface HabitsListProps {
   categoryId: string;
@@ -113,11 +112,6 @@ export function HabitsList({ categoryId }: HabitsListProps) {
       case "monthly": return "This Month";
       default: return "Today";
     }
-  };
-
-  const getStreakInfo = (habit: Habit) => {
-    const occurrences = getOccurrencesForItem(habit.id, "habit");
-    return calculateStreak(occurrences, habit.goalFrequency, habit.goalCount);
   };
 
   const getOccurrenceCounts = (habit: Habit) => {
@@ -494,18 +488,6 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     flex: 1,
   },
-  streakBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-    gap: 2,
-  },
-  streakText: {
-    fontSize: 12,
-    fontWeight: "700",
-  },
   badges: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -532,76 +514,12 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: "500",
   },
-  habitDescription: {
-    fontSize: 13,
-    marginTop: Spacing.xs,
-  },
-  weeklyDotsContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginTop: Spacing.sm,
-    paddingHorizontal: Spacing.xs,
-  },
-  dayDotWrapper: {
-    alignItems: "center",
-    gap: 2,
-  },
-  weeklyDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-  },
-  dayLabel: {
-    fontSize: 9,
-    fontWeight: "500",
-  },
-  progressRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: Spacing.sm,
-    gap: Spacing.sm,
-  },
-  progressText: {
-    fontSize: 12,
-  },
-  goalMetBadge: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: Spacing.sm,
-    paddingVertical: 2,
-    borderRadius: BorderRadius.full,
-    gap: 4,
-  },
-  goalMetText: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
   expandedContent: {
     marginTop: Spacing.sm,
   },
   divider: {
     height: 1,
     marginVertical: Spacing.sm,
-  },
-  streakDetailsRow: {
-    flexDirection: "row",
-    gap: Spacing.lg,
-  },
-  streakDetail: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.sm,
-  },
-  streakDetailText: {
-    gap: 2,
-  },
-  streakDetailLabel: {
-    fontSize: 11,
-  },
-  streakDetailValue: {
-    fontSize: 14,
-    fontWeight: "600",
   },
   editButton: {
     flexDirection: "row",
@@ -647,28 +565,6 @@ const styles = StyleSheet.create({
     color: "#FFFFFF",
     fontSize: 14,
     fontWeight: "600",
-  },
-  addButtonContainer: {
-    position: "absolute",
-    left: Spacing.lg,
-    right: Spacing.lg,
-  },
-  addButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.md,
-    borderRadius: BorderRadius.md,
-    gap: Spacing.sm,
-  },
-  addButtonText: {
-    color: "#FFFFFF",
-    fontSize: 16,
-    fontWeight: "600",
-  },
-  toggleContainer: {
-    paddingHorizontal: Spacing.lg,
-    marginBottom: Spacing.md,
   },
   viewModeToggle: {
     flexDirection: "row",
@@ -738,16 +634,6 @@ const styles = StyleSheet.create({
   progressLabel: {
     fontSize: 12,
     marginTop: Spacing.xs,
-  },
-  streakRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginTop: Spacing.sm,
-    gap: 4,
-    flexWrap: "wrap",
-  },
-  streakRowText: {
-    fontSize: 12,
   },
   logButtonsContainer: {
     width: 56,
