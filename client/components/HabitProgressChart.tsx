@@ -116,12 +116,13 @@ export function HabitProgressChart({
     return Math.max(maxCount, maxGoal) * 1.2;
   }, [chartData]);
 
-  const chartWidth = viewMode === "year" ? 320 : 280;
   const chartHeight = 120;
-  const barWidth = viewMode === "year" ? 18 : viewMode === "month" ? 50 : 32;
-  const barSpacing = viewMode === "year" ? 8 : viewMode === "month" ? 16 : 8;
-  const paddingLeft = 30;
+  const barWidth = viewMode === "year" ? 16 : viewMode === "month" ? 45 : 28;
+  const barSpacing = viewMode === "year" ? 6 : viewMode === "month" ? 12 : 6;
+  const paddingLeft = 28;
   const paddingBottom = 24;
+  const numBars = chartData.length;
+  const chartWidth = paddingLeft + numBars * barWidth + (numBars - 1) * barSpacing + 8;
 
   const isPositive = habit.habitType === "positive";
   
@@ -202,7 +203,7 @@ function parseLocalDate(dateStr: string): Date {
 
 const styles = StyleSheet.create({
   container: {
-    alignItems: "center",
+    alignItems: "flex-start",
     paddingVertical: Spacing.sm,
   },
 });
