@@ -8,6 +8,7 @@ import AddCategoryScreen from "@/screens/AddCategoryScreen";
 import AddTaskScreen from "@/screens/AddTaskScreen";
 import NotificationsScreen from "@/screens/NotificationsScreen";
 import CentralDashboardScreen from "@/screens/CentralDashboardScreen";
+import ProfileScreen from "@/screens/ProfileScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -20,6 +21,7 @@ export type RootStackParamList = {
   AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
   Notifications: undefined;
   CentralDashboard: undefined;
+  Profile: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -67,6 +69,13 @@ function MainAppNavigator() {
         component={CentralDashboardScreen}
         options={{
           headerTitle: "Dashboard",
+        }}
+      />
+      <Stack.Screen
+        name="Profile"
+        component={ProfileScreen}
+        options={{
+          headerTitle: "Profile",
         }}
       />
     </Stack.Navigator>

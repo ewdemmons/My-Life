@@ -87,9 +87,17 @@ export default function HomeScreen() {
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
       <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
-        <View style={styles.titleRow}>
-          <Image source={appIcon} style={styles.appIcon} />
-          <ThemedText style={styles.appTitle}>My Life</ThemedText>
+        <View style={styles.headerRow}>
+          <View style={styles.titleRow}>
+            <Image source={appIcon} style={styles.appIcon} />
+            <ThemedText style={styles.appTitle}>My Life</ThemedText>
+          </View>
+          <Pressable
+            style={[styles.profileButton, { backgroundColor: theme.backgroundDefault }]}
+            onPress={() => navigation.navigate("Profile")}
+          >
+            <Feather name="user" size={20} color={theme.text} />
+          </Pressable>
         </View>
       </View>
 
@@ -200,10 +208,22 @@ const styles = StyleSheet.create({
   header: {
     paddingHorizontal: Spacing.lg,
   },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
   titleRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
+  },
+  profileButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
   },
   appIcon: {
     width: 36,

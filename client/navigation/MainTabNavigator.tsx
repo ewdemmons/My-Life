@@ -9,21 +9,23 @@ import HomeScreen from "@/screens/HomeScreen";
 import TasksScreen from "@/screens/TasksScreen";
 import CalendarScreen from "@/screens/CalendarScreen";
 import PeopleScreen from "@/screens/PeopleScreen";
-import ProfileScreen from "@/screens/ProfileScreen";
+import HabitsScreen from "@/screens/HabitsScreen";
 import { FAB } from "@/components/FAB";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { AddPersonModal } from "@/components/AddPersonModal";
+import { AddHabitModal } from "@/components/AddHabitModal";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useTheme } from "@/hooks/useTheme";
 import { HeaderTitle } from "@/components/HeaderTitle";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { useApp } from "@/context/AppContext";
 
 export type MainTabParamList = {
   HomeTab: undefined;
   TasksTab: undefined;
   CalendarTab: undefined;
   PeopleTab: undefined;
-  ProfileTab: undefined;
+  HabitsTab: undefined;
 };
 
 const Tab = createBottomTabNavigator<MainTabParamList>();
@@ -31,8 +33,10 @@ const Tab = createBottomTabNavigator<MainTabParamList>();
 export default function MainTabNavigator() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { categories } = useApp();
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showAddPersonModal, setShowAddPersonModal] = useState(false);
+  const [showAddHabitModal, setShowAddHabitModal] = useState(false);
 
   const handleAddCategory = () => {
     navigation.navigate("AddCategory", {});
@@ -48,6 +52,10 @@ export default function MainTabNavigator() {
 
   const handleAddPerson = () => {
     setShowAddPersonModal(true);
+  };
+
+  const handleAddHabit = () => {
+    setShowAddHabitModal(true);
   };
 
   return (
@@ -132,13 +140,13 @@ export default function MainTabNavigator() {
           }}
         />
         <Tab.Screen
-          name="ProfileTab"
-          component={ProfileScreen}
+          name="HabitsTab"
+          component={HabitsScreen}
           options={{
-            title: "Profile",
-            headerTitle: "Profile",
+            title: "Habits",
+            headerTitle: "Habits",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="user" size={size} color={color} />
+              <Feather name="activity" size={size} color={color} />
             ),
           }}
         />
@@ -148,6 +156,7 @@ export default function MainTabNavigator() {
         onAddTask={handleAddTask} 
         onAddEvent={handleAddEvent}
         onAddPerson={handleAddPerson}
+        onAddHabit={handleAddHabit}
       />
       <SchedulingModal
         visible={showSchedulingModal}
@@ -157,6 +166,13 @@ export default function MainTabNavigator() {
         visible={showAddPersonModal}
         onClose={() => setShowAddPersonModal(false)}
       />
+      {categories.length > 0 ? (
+        <AddHabitModal
+          visible={showAddHabitModal}
+          onClose={() => setShowAddHabitModal(false)}
+          categoryId={categories[0].id}
+        />
+      ) : null}
     </View>
   );
 }

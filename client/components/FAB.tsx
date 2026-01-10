@@ -19,11 +19,12 @@ interface FABProps {
   onAddTask: () => void;
   onAddEvent?: () => void;
   onAddPerson?: () => void;
+  onAddHabit?: () => void;
 }
 
 const TAB_BAR_HEIGHT = Platform.select({ ios: 49, android: 56, default: 50 });
 
-export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson }: FABProps) {
+export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson, onAddHabit }: FABProps) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [isOpen, setIsOpen] = useState(false);
@@ -68,6 +69,13 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson }: FABPr
     setIsOpen(false);
     if (onAddPerson) {
       onAddPerson();
+    }
+  };
+
+  const handleAddHabit = () => {
+    setIsOpen(false);
+    if (onAddHabit) {
+      onAddHabit();
     }
   };
 
@@ -182,6 +190,28 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson }: FABPr
                       <ThemedText style={styles.menuTitle}>Add Person</ThemedText>
                       <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
                         Add someone to your contacts
+                      </ThemedText>
+                    </View>
+                  </Pressable>
+                </>
+              ) : null}
+              {onAddHabit ? (
+                <>
+                  <View style={[styles.separator, { backgroundColor: theme.border }]} />
+                  <Pressable
+                    style={({ pressed }) => [
+                      styles.menuItem,
+                      pressed && { opacity: 0.7 },
+                    ]}
+                    onPress={handleAddHabit}
+                  >
+                    <View style={[styles.menuIcon, { backgroundColor: "#8B5CF6" + "20" }]}>
+                      <Feather name="activity" size={20} color="#8B5CF6" />
+                    </View>
+                    <View style={styles.menuTextContainer}>
+                      <ThemedText style={styles.menuTitle}>Add Habit</ThemedText>
+                      <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
+                        Track a new habit
                       </ThemedText>
                     </View>
                   </Pressable>
