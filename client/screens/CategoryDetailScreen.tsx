@@ -183,9 +183,6 @@ export default function CategoryDetailScreen() {
           <HeaderButton onPress={() => setShowBubbleShareModal(true)}>
             <Feather name="user-plus" size={20} color={theme.primary} />
           </HeaderButton>
-          <HeaderButton onPress={() => setShowShareModal(true)}>
-            <Feather name="users" size={20} color={theme.primary} />
-          </HeaderButton>
           <HeaderButton onPress={() => navigation.navigate("AddCategory", { category })}>
             <Feather name="edit-2" size={20} color={theme.primary} />
           </HeaderButton>
