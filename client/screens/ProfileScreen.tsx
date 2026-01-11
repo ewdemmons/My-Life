@@ -2,7 +2,6 @@ import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Alert, ScrollView, Switch, Platform } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
@@ -20,7 +19,7 @@ const RECYCLE_BIN_RETENTION_DAYS = 30;
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const tabBarHeight = useBottomTabBarHeight();
+  const bottomPadding = insets.bottom + Spacing.xl;
   const { theme, isDark } = useTheme();
   const { categories, tasks, recycleBin, restoreFromRecycleBin, permanentlyDelete, emptyRecycleBin, clearAllData, refreshData } = useApp();
   const { user, signOut } = useAuth();
@@ -190,7 +189,7 @@ export default function ProfileScreen() {
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
         paddingTop: headerHeight + Spacing.xl,
-        paddingBottom: tabBarHeight + Spacing.xl,
+        paddingBottom: bottomPadding,
         paddingHorizontal: Spacing.lg,
       }}
       scrollIndicatorInsets={{ bottom: insets.bottom }}
