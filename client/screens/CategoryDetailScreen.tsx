@@ -1,5 +1,5 @@
 import React, { useState, useLayoutEffect, useMemo, useCallback } from "react";
-import { View, StyleSheet, Pressable, ScrollView, FlatList, ActivityIndicator, Text } from "react-native";
+import { View, StyleSheet, Pressable, ScrollView, FlatList, ActivityIndicator, Text, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
@@ -9,6 +9,7 @@ import { Feather } from "@expo/vector-icons";
 import { Calendar } from "react-native-calendars";
 import { Image } from "expo-image";
 import Animated, { FadeIn, FadeOut } from "react-native-reanimated";
+import { BlurView } from "expo-blur";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -22,6 +23,7 @@ import { SharePeopleModal } from "@/components/SharePeopleModal";
 import { AddPersonModal } from "@/components/AddPersonModal";
 import { BubbleShareModal } from "@/components/BubbleShareModal";
 import { HabitsList } from "@/components/HabitsList";
+import { AddHabitModal } from "@/components/AddHabitModal";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task, Habit } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 
@@ -84,6 +86,8 @@ export default function CategoryDetailScreen() {
   const [showShareModal, setShowShareModal] = useState(false);
   const [showBubbleShareModal, setShowBubbleShareModal] = useState(false);
   const [showAddPersonModal, setShowAddPersonModal] = useState(false);
+  const [showAddHabitModal, setShowAddHabitModal] = useState(false);
+  const [showActionMenu, setShowActionMenu] = useState(false);
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editingAsInstance, setEditingAsInstance] = useState(false);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
@@ -820,29 +824,13 @@ export default function CategoryDetailScreen() {
               ) : null}
             </View>
           </View>
-          <View style={styles.headerActions}>
-            <Pressable
-              style={[styles.headerActionBtn, { backgroundColor: category.color }]}
-              onPress={() => navigation.navigate("AddTask", { categoryId: category.id })}
-              hitSlop={8}
-            >
-              <Feather name="plus" size={16} color="#FFFFFF" />
-            </Pressable>
-            <Pressable
-              style={[styles.headerActionBtn, { backgroundColor: theme.success }]}
-              onPress={handleAddEvent}
-              hitSlop={8}
-            >
-              <Feather name="calendar" size={16} color="#FFFFFF" />
-            </Pressable>
-            <Pressable
-              style={[styles.headerActionBtn, { backgroundColor: theme.primary }]}
-              onPress={() => setShowAddPersonModal(true)}
-              hitSlop={8}
-            >
-              <Feather name="user-plus" size={16} color="#FFFFFF" />
-            </Pressable>
-          </View>
+          <Pressable
+            style={[styles.headerAddBtn, { backgroundColor: category.color }]}
+            onPress={() => setShowActionMenu(true)}
+            hitSlop={8}
+          >
+            <Feather name="plus" size={22} color="#FFFFFF" />
+          </Pressable>
         </View>
       </View>
 
@@ -923,6 +911,119 @@ export default function CategoryDetailScreen() {
         onClose={() => setShowAddPersonModal(false)}
         preSelectedCategoryId={category.id}
       />
+
+      <AddHabitModal
+        visible={showAddHabitModal}
+        onClose={() => setShowAddHabitModal(false)}
+        categoryId={category.id}
+      />
+
+      <Modal
+        visible={showActionMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowActionMenu(false)}
+      >
+        <Pressable
+          style={styles.actionMenuOverlay}
+          onPress={() => setShowActionMenu(false)}
+        >
+          <View style={styles.actionMenuContainer}>
+            <BlurView
+              intensity={80}
+              tint={isDark ? "dark" : "light"}
+              style={[
+                styles.actionMenu,
+                { backgroundColor: isDark ? "rgba(26,26,26,0.9)" : "rgba(255,255,255,0.9)" },
+              ]}
+            >
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionMenuItem,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => {
+                  setShowActionMenu(false);
+                  navigation.navigate("AddTask", { categoryId: category.id });
+                }}
+              >
+                <View style={[styles.actionMenuIcon, { backgroundColor: theme.secondary + "20" }]}>
+                  <Feather name="check-square" size={20} color={theme.secondary} />
+                </View>
+                <View style={styles.actionMenuTextContainer}>
+                  <ThemedText style={styles.actionMenuTitle}>Add Task</ThemedText>
+                  <ThemedText style={[styles.actionMenuSubtitle, { color: theme.textSecondary }]}>
+                    Create a new task
+                  </ThemedText>
+                </View>
+              </Pressable>
+              <View style={[styles.actionMenuSeparator, { backgroundColor: theme.border }]} />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionMenuItem,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => {
+                  setShowActionMenu(false);
+                  handleAddEvent();
+                }}
+              >
+                <View style={[styles.actionMenuIcon, { backgroundColor: theme.success + "20" }]}>
+                  <Feather name="calendar" size={20} color={theme.success} />
+                </View>
+                <View style={styles.actionMenuTextContainer}>
+                  <ThemedText style={styles.actionMenuTitle}>Schedule Event</ThemedText>
+                  <ThemedText style={[styles.actionMenuSubtitle, { color: theme.textSecondary }]}>
+                    Add to your calendar
+                  </ThemedText>
+                </View>
+              </Pressable>
+              <View style={[styles.actionMenuSeparator, { backgroundColor: theme.border }]} />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionMenuItem,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => {
+                  setShowActionMenu(false);
+                  setShowAddPersonModal(true);
+                }}
+              >
+                <View style={[styles.actionMenuIcon, { backgroundColor: "#F472B6" + "20" }]}>
+                  <Feather name="user-plus" size={20} color="#F472B6" />
+                </View>
+                <View style={styles.actionMenuTextContainer}>
+                  <ThemedText style={styles.actionMenuTitle}>Add Person</ThemedText>
+                  <ThemedText style={[styles.actionMenuSubtitle, { color: theme.textSecondary }]}>
+                    Add someone to your contacts
+                  </ThemedText>
+                </View>
+              </Pressable>
+              <View style={[styles.actionMenuSeparator, { backgroundColor: theme.border }]} />
+              <Pressable
+                style={({ pressed }) => [
+                  styles.actionMenuItem,
+                  pressed && { opacity: 0.7 },
+                ]}
+                onPress={() => {
+                  setShowActionMenu(false);
+                  setShowAddHabitModal(true);
+                }}
+              >
+                <View style={[styles.actionMenuIcon, { backgroundColor: "#8B5CF6" + "20" }]}>
+                  <Feather name="activity" size={20} color="#8B5CF6" />
+                </View>
+                <View style={styles.actionMenuTextContainer}>
+                  <ThemedText style={styles.actionMenuTitle}>Add Habit</ThemedText>
+                  <ThemedText style={[styles.actionMenuSubtitle, { color: theme.textSecondary }]}>
+                    Track a new habit
+                  </ThemedText>
+                </View>
+              </Pressable>
+            </BlurView>
+          </View>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -971,6 +1072,55 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     alignItems: "center",
     justifyContent: "center",
+  },
+  headerAddBtn: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionMenuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.4)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  actionMenuContainer: {
+    width: "80%",
+    maxWidth: 320,
+  },
+  actionMenu: {
+    borderRadius: BorderRadius.md,
+    overflow: "hidden",
+  },
+  actionMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing.lg,
+  },
+  actionMenuIcon: {
+    width: 44,
+    height: 44,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.md,
+  },
+  actionMenuTextContainer: {
+    flex: 1,
+  },
+  actionMenuTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: 2,
+  },
+  actionMenuSubtitle: {
+    fontSize: 13,
+  },
+  actionMenuSeparator: {
+    height: 1,
+    marginHorizontal: Spacing.lg,
   },
   tabBar: {
     flexDirection: "row",
