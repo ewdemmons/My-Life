@@ -677,15 +677,11 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     <View style={styles.priorityIcon}>
                       <Feather name="alert-circle" size={16} color={theme.error} />
                     </View>
-                  ) : task.priority === "medium" ? (
+                  ) : task.priority === "low" ? (
                     <View style={styles.priorityIcon}>
-                      <Feather name="minus" size={16} color={theme.warning} />
+                      <Feather name="arrow-down-circle" size={16} color={theme.success} />
                     </View>
-                  ) : (
-                    <View style={styles.priorityIcon}>
-                      <Feather name="circle" size={16} color={theme.success} />
-                    </View>
-                  )}
+                  ) : null}
 
                   {linkedEventType === "reminder" ? (
                     <View style={styles.scheduleIcon}>
