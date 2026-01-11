@@ -92,12 +92,20 @@ export default function HomeScreen() {
             <Image source={appIcon} style={styles.appIcon} />
             <ThemedText style={styles.appTitle}>My Life</ThemedText>
           </View>
-          <Pressable
-            style={[styles.profileButton, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => navigation.navigate("Profile")}
-          >
-            <Feather name="user" size={20} color={theme.text} />
-          </Pressable>
+          <View style={styles.headerButtons}>
+            <Pressable
+              style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => navigation.navigate("Notifications")}
+            >
+              <Feather name="bell" size={20} color={theme.text} />
+            </Pressable>
+            <Pressable
+              style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => navigation.navigate("Profile")}
+            >
+              <Feather name="user" size={20} color={theme.text} />
+            </Pressable>
+          </View>
         </View>
       </View>
 
@@ -218,7 +226,12 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.sm,
   },
-  profileButton: {
+  headerButtons: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  headerButton: {
     width: 40,
     height: 40,
     borderRadius: 20,
