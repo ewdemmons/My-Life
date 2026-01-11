@@ -701,6 +701,18 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     </View>
                   ) : null}
 
+                  {task.isPinned ? (
+                    <View style={styles.scheduleIcon}>
+                      <Feather name="star" size={16} color="#F59E0B" />
+                    </View>
+                  ) : null}
+
+                  {linkedHabit ? (
+                    <View style={styles.scheduleIcon}>
+                      <Feather name="activity" size={16} color="#22C55E" />
+                    </View>
+                  ) : null}
+
                   {task.assigneeIds && task.assigneeIds.length > 0 ? (
                     <View style={styles.assigneesContainer}>
                       <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
@@ -788,7 +800,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     onPress={handleAddSubtask}
                   >
                     <Feather name="plus" size={14} color={typeColor} />
-                    <ThemedText style={[styles.actionText, { color: typeColor }]}>+ Sub-entry</ThemedText>
+                    <ThemedText style={[styles.actionText, { color: typeColor }]}>Sub-entry</ThemedText>
                   </Pressable>
                   <Pressable
                     style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
@@ -1211,10 +1223,12 @@ const styles = StyleSheet.create({
   actionButton: {
     flexDirection: "row",
     alignItems: "center",
-    paddingVertical: 6,
-    paddingHorizontal: Spacing.sm,
+    justifyContent: "center",
+    paddingVertical: 8,
+    paddingHorizontal: Spacing.md,
     borderRadius: BorderRadius.xs,
     gap: 4,
+    minWidth: 90,
   },
   actionText: {
     fontSize: 12,
