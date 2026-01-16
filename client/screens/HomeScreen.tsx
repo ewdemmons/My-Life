@@ -144,6 +144,7 @@ export default function HomeScreen() {
           { 
             backgroundColor: "#F59E0B",
             bottom: insets.bottom + tabBarHeight + Spacing.lg,
+            height: 56, // Explicitly set height to match FAB_SIZE
           },
         ]}
         onPress={() => navigation.navigate("AssistantChat")}
