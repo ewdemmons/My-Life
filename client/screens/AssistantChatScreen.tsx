@@ -199,7 +199,10 @@ ${peopleInfo}
         categoryId = categories[0]?.id || "";
       }
 
-      const goalTask: Omit<Task, "id" | "createdAt"> = {
+      let createdCount = 0;
+      let failedCount = 0;
+
+      const createdGoal = await addTask({
         title: plan.goal,
         description: plan.advice,
         type: "goal" as TaskType,
@@ -207,15 +210,17 @@ ${peopleInfo}
         parentId: null,
         priority: "high",
         status: "pending",
-      };
-      await addTask(goalTask);
+      });
 
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const createdGoal = tasks.find(t => t.title === plan.goal && t.type === "goal");
-      const goalId = createdGoal?.id || null;
+      if (!createdGoal) {
+        console.error("Failed to create goal task");
+        throw new Error("Failed to create goal task");
+      }
+      createdCount++;
+      const goalId = createdGoal.id;
 
       for (const objective of plan.objectives) {
-        const objectiveTask: Omit<Task, "id" | "createdAt"> = {
+        const createdObjective = await addTask({
           title: objective.name,
           description: "",
           type: "objective" as TaskType,
@@ -223,15 +228,18 @@ ${peopleInfo}
           parentId: goalId,
           priority: "high",
           status: "pending",
-        };
-        await addTask(objectiveTask);
-        
-        await new Promise(resolve => setTimeout(resolve, 200));
-        const createdObjective = tasks.find(t => t.title === objective.name && t.type === "objective");
-        const objectiveId = createdObjective?.id || null;
+        });
+
+        if (!createdObjective) {
+          console.error(`Failed to create objective: ${objective.name}`);
+          failedCount++;
+          continue;
+        }
+        createdCount++;
+        const objectiveId = createdObjective.id;
 
         for (const project of objective.projects) {
-          const projectTask: Omit<Task, "id" | "createdAt"> = {
+          const createdProject = await addTask({
             title: project.name,
             description: "",
             type: "project" as TaskType,
@@ -239,25 +247,33 @@ ${peopleInfo}
             parentId: objectiveId,
             priority: "medium",
             status: "pending",
-          };
-          await addTask(projectTask);
+          });
 
-          await new Promise(resolve => setTimeout(resolve, 200));
-          const createdProject = tasks.find(t => t.title === project.name && t.type === "project");
-          const projectId = createdProject?.id || null;
+          if (!createdProject) {
+            console.error(`Failed to create project: ${project.name}`);
+            failedCount++;
+            continue;
+          }
+          createdCount++;
+          const projectId = createdProject.id;
 
-          for (const task of project.tasks) {
-            const taskItem: Omit<Task, "id" | "createdAt"> = {
-              title: task.title,
-              description: task.description,
+          for (const taskItem of project.tasks) {
+            const createdTask = await addTask({
+              title: taskItem.title,
+              description: taskItem.description,
               type: "task" as TaskType,
               categoryId,
               parentId: projectId,
-              priority: task.priority || "medium",
+              priority: taskItem.priority || "medium",
               status: "pending",
-            };
-            await addTask(taskItem);
-            await new Promise(resolve => setTimeout(resolve, 100));
+            });
+
+            if (!createdTask) {
+              console.error(`Failed to create task: ${taskItem.title}`);
+              failedCount++;
+            } else {
+              createdCount++;
+            }
           }
         }
       }
@@ -266,9 +282,13 @@ ${peopleInfo}
         m.id === messageId ? { ...m, planImplemented: true } : m
       ));
 
+      const successMessage = failedCount > 0
+        ? `Created ${createdCount} items (${failedCount} failed). Check your ${plan.suggestedBubble} bubble!`
+        : `Your "${plan.goal}" plan has been created with all ${createdCount} items. Check your ${plan.suggestedBubble} bubble!`;
+
       Alert.alert(
         "Plan Created!",
-        `Your "${plan.goal}" plan has been created with all objectives, projects, and tasks. Check your ${plan.suggestedBubble} bubble!`,
+        successMessage,
         [{ text: "Great!", style: "default" }]
       );
     } catch (error) {

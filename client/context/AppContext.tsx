@@ -27,7 +27,7 @@ interface AppContextType {
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<void>;
   updateCategory: (id: string, updates: Partial<LifeCategory>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
-  addTask: (task: Omit<Task, "id" | "createdAt">) => Promise<void>;
+  addTask: (task: Omit<Task, "id" | "createdAt">) => Promise<Task | null>;
   updateTask: (id: string, updates: Partial<Task>) => Promise<void>;
   deleteTask: (id: string) => Promise<void>;
   reorderTasks: (taskIds: string[], parentId: string | null) => Promise<void>;
@@ -962,8 +962,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setTasks((prev) => prev.filter((task) => task.categoryId !== id));
   }, [user, categories, tasks]);
 
-  const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">) => {
-    if (!user) return;
+  const addTask = useCallback(async (task: Omit<Task, "id" | "createdAt">): Promise<Task | null> => {
+    if (!user) return null;
 
     const { data, error } = await supabase
       .from("tasks")
@@ -973,7 +973,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (error) {
       console.error("Error adding task:", error.message);
-      return;
+      return null;
     }
 
     const newTask = mapSupabaseTaskToTask(data);
@@ -1000,6 +1000,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         senderName
       );
     }
+    
+    return newTask;
   }, [user, categories, people]);
 
   const updateTask = useCallback(async (id: string, updates: Partial<Task>) => {
