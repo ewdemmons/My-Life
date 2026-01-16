@@ -148,7 +148,7 @@ export default function HomeScreen() {
         ]}
         onPress={() => navigation.navigate("AssistantChat")}
       >
-        <Feather name="zap" size={24} color="#FFFFFF" />
+        <Feather name="zap" size={28} color="#FFFFFF" />
       </Pressable>
 
       <Modal
@@ -254,9 +254,9 @@ const styles = StyleSheet.create({
   assistantFab: {
     position: "absolute",
     left: Spacing.lg,
-    width: 52,
-    height: 52,
-    borderRadius: 14,
+    width: 56,
+    height: 56,
+    borderRadius: 12,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 100,

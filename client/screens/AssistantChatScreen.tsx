@@ -7,6 +7,7 @@ import {
   FlatList,
   ActivityIndicator,
   Platform,
+  KeyboardAvoidingView,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -136,66 +137,72 @@ export default function AssistantChatScreen() {
   );
 
   return (
-    <ThemedView style={styles.container}>
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        renderItem={renderMessage}
-        keyExtractor={item => item.id}
-        contentContainerStyle={[
-          styles.messageList,
-          { 
-            paddingTop: headerHeight + Spacing.md,
-            paddingBottom: Spacing.md,
-          },
-          messages.length === 0 && styles.emptyListContainer,
-        ]}
-        ListEmptyComponent={renderEmptyState}
-        showsVerticalScrollIndicator={false}
-      />
-      
-      <View style={[
-        styles.inputContainer,
-        { 
-          backgroundColor: theme.backgroundDefault,
-          paddingBottom: insets.bottom + Spacing.sm,
-          borderTopColor: theme.border,
-        },
-      ]}>
+    <KeyboardAvoidingView 
+      style={styles.container}
+      behavior={Platform.OS === "ios" ? "padding" : "height"}
+      keyboardVerticalOffset={headerHeight}
+    >
+      <ThemedView style={styles.container}>
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          renderItem={renderMessage}
+          keyExtractor={item => item.id}
+          contentContainerStyle={[
+            styles.messageList,
+            { 
+              paddingTop: Spacing.md,
+              paddingBottom: Spacing.md,
+            },
+            messages.length === 0 && styles.emptyListContainer,
+          ]}
+          ListEmptyComponent={renderEmptyState}
+          showsVerticalScrollIndicator={false}
+        />
+        
         <View style={[
-          styles.inputWrapper,
-          { backgroundColor: theme.backgroundRoot },
+          styles.inputContainer,
+          { 
+            backgroundColor: theme.backgroundDefault,
+            paddingBottom: Spacing.sm,
+            borderTopColor: theme.border,
+          },
         ]}>
-          <TextInput
-            style={[styles.input, { color: theme.text }]}
-            placeholder="Ask your assistant..."
-            placeholderTextColor={theme.textSecondary}
-            value={inputText}
-            onChangeText={setInputText}
-            multiline
-            maxLength={1000}
-            editable={!isLoading}
-            onSubmitEditing={sendMessage}
-            returnKeyType="send"
-          />
-          <Pressable
-            style={[
-              styles.sendButton,
-              { backgroundColor: theme.primary },
-              (!inputText.trim() || isLoading) && { opacity: 0.5 },
-            ]}
-            onPress={sendMessage}
-            disabled={!inputText.trim() || isLoading}
-          >
-            {isLoading ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
-            ) : (
-              <Feather name="send" size={18} color="#FFFFFF" />
-            )}
-          </Pressable>
+          <View style={[
+            styles.inputWrapper,
+            { backgroundColor: theme.backgroundRoot },
+          ]}>
+            <TextInput
+              style={[styles.input, { color: theme.text }]}
+              placeholder="Ask your assistant..."
+              placeholderTextColor={theme.textSecondary}
+              value={inputText}
+              onChangeText={setInputText}
+              multiline
+              maxLength={1000}
+              editable={!isLoading}
+              onSubmitEditing={sendMessage}
+              returnKeyType="send"
+            />
+            <Pressable
+              style={[
+                styles.sendButton,
+                { backgroundColor: theme.primary },
+                (!inputText.trim() || isLoading) && { opacity: 0.5 },
+              ]}
+              onPress={sendMessage}
+              disabled={!inputText.trim() || isLoading}
+            >
+              {isLoading ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Feather name="send" size={18} color="#FFFFFF" />
+              )}
+            </Pressable>
+          </View>
         </View>
-      </View>
-    </ThemedView>
+      </ThemedView>
+    </KeyboardAvoidingView>
   );
 }
 
