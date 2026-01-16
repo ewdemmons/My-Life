@@ -12,6 +12,7 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -19,6 +20,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
 import { apiRequest } from "@/lib/query-client";
+
+const MESSAGES_STORAGE_KEY = "@assistant_messages";
 
 interface Message {
   id: string;
@@ -36,7 +39,45 @@ export default function AssistantChatScreen() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const flatListRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    loadMessages();
+  }, []);
+
+  useEffect(() => {
+    if (!isLoadingHistory && messages.length > 0) {
+      saveMessages(messages);
+    }
+  }, [messages, isLoadingHistory]);
+
+  const loadMessages = async () => {
+    try {
+      const stored = await AsyncStorage.getItem(MESSAGES_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        const restored = parsed.map((m: any) => ({
+          ...m,
+          timestamp: new Date(m.timestamp),
+        }));
+        setMessages(restored);
+      }
+    } catch (error) {
+      console.error("Failed to load messages:", error);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
+
+  const saveMessages = async (msgs: Message[]) => {
+    try {
+      const last50 = msgs.slice(-50);
+      await AsyncStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(last50));
+    } catch (error) {
+      console.error("Failed to save messages:", error);
+    }
+  };
 
   const getAppContext = () => {
     const bubbleNames = categories.map(c => c.name).join(", ");
@@ -124,17 +165,27 @@ export default function AssistantChatScreen() {
     );
   };
 
-  const renderEmptyState = () => (
-    <View style={styles.emptyState}>
-      <View style={[styles.emptyIcon, { backgroundColor: theme.primary + "20" }]}>
-        <Feather name="zap" size={32} color={theme.primary} />
+  const renderEmptyState = () => {
+    if (isLoadingHistory) {
+      return (
+        <View style={styles.emptyState}>
+          <ActivityIndicator size="large" color={theme.primary} />
+        </View>
+      );
+    }
+    
+    return (
+      <View style={styles.emptyState}>
+        <View style={[styles.emptyIcon, { backgroundColor: theme.primary + "20" }]}>
+          <Feather name="zap" size={32} color={theme.primary} />
+        </View>
+        <ThemedText style={styles.emptyTitle}>Hi! I'm your Life Assistant</ThemedText>
+        <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
+          Ask me anything about organizing your life, managing tasks, or getting advice on productivity.
+        </ThemedText>
       </View>
-      <ThemedText style={styles.emptyTitle}>Hi! I'm your Life Assistant</ThemedText>
-      <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-        Ask me anything about organizing your life, managing tasks, or getting advice on productivity.
-      </ThemedText>
-    </View>
-  );
+    );
+  };
 
   return (
     <KeyboardAvoidingView 
