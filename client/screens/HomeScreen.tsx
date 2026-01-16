@@ -143,8 +143,7 @@ export default function HomeScreen() {
           styles.assistantFab,
           { 
             backgroundColor: "#F59E0B",
-            bottom: insets.bottom + tabBarHeight + Spacing.lg,
-            height: 56, // Explicitly set height to match FAB_SIZE
+            bottom: insets.bottom + Spacing.lg + 50, // Match FAB.tsx TAB_BAR_HEIGHT offset logic
           },
         ]}
         onPress={() => navigation.navigate("AssistantChat")}
