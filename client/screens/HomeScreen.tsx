@@ -138,6 +138,19 @@ export default function HomeScreen() {
 
       <View style={{ height: tabBarHeight }} />
 
+      <Pressable
+        style={[
+          styles.assistantFab,
+          { 
+            backgroundColor: "#F59E0B",
+            bottom: insets.bottom + tabBarHeight + Spacing.lg,
+          },
+        ]}
+        onPress={() => navigation.navigate("AssistantChat")}
+      >
+        <Feather name="zap" size={24} color="#FFFFFF" />
+      </Pressable>
+
       <Modal
         visible={selectedCategory !== null}
         transparent
@@ -237,6 +250,16 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+  },
+  assistantFab: {
+    position: "absolute",
+    left: Spacing.lg,
+    width: 52,
+    height: 52,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 100,
   },
   appIcon: {
     width: 36,

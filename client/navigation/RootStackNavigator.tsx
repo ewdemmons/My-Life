@@ -9,6 +9,7 @@ import AddTaskScreen from "@/screens/AddTaskScreen";
 import NotificationsScreen from "@/screens/NotificationsScreen";
 import CentralDashboardScreen from "@/screens/CentralDashboardScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
+import AssistantChatScreen from "@/screens/AssistantChatScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
@@ -22,6 +23,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   CentralDashboard: undefined;
   Profile: undefined;
+  AssistantChat: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
@@ -76,6 +78,13 @@ function MainAppNavigator() {
         component={ProfileScreen}
         options={{
           headerTitle: "Profile",
+        }}
+      />
+      <Stack.Screen
+        name="AssistantChat"
+        component={AssistantChatScreen}
+        options={{
+          headerTitle: "Life Assistant",
         }}
       />
     </Stack.Navigator>
