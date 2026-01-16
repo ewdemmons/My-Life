@@ -4,6 +4,8 @@ import { createServer, type Server } from "node:http";
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
 function isPlanningRequest(message: string): boolean {
+  const lowerMessage = message.toLowerCase().trim();
+  
   const planningPatterns = [
     /^plan\s+(?:to\s+)?(.+)/i,
     /^help\s+(?:me\s+)?(?:with|plan|create|build|start)\s+(.+)/i,
@@ -13,9 +15,37 @@ function isPlanningRequest(message: string): boolean {
     /^guide\s+(?:me\s+)?(?:on|to|through)\s+(.+)/i,
     /^manifest\s+(.+)/i,
     /^achieve\s+(.+)/i,
+    /^build\s+(?:me\s+)?(?:a\s+)?(?:step.by.step\s+)?plan/i,
+    /^give\s+(?:me\s+)?(?:a\s+)?(?:step.by.step\s+)?plan/i,
+    /^make\s+(?:me\s+)?(?:a\s+)?plan/i,
+    /^set\s+(?:up\s+)?(?:a\s+)?plan/i,
+    /step.by.step\s+(?:plan|guide|instructions)/i,
   ];
   
-  return planningPatterns.some(pattern => pattern.test(message.trim()));
+  const planningKeywords = [
+    'create a plan',
+    'make a plan',
+    'build a plan',
+    'step by step plan',
+    'step-by-step plan',
+    'action plan',
+    'roadmap for',
+    'help me plan',
+    'plan to achieve',
+    'plan for achieving',
+    'breakdown for',
+    'break down',
+  ];
+  
+  if (planningPatterns.some(pattern => pattern.test(message.trim()))) {
+    return true;
+  }
+  
+  if (planningKeywords.some(keyword => lowerMessage.includes(keyword))) {
+    return true;
+  }
+  
+  return false;
 }
 
 function getPlanningSystemPrompt(context: string): string {
