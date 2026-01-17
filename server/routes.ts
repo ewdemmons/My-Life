@@ -75,8 +75,6 @@ function isRefinementBranchRequest(message: string): "scheduling" | "habits" | "
 }
 
 function getPlanningSystemPrompt(context: string): string {
-  const today = new Date().toISOString().split('T')[0];
-  
   return `You are a life coach for the "My Life" productivity app. Help users achieve goals with structured, actionable plans.
 
 USER CONTEXT:
@@ -87,7 +85,8 @@ IMPORTANT: You MUST always respond with a JSON plan when the user asks to plan, 
 YOUR RESPONSE FORMAT:
 1. Brief motivational intro (2-3 sentences)
 
-2. A JSON block in \`\`\`json ... \`\`\` tags with this structure:
+2. A JSON block in \`\`\`json ... \`\`\` tags with this EXACT structure:
+\`\`\`json
 {
   "goal": "Main goal title",
   "advice": "Key insight for success",
@@ -110,27 +109,15 @@ YOUR RESPONSE FORMAT:
     }
   ]
 }
-
-OPTIONAL: Add "event" to any task with a deadline or scheduled time:
-{
-  "title": "Complete research",
-  "description": "...",
-  "priority": "high",
-  "event": {
-    "type": "due_date",
-    "startDate": "${today}"
-  }
-}
-
-Event types: "due_date" (deadline), "reminder", "appointment" (add startTime/endTime like "09:00"/"10:00"), "meeting"
+\`\`\`
 
 3. Brief encouraging closing
 
 RULES:
 - Create 2-3 objectives, each with 1-2 projects
 - Each project has 2-4 specific, actionable tasks
-- Today's date is ${today}
-- ALWAYS include the JSON block - this is required for the app to work`;
+- ALWAYS include the JSON block wrapped in \`\`\`json and \`\`\` - this is REQUIRED
+- Do NOT add scheduling or events - users will be prompted to add those after creating the plan`;
 }
 
 function getSchedulingPrompt(context: string, refinementContext: any): string {

@@ -21,7 +21,7 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
 import { apiRequest } from "@/lib/query-client";
-import { PlanPreview, Plan, PlanTask, PlanTaskEvent, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
+import { PlanPreview, Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
 import { Task, TaskType, Habit, CalendarEvent } from "@/types";
 
 const MESSAGES_STORAGE_KEY = "@assistant_messages";
@@ -330,51 +330,6 @@ ${refinementContext}
     return [];
   };
 
-  const createLinkedEventForTask = async (
-    taskId: string, 
-    taskItem: PlanTask, 
-    categoryId: string
-  ) => {
-    if (!taskItem.event) return;
-    
-    const event = taskItem.event;
-    const eventType = event.type;
-    
-    let eventTitle = taskItem.title;
-    if (eventType === "due_date") {
-      eventTitle = `Due: ${taskItem.title}`;
-    } else if (eventType === "reminder") {
-      eventTitle = `Reminder: ${taskItem.title}`;
-    }
-    
-    const startTime = event.startTime || "09:00";
-    let endTime = event.endTime;
-    
-    if (!endTime && (eventType === "appointment" || eventType === "meeting")) {
-      const [hours, minutes] = startTime.split(":").map(Number);
-      endTime = `${String(hours + 1).padStart(2, "0")}:${String(minutes).padStart(2, "0")}`;
-    } else if (!endTime) {
-      endTime = startTime;
-    }
-    
-    try {
-      await addEvent({
-        title: eventTitle,
-        description: taskItem.description || "",
-        startDate: event.startDate,
-        startTime: startTime,
-        endDate: event.startDate,
-        endTime: endTime,
-        eventType: eventType === "meeting" ? "appointment" : eventType,
-        recurrence: event.recurrence || "none",
-        linkedTaskId: taskId,
-        categoryId: categoryId || null,
-      });
-    } catch (error) {
-      console.error(`Failed to create linked event for task: ${taskItem.title}`, error);
-    }
-  };
-
   const implementPlan = async (messageId: string, plan: Plan) => {
     setImplementingPlanId(messageId);
     const createdTaskIds: string[] = [];
@@ -489,10 +444,6 @@ ${refinementContext}
             } else {
               createdCount++;
               createdTaskIds.push(createdTask.id);
-              
-              if (taskItem.event) {
-                await createLinkedEventForTask(createdTask.id, taskItem, categoryId);
-              }
             }
           }
         }
