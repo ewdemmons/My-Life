@@ -31,6 +31,7 @@
 - **Recurring Events**: Robust recurrence engine with options for daily, weekly, biweekly, monthly, yearly repeats. Supports series-aware editing (single instance vs. entire series), instance exceptions, and intelligent regeneration logic for future instances upon pattern changes or rescheduling.
 - **Task Completion & Habit Tracking**: Detailed completion logging with "As of" or "Until" types, notes, and history. Habits have positive/negative types, goal settings (frequency/count), streak tracking, and automatic logging from linked tasks.
 - **People Management & Sharing**: Comprehensive person profiles with relationship types, photos, and notes. Supports linking people to categories, tasks, and events. Features an invitation system for sharing Life Bubbles with other users via email/SMS, including deep linking and contact import.
+- **Voice-Enabled AI Assistant**: Hands-free voice input using `expo-audio` for recording and Groq Whisper API for transcription. Text-to-speech output using `expo-speech` for reading responses aloud. Features pulsing mic button animation, offline detection, and permission handling.
 
 ### Feature Specifications
 - **Life Wheel**: Visual dashboard for categories; tap for details, long-press for edit/delete.
@@ -60,4 +61,7 @@
 - **react-native-svg**: For rendering SVG graphics, specifically for the Life Wheel.
 - **react-native-reanimated**: For animations.
 - **@supabase/supabase-js**: JavaScript client library for interacting with Supabase.
-- **Express.js**: Used in `server/` folder for a basic landing page, not core app functionality.
+- **Express.js**: Used in `server/` folder for a basic landing page and AI assistant API endpoints.
+- **expo-audio**: For voice recording in the AI assistant.
+- **expo-speech**: For text-to-speech output in the AI assistant.
+- **expo-network**: For detecting offline state.
