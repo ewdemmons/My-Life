@@ -9,18 +9,24 @@ import {
   Platform,
   KeyboardAvoidingView,
   Alert,
+  Animated,
+  Linking,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
+import * as Speech from "expo-speech";
+import * as FileSystem from "expo-file-system";
+import * as Network from "expo-network";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
-import { apiRequest } from "@/lib/query-client";
+import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { PlanPreview, Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
 import { Task, TaskType, Habit, CalendarEvent } from "@/types";
 
@@ -115,9 +121,19 @@ export default function AssistantChatScreen() {
   const [implementingProposalId, setImplementingProposalId] = useState<string | null>(null);
   const [refinementState, setRefinementState] = useState<RefinementState>({ isActive: false });
   const flatListRef = useRef<FlatList>(null);
+  
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const [recordingPermission, setRecordingPermission] = useState<boolean | null>(null);
+  const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
+  const [autoSpeak, setAutoSpeak] = useState(false);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  
+  const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   useEffect(() => {
     loadMessages();
+    checkMicPermission();
   }, []);
 
   useEffect(() => {
@@ -125,6 +141,206 @@ export default function AssistantChatScreen() {
       saveMessages(messages);
     }
   }, [messages, isLoadingHistory]);
+
+  useEffect(() => {
+    if (isRecording) {
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, {
+            toValue: 1.3,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+          Animated.timing(pulseAnim, {
+            toValue: 1,
+            duration: 600,
+            useNativeDriver: true,
+          }),
+        ])
+      ).start();
+    } else {
+      pulseAnim.stopAnimation();
+      pulseAnim.setValue(1);
+    }
+  }, [isRecording]);
+
+  const isWebPlatform = Platform.OS as string === "web";
+
+  const checkMicPermission = async () => {
+    if (isWebPlatform) {
+      setRecordingPermission(true);
+      return;
+    }
+    try {
+      const status = await AudioModule.getRecordingPermissionsAsync();
+      setRecordingPermission(status.granted);
+    } catch (error) {
+      console.error("Error checking mic permission:", error);
+      setRecordingPermission(false);
+    }
+  };
+
+  const requestMicPermission = async (): Promise<boolean> => {
+    if (isWebPlatform) {
+      setRecordingPermission(true);
+      return true;
+    }
+    try {
+      const status = await AudioModule.requestRecordingPermissionsAsync();
+      setRecordingPermission(status.granted);
+      if (!status.granted && !status.canAskAgain) {
+        Alert.alert(
+          "Microphone Permission Required",
+          "Please enable microphone access in your device settings to use voice input.",
+          [
+            { text: "Cancel", style: "cancel" },
+            ...(!isWebPlatform ? [{
+              text: "Open Settings",
+              onPress: async () => {
+                try {
+                  await Linking.openSettings();
+                } catch (e) {
+                  console.error("Could not open settings:", e);
+                }
+              },
+            }] : []),
+          ]
+        );
+      }
+      return status.granted;
+    } catch (error) {
+      console.error("Error requesting mic permission:", error);
+      return false;
+    }
+  };
+
+  const startRecording = async () => {
+    try {
+      const netState = await Network.getNetworkStateAsync();
+      if (!netState.isConnected) {
+        Alert.alert("Offline", "Voice input is not available offline. Please connect to the internet.");
+        return;
+      }
+    } catch (e) {
+    }
+
+    if (isWebPlatform) {
+      Alert.alert("Voice Input", "Voice input works best in the Expo Go app on your mobile device.");
+      return;
+    }
+
+    if (!recordingPermission) {
+      const granted = await requestMicPermission();
+      if (!granted) return;
+    }
+
+    try {
+      audioRecorder.record();
+      setIsRecording(true);
+    } catch (error) {
+      console.error("Failed to start recording:", error);
+      Alert.alert("Error", "Failed to start recording. Please try again.");
+    }
+  };
+
+  const stopRecording = async () => {
+    if (!isRecording) return;
+
+    try {
+      await audioRecorder.stop();
+      setIsRecording(false);
+      
+      const uri = audioRecorder.uri;
+      if (uri) {
+        await transcribeAudio(uri);
+      }
+    } catch (error) {
+      console.error("Failed to stop recording:", error);
+      setIsRecording(false);
+      Alert.alert("Error", "Failed to process recording. Please try again.");
+    }
+  };
+
+  const cancelRecording = async () => {
+    if (!isRecording) return;
+    
+    try {
+      await audioRecorder.stop();
+      setIsRecording(false);
+    } catch (error) {
+      console.error("Failed to cancel recording:", error);
+      setIsRecording(false);
+    }
+  };
+
+  const transcribeAudio = async (uri: string) => {
+    setIsTranscribing(true);
+    
+    try {
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      if (!fileInfo.exists) {
+        throw new Error("Recording file not found");
+      }
+
+      const base64Audio = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64",
+      });
+
+      const response = await apiRequest("POST", "/api/assistant/transcribe", {
+        audio: base64Audio,
+        mimeType: "audio/m4a",
+      });
+
+      const data = await response.json();
+      
+      if (data.text) {
+        setInputText(data.text);
+        setTimeout(() => sendMessage(data.text), 100);
+      } else if (data.error) {
+        Alert.alert("Transcription Error", data.error);
+      }
+    } catch (error) {
+      console.error("Transcription error:", error);
+      Alert.alert("Error", "Failed to transcribe audio. Please try again.");
+    } finally {
+      setIsTranscribing(false);
+    }
+  };
+
+  const speakMessage = async (messageId: string, text: string) => {
+    if (speakingMessageId === messageId) {
+      Speech.stop();
+      setSpeakingMessageId(null);
+      return;
+    }
+
+    const cleanText = text
+      .replace(/```json[\s\S]*?```/g, "")
+      .replace(/```[\s\S]*?```/g, "")
+      .replace(/\*\*/g, "")
+      .replace(/\*/g, "")
+      .replace(/#{1,6}\s/g, "")
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, "$1")
+      .trim();
+
+    if (!cleanText) return;
+
+    setSpeakingMessageId(messageId);
+    
+    Speech.speak(cleanText, {
+      language: "en-US",
+      pitch: 1,
+      rate: 0.9,
+      onDone: () => setSpeakingMessageId(null),
+      onError: () => setSpeakingMessageId(null),
+      onStopped: () => setSpeakingMessageId(null),
+    });
+  };
+
+  const stopSpeaking = () => {
+    Speech.stop();
+    setSpeakingMessageId(null);
+  };
 
   const loadMessages = async () => {
     try {
@@ -842,6 +1058,23 @@ ${refinementContext}
             {item.content}
           </ThemedText>
         </View>
+        {!isUser && (
+          <View style={styles.messageActions}>
+            <Pressable
+              style={[styles.speakButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => speakMessage(item.id, item.content)}
+            >
+              <Feather 
+                name={speakingMessageId === item.id ? "volume-x" : "volume-2"} 
+                size={14} 
+                color={speakingMessageId === item.id ? theme.error : theme.textSecondary} 
+              />
+              <ThemedText style={[styles.speakButtonText, { color: theme.textSecondary }]}>
+                {speakingMessageId === item.id ? "Stop" : "Read aloud"}
+              </ThemedText>
+            </Pressable>
+          </View>
+        )}
         {!isUser && item.quickReplies && item.quickReplies.length > 0 && (
           renderQuickReplies(item.quickReplies)
         )}
@@ -915,6 +1148,33 @@ ${refinementContext}
           showsVerticalScrollIndicator={false}
         />
         
+        {isRecording && (
+          <View style={[styles.recordingOverlay, { backgroundColor: theme.backgroundDefault }]}>
+            <Animated.View 
+              style={[
+                styles.recordingIndicator,
+                { 
+                  backgroundColor: theme.error + "20",
+                  transform: [{ scale: pulseAnim }],
+                },
+              ]}
+            >
+              <Feather name="mic" size={32} color={theme.error} />
+            </Animated.View>
+            <ThemedText style={styles.recordingText}>Listening...</ThemedText>
+            <ThemedText style={[styles.recordingHint, { color: theme.textSecondary }]}>
+              Tap the mic button to stop
+            </ThemedText>
+          </View>
+        )}
+
+        {isTranscribing && (
+          <View style={[styles.recordingOverlay, { backgroundColor: theme.backgroundDefault }]}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <ThemedText style={styles.recordingText}>Transcribing...</ThemedText>
+          </View>
+        )}
+
         <View style={[
           styles.inputContainer,
           { 
@@ -927,15 +1187,33 @@ ${refinementContext}
             styles.inputWrapper,
             { backgroundColor: theme.backgroundRoot },
           ]}>
+            <Animated.View style={{ transform: [{ scale: isRecording ? pulseAnim : 1 }] }}>
+              <Pressable
+                style={[
+                  styles.micButton,
+                  { 
+                    backgroundColor: isRecording ? theme.error : "transparent",
+                  },
+                ]}
+                onPress={isRecording ? stopRecording : startRecording}
+                disabled={isLoading || isTranscribing}
+              >
+                <Feather 
+                  name={isRecording ? "mic-off" : "mic"} 
+                  size={20} 
+                  color={isRecording ? "#FFFFFF" : theme.primary} 
+                />
+              </Pressable>
+            </Animated.View>
             <TextInput
               style={[styles.input, { color: theme.text }]}
-              placeholder="Ask your assistant..."
+              placeholder={isRecording ? "Listening..." : "Ask your assistant..."}
               placeholderTextColor={theme.textSecondary}
               value={inputText}
               onChangeText={setInputText}
               multiline
               maxLength={1000}
-              editable={!isLoading}
+              editable={!isLoading && !isRecording}
               onSubmitEditing={() => sendMessage()}
               returnKeyType="send"
             />
@@ -943,10 +1221,10 @@ ${refinementContext}
               style={[
                 styles.sendButton,
                 { backgroundColor: theme.primary },
-                (!inputText.trim() || isLoading) && { opacity: 0.5 },
+                (!inputText.trim() || isLoading || isRecording) && { opacity: 0.5 },
               ]}
               onPress={() => sendMessage()}
-              disabled={!inputText.trim() || isLoading}
+              disabled={!inputText.trim() || isLoading || isRecording}
             >
               {isLoading ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1136,5 +1414,56 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
+  },
+  micButton: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: Spacing.xs,
+  },
+  recordingOverlay: {
+    position: "absolute",
+    bottom: 60,
+    left: 0,
+    right: 0,
+    paddingVertical: Spacing.xl,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 10,
+  },
+  recordingIndicator: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: "center",
+    justifyContent: "center",
+    marginBottom: Spacing.md,
+  },
+  recordingText: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: Spacing.xs,
+  },
+  recordingHint: {
+    fontSize: 14,
+  },
+  messageActions: {
+    flexDirection: "row",
+    marginTop: Spacing.xs,
+    gap: Spacing.sm,
+  },
+  speakButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.sm,
+    gap: Spacing.xs,
+  },
+  speakButtonText: {
+    fontSize: 12,
+    fontWeight: "500",
   },
 });
