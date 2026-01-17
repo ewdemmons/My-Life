@@ -18,7 +18,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
 import * as Speech from "expo-speech";
-import * as FileSystem from "expo-file-system/legacy";
+import * as FileSystem from "expo-file-system";
 import * as Network from "expo-network";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -258,6 +258,9 @@ export default function AssistantChatScreen() {
         allowsRecording: false,
       });
       
+      // Wait for the file to be fully written
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
       const uri = audioRecorder.uri;
       console.log("Recording stopped, URI:", uri);
       if (uri) {
@@ -293,9 +296,23 @@ export default function AssistantChatScreen() {
     
     try {
       console.log("Transcribing audio from URI:", uri);
-      const base64Audio = await FileSystem.readAsStringAsync(uri, {
-        encoding: FileSystem.EncodingType.Base64,
+      
+      // Use fetch to read the file as a blob, then convert to base64
+      const fileResponse = await fetch(uri);
+      const blob = await fileResponse.blob();
+      
+      const base64Audio = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const result = reader.result as string;
+          // Remove the data URL prefix (e.g., "data:audio/m4a;base64,")
+          const base64 = result.split(",")[1] || result;
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(blob);
       });
+      
       console.log("Audio read, length:", base64Audio.length);
 
       const response = await apiRequest("POST", "/api/assistant/transcribe", {
