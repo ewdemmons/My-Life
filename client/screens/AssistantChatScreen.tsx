@@ -235,6 +235,10 @@ export default function AssistantChatScreen() {
     }
 
     try {
+      await AudioModule.setAudioModeAsync({
+        allowsRecording: true,
+        playsInSilentMode: true,
+      });
       audioRecorder.record();
       setIsRecording(true);
     } catch (error) {
@@ -249,6 +253,10 @@ export default function AssistantChatScreen() {
     try {
       await audioRecorder.stop();
       setIsRecording(false);
+      
+      await AudioModule.setAudioModeAsync({
+        allowsRecording: false,
+      });
       
       const uri = audioRecorder.uri;
       if (uri) {
@@ -267,6 +275,9 @@ export default function AssistantChatScreen() {
     try {
       await audioRecorder.stop();
       setIsRecording(false);
+      await AudioModule.setAudioModeAsync({
+        allowsRecording: false,
+      });
     } catch (error) {
       console.error("Failed to cancel recording:", error);
       setIsRecording(false);
