@@ -288,11 +288,6 @@ export default function AssistantChatScreen() {
     setIsTranscribing(true);
     
     try {
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      if (!fileInfo.exists) {
-        throw new Error("Recording file not found");
-      }
-
       const base64Audio = await FileSystem.readAsStringAsync(uri, {
         encoding: "base64",
       });
