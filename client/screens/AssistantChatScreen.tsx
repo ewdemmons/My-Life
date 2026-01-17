@@ -18,7 +18,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
 import * as Speech from "expo-speech";
-import * as FileSystem from "expo-file-system";
+import { File } from "expo-file-system/next";
 import * as Network from "expo-network";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -288,9 +288,8 @@ export default function AssistantChatScreen() {
     setIsTranscribing(true);
     
     try {
-      const base64Audio = await FileSystem.readAsStringAsync(uri, {
-        encoding: "base64",
-      });
+      const file = new File(uri);
+      const base64Audio = await file.base64();
 
       const response = await apiRequest("POST", "/api/assistant/transcribe", {
         audio: base64Audio,
