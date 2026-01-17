@@ -22,9 +22,52 @@ import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
 import { apiRequest } from "@/lib/query-client";
 import { PlanPreview, Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
-import { Task, TaskType } from "@/types";
+import { Task, TaskType, Habit, CalendarEvent } from "@/types";
 
 const MESSAGES_STORAGE_KEY = "@assistant_messages";
+const REFINEMENT_STATE_KEY = "@assistant_refinement_state";
+
+interface ScheduleProposal {
+  type: "schedule";
+  tasks: Array<{
+    taskId: string;
+    title: string;
+    suggestedDueDate: string;
+    reminderDays?: number;
+  }>;
+  events?: Array<{
+    title: string;
+    date: string;
+    time?: string;
+    isRecurring?: boolean;
+    recurrencePattern?: string;
+  }>;
+}
+
+interface HabitProposal {
+  type: "habit";
+  suggestions: Array<{
+    taskTitle: string;
+    habitName: string;
+    frequency: "daily" | "weekly" | "monthly";
+    habitType: "positive" | "negative";
+    goalCount?: number;
+  }>;
+}
+
+interface AssignmentProposal {
+  type: "assignment";
+  suggestions: Array<{
+    taskId: string;
+    taskTitle: string;
+    suggestedPeople: Array<{
+      personId: string;
+      personName: string;
+    }>;
+  }>;
+}
+
+type RefinementProposal = ScheduleProposal | HabitProposal | AssignmentProposal;
 
 interface Message {
   id: string;
@@ -33,19 +76,44 @@ interface Message {
   timestamp: Date;
   plan?: Plan;
   planImplemented?: boolean;
+  refinementProposal?: RefinementProposal;
+  proposalImplemented?: boolean;
+  isRefinementPrompt?: boolean;
+  quickReplies?: string[];
+}
+
+interface RefinementState {
+  isActive: boolean;
+  implementedPlan?: Plan;
+  createdTaskIds?: string[];
+  currentBranch?: "scheduling" | "habits" | "assignments" | null;
+  bubbleId?: string;
 }
 
 export default function AssistantChatScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme, isDark } = useTheme();
-  const { categories, tasks, events, habits, people, addTask, addCategory } = useApp();
+  const { 
+    categories, 
+    tasks, 
+    events, 
+    habits, 
+    people, 
+    addTask, 
+    addCategory,
+    updateTask,
+    addEvent,
+    addHabit,
+  } = useApp();
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [implementingPlanId, setImplementingPlanId] = useState<string | null>(null);
+  const [implementingProposalId, setImplementingProposalId] = useState<string | null>(null);
+  const [refinementState, setRefinementState] = useState<RefinementState>({ isActive: false });
   const flatListRef = useRef<FlatList>(null);
 
   useEffect(() => {
@@ -60,14 +128,22 @@ export default function AssistantChatScreen() {
 
   const loadMessages = async () => {
     try {
-      const stored = await AsyncStorage.getItem(MESSAGES_STORAGE_KEY);
-      if (stored) {
-        const parsed = JSON.parse(stored);
+      const [storedMessages, storedRefinement] = await Promise.all([
+        AsyncStorage.getItem(MESSAGES_STORAGE_KEY),
+        AsyncStorage.getItem(REFINEMENT_STATE_KEY),
+      ]);
+      
+      if (storedMessages) {
+        const parsed = JSON.parse(storedMessages);
         const restored = parsed.map((m: any) => ({
           ...m,
           timestamp: new Date(m.timestamp),
         }));
         setMessages(restored);
+      }
+      
+      if (storedRefinement) {
+        setRefinementState(JSON.parse(storedRefinement));
       }
     } catch (error) {
       console.error("Failed to load messages:", error);
@@ -82,6 +158,14 @@ export default function AssistantChatScreen() {
       await AsyncStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(last50));
     } catch (error) {
       console.error("Failed to save messages:", error);
+    }
+  };
+
+  const saveRefinementState = async (state: RefinementState) => {
+    try {
+      await AsyncStorage.setItem(REFINEMENT_STATE_KEY, JSON.stringify(state));
+    } catch (error) {
+      console.error("Failed to save refinement state:", error);
     }
   };
 
@@ -102,8 +186,18 @@ export default function AssistantChatScreen() {
       : "No habits tracked yet";
 
     const peopleInfo = people.length > 0
-      ? `${people.length} people in contacts`
+      ? `People: ${people.map(p => `${p.name} (${p.relationship || 'contact'})`).join(", ")}`
       : "No contacts yet";
+
+    let refinementContext = "";
+    if (refinementState.isActive && refinementState.implementedPlan) {
+      refinementContext = `
+ACTIVE REFINEMENT MODE:
+Recently implemented plan: "${refinementState.implementedPlan.goal}"
+Created tasks: ${refinementState.createdTaskIds?.length || 0} items
+Current branch: ${refinementState.currentBranch || "none"}
+      `;
+    }
 
     return `
 Life Bubbles: ${bubbleInfo || "None created yet"}
@@ -111,16 +205,57 @@ Tasks by bubble: ${Object.entries(tasksByBubble).map(([name, count]) => `${name}
 Summary: ${goalCount} goals, ${projectCount} projects, ${pendingTasks} pending tasks, ${completedTasks} completed
 ${habitInfo}
 ${peopleInfo}
+${refinementContext}
     `.trim();
   };
 
-  const sendMessage = async () => {
-    if (!inputText.trim() || isLoading) return;
+  const getRefinementContext = () => {
+    if (!refinementState.isActive || !refinementState.implementedPlan) return null;
+    
+    const planTasks = tasks.filter(t => 
+      refinementState.createdTaskIds?.includes(t.id)
+    );
+    
+    return {
+      plan: refinementState.implementedPlan,
+      tasks: planTasks.map(t => ({
+        id: t.id,
+        title: t.title,
+        type: t.type,
+        priority: t.priority,
+      })),
+      people: people.map(p => ({
+        id: p.id,
+        name: p.name,
+        relationship: p.relationship,
+      })),
+      currentBranch: refinementState.currentBranch,
+    };
+  };
+
+  const parseRefinementProposal = (content: string): RefinementProposal | null => {
+    const jsonMatch = content.match(/```json\s*([\s\S]*?)\s*```/);
+    if (!jsonMatch) return null;
+    
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      if (parsed.type === "schedule" || parsed.type === "habit" || parsed.type === "assignment") {
+        return parsed as RefinementProposal;
+      }
+    } catch (e) {
+      console.error("Failed to parse refinement proposal:", e);
+    }
+    return null;
+  };
+
+  const sendMessage = async (overrideText?: string) => {
+    const messageText = overrideText || inputText.trim();
+    if (!messageText || isLoading) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
       role: "user",
-      content: inputText.trim(),
+      content: messageText,
       timestamp: new Date(),
     };
 
@@ -129,16 +264,24 @@ ${peopleInfo}
     setIsLoading(true);
 
     try {
+      const refinementContext = getRefinementContext();
+      
       const response = await apiRequest("POST", "/api/assistant/chat", {
-        message: userMessage.content,
+        message: messageText,
         context: getAppContext(),
         history: messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
+        refinementMode: refinementState.isActive,
+        refinementContext: refinementContext,
       });
 
       const data = await response.json();
       const messageContent = data.message || "I apologize, but I couldn't process your request.";
       
       const plan = parsePlanFromMessage(messageContent);
+      const refinementProposal = !plan ? parseRefinementProposal(messageContent) : null;
+      const textContent = extractTextFromMessage(messageContent);
+      
+      const quickReplies = data.quickReplies || extractQuickReplies(messageContent);
       
       const assistantMessage: Message = {
         id: (Date.now() + 1).toString(),
@@ -147,9 +290,18 @@ ${peopleInfo}
         timestamp: new Date(),
         plan: plan || undefined,
         planImplemented: false,
+        refinementProposal: refinementProposal || undefined,
+        proposalImplemented: false,
+        quickReplies: quickReplies.length > 0 ? quickReplies : undefined,
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+      
+      if (data.endRefinement) {
+        const newState = { isActive: false };
+        setRefinementState(newState);
+        saveRefinementState(newState);
+      }
     } catch (error) {
       console.error("Assistant error:", error);
       const errorMessage: Message = {
@@ -164,8 +316,23 @@ ${peopleInfo}
     }
   };
 
+  const extractQuickReplies = (content: string): string[] => {
+    const lowerContent = content.toLowerCase();
+    
+    if (lowerContent.includes("scheduling") && lowerContent.includes("habits") && lowerContent.includes("assignments")) {
+      return ["Add scheduling", "Create habits", "Assign people", "I'm done"];
+    }
+    
+    if (lowerContent.includes("anything else") || lowerContent.includes("would you like")) {
+      return ["Yes", "No, I'm done"];
+    }
+    
+    return [];
+  };
+
   const implementPlan = async (messageId: string, plan: Plan) => {
     setImplementingPlanId(messageId);
+    const createdTaskIds: string[] = [];
 
     try {
       let categoryId = categories.find(
@@ -217,6 +384,7 @@ ${peopleInfo}
         throw new Error("Failed to create goal task");
       }
       createdCount++;
+      createdTaskIds.push(createdGoal.id);
       const goalId = createdGoal.id;
 
       for (const objective of plan.objectives) {
@@ -236,6 +404,7 @@ ${peopleInfo}
           continue;
         }
         createdCount++;
+        createdTaskIds.push(createdObjective.id);
         const objectiveId = createdObjective.id;
 
         for (const project of objective.projects) {
@@ -255,6 +424,7 @@ ${peopleInfo}
             continue;
           }
           createdCount++;
+          createdTaskIds.push(createdProject.id);
           const projectId = createdProject.id;
 
           for (const taskItem of project.tasks) {
@@ -273,6 +443,7 @@ ${peopleInfo}
               failedCount++;
             } else {
               createdCount++;
+              createdTaskIds.push(createdTask.id);
             }
           }
         }
@@ -282,15 +453,26 @@ ${peopleInfo}
         m.id === messageId ? { ...m, planImplemented: true } : m
       ));
 
-      const successMessage = failedCount > 0
-        ? `Created ${createdCount} items (${failedCount} failed). Check your ${plan.suggestedBubble} bubble!`
-        : `Your "${plan.goal}" plan has been created with all ${createdCount} items. Check your ${plan.suggestedBubble} bubble!`;
+      const newRefinementState: RefinementState = {
+        isActive: true,
+        implementedPlan: plan,
+        createdTaskIds,
+        currentBranch: null,
+        bubbleId: categoryId,
+      };
+      setRefinementState(newRefinementState);
+      saveRefinementState(newRefinementState);
 
-      Alert.alert(
-        "Plan Created!",
-        successMessage,
-        [{ text: "Great!", style: "default" }]
-      );
+      const refinementMessage: Message = {
+        id: (Date.now() + 2).toString(),
+        role: "assistant",
+        content: `Great! Your "${plan.goal}" plan has been created with ${createdCount} items in the ${plan.suggestedBubble} bubble!\n\nWould you like to enhance this plan further? I can help you with:\n\n- **Scheduling**: Set due dates, milestones, and reminders\n- **Habits**: Convert recurring tasks into trackable habits\n- **Assignments**: Assign tasks to people in your contacts\n\nWhat would you like to do?`,
+        timestamp: new Date(),
+        isRefinementPrompt: true,
+        quickReplies: ["Add scheduling", "Create habits", "Assign people", "I'm done for now"],
+      };
+
+      setMessages(prev => [...prev, refinementMessage]);
     } catch (error) {
       console.error("Failed to implement plan:", error);
       Alert.alert(
@@ -303,6 +485,166 @@ ${peopleInfo}
     }
   };
 
+  const implementScheduleProposal = async (messageId: string, proposal: ScheduleProposal) => {
+    setImplementingProposalId(messageId);
+    
+    try {
+      let eventCount = 0;
+
+      for (const taskSchedule of proposal.tasks) {
+        const task = tasks.find(t => t.id === taskSchedule.taskId);
+        if (task) {
+          await addEvent({
+            title: `Due: ${task.title}`,
+            description: task.description || "",
+            startDate: taskSchedule.suggestedDueDate,
+            startTime: "09:00",
+            endDate: taskSchedule.suggestedDueDate,
+            endTime: "10:00",
+            eventType: "reminder",
+            recurrence: "none",
+            linkedTaskId: task.id,
+            categoryId: refinementState.bubbleId || categories[0]?.id || null,
+          });
+          eventCount++;
+        }
+      }
+
+      if (proposal.events) {
+        for (const eventData of proposal.events) {
+          await addEvent({
+            title: eventData.title,
+            description: "",
+            startDate: eventData.date,
+            startTime: eventData.time || "09:00",
+            endDate: eventData.date,
+            endTime: eventData.time ? `${parseInt(eventData.time.split(":")[0]) + 1}:00` : "10:00",
+            eventType: "reminder",
+            recurrence: eventData.isRecurring ? "weekly" : "none",
+            linkedTaskId: null,
+            categoryId: refinementState.bubbleId || categories[0]?.id || null,
+          });
+          eventCount++;
+        }
+      }
+
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, proposalImplemented: true } : m
+      ));
+
+      const followUpMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `Done! I've created ${eventCount} calendar event${eventCount !== 1 ? "s" : ""} with due date reminders linked to your tasks.\n\nWould you like to do anything else with this plan?`,
+        timestamp: new Date(),
+        quickReplies: ["Create habits", "Assign people", "I'm done"],
+      };
+
+      setMessages(prev => [...prev, followUpMessage]);
+    } catch (error) {
+      console.error("Failed to implement schedule:", error);
+      Alert.alert("Error", "Failed to apply scheduling. Please try again.");
+    } finally {
+      setImplementingProposalId(null);
+    }
+  };
+
+  const implementHabitProposal = async (messageId: string, proposal: HabitProposal) => {
+    setImplementingProposalId(messageId);
+    
+    try {
+      let createdCount = 0;
+
+      for (const suggestion of proposal.suggestions) {
+        await addHabit({
+          name: suggestion.habitName,
+          description: `Created from plan refinement`,
+          categoryId: refinementState.bubbleId || categories[0]?.id || null,
+          goalFrequency: suggestion.frequency,
+          habitType: suggestion.habitType,
+          goalCount: suggestion.goalCount || 1,
+          linkedTaskId: null,
+          isActive: true,
+        });
+        createdCount++;
+      }
+
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, proposalImplemented: true } : m
+      ));
+
+      const followUpMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `Created ${createdCount} new habit${createdCount !== 1 ? "s" : ""}! You can track your progress in the Habits section.\n\nAnything else you'd like to do with this plan?`,
+        timestamp: new Date(),
+        quickReplies: ["Add scheduling", "Assign people", "I'm done"],
+      };
+
+      setMessages(prev => [...prev, followUpMessage]);
+    } catch (error) {
+      console.error("Failed to create habits:", error);
+      Alert.alert("Error", "Failed to create habits. Please try again.");
+    } finally {
+      setImplementingProposalId(null);
+    }
+  };
+
+  const implementAssignmentProposal = async (messageId: string, proposal: AssignmentProposal) => {
+    setImplementingProposalId(messageId);
+    
+    try {
+      let assignedCount = 0;
+
+      for (const suggestion of proposal.suggestions) {
+        const personIds = suggestion.suggestedPeople.map(p => p.personId);
+        await updateTask(suggestion.taskId, {
+          assigneeIds: personIds,
+        });
+        assignedCount++;
+      }
+
+      setMessages(prev => prev.map(m => 
+        m.id === messageId ? { ...m, proposalImplemented: true } : m
+      ));
+
+      const followUpMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: "assistant",
+        content: `Assigned ${assignedCount} task${assignedCount !== 1 ? "s" : ""} to your contacts! They'll be notified about their assignments.\n\nWould you like to do anything else?`,
+        timestamp: new Date(),
+        quickReplies: ["Add scheduling", "Create habits", "I'm done"],
+      };
+
+      setMessages(prev => [...prev, followUpMessage]);
+    } catch (error) {
+      console.error("Failed to assign tasks:", error);
+      Alert.alert("Error", "Failed to assign tasks. Please try again.");
+    } finally {
+      setImplementingProposalId(null);
+    }
+  };
+
+  const handleQuickReply = (reply: string) => {
+    const lowerReply = reply.toLowerCase();
+    
+    if (lowerReply.includes("done") || lowerReply === "no") {
+      const newState = { isActive: false };
+      setRefinementState(newState);
+      saveRefinementState(newState);
+      
+      const closingMessage: Message = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: "Perfect! Your plan is all set. Good luck with your goals! Feel free to come back anytime if you need more help.",
+        timestamp: new Date(),
+      };
+      setMessages(prev => [...prev, closingMessage]);
+    } else {
+      sendMessage(reply);
+    }
+  };
+
   useEffect(() => {
     if (messages.length > 0) {
       setTimeout(() => {
@@ -310,6 +652,133 @@ ${peopleInfo}
       }, 100);
     }
   }, [messages]);
+
+  const renderProposal = (proposal: RefinementProposal, messageId: string, isImplemented: boolean) => {
+    if (isImplemented) {
+      return (
+        <View style={[styles.implementedBadge, { backgroundColor: theme.success + "20" }]}>
+          <Feather name="check-circle" size={16} color={theme.success} />
+          <ThemedText style={[styles.implementedText, { color: theme.success }]}>
+            {proposal.type === "schedule" ? "Schedule applied" : 
+             proposal.type === "habit" ? "Habits created" : "Assignments made"}
+          </ThemedText>
+        </View>
+      );
+    }
+
+    const isImplementing = implementingProposalId === messageId;
+
+    if (proposal.type === "schedule") {
+      return (
+        <View style={[styles.proposalCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.proposalHeader}>
+            <Feather name="calendar" size={20} color={theme.primary} />
+            <ThemedText style={styles.proposalTitle}>Proposed Schedule</ThemedText>
+          </View>
+          {proposal.tasks.slice(0, 5).map((task, index) => (
+            <View key={index} style={styles.proposalItem}>
+              <ThemedText style={styles.proposalItemTitle}>{task.title}</ThemedText>
+              <ThemedText style={[styles.proposalItemMeta, { color: theme.textSecondary }]}>
+                Due: {new Date(task.suggestedDueDate).toLocaleDateString()}
+              </ThemedText>
+            </View>
+          ))}
+          {proposal.tasks.length > 5 && (
+            <ThemedText style={[styles.proposalMore, { color: theme.textSecondary }]}>
+              +{proposal.tasks.length - 5} more tasks
+            </ThemedText>
+          )}
+          <Pressable
+            style={[styles.proposalButton, { backgroundColor: theme.primary }]}
+            onPress={() => implementScheduleProposal(messageId, proposal)}
+            disabled={isImplementing}
+          >
+            {isImplementing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <ThemedText style={styles.proposalButtonText}>Apply Schedule</ThemedText>
+            )}
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (proposal.type === "habit") {
+      return (
+        <View style={[styles.proposalCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.proposalHeader}>
+            <Feather name="repeat" size={20} color={theme.primary} />
+            <ThemedText style={styles.proposalTitle}>Suggested Habits</ThemedText>
+          </View>
+          {proposal.suggestions.map((habit, index) => (
+            <View key={index} style={styles.proposalItem}>
+              <ThemedText style={styles.proposalItemTitle}>{habit.habitName}</ThemedText>
+              <ThemedText style={[styles.proposalItemMeta, { color: theme.textSecondary }]}>
+                {habit.frequency} • {habit.habitType}
+              </ThemedText>
+            </View>
+          ))}
+          <Pressable
+            style={[styles.proposalButton, { backgroundColor: theme.primary }]}
+            onPress={() => implementHabitProposal(messageId, proposal)}
+            disabled={isImplementing}
+          >
+            {isImplementing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <ThemedText style={styles.proposalButtonText}>Create Habits</ThemedText>
+            )}
+          </Pressable>
+        </View>
+      );
+    }
+
+    if (proposal.type === "assignment") {
+      return (
+        <View style={[styles.proposalCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.proposalHeader}>
+            <Feather name="users" size={20} color={theme.primary} />
+            <ThemedText style={styles.proposalTitle}>Suggested Assignments</ThemedText>
+          </View>
+          {proposal.suggestions.map((assignment, index) => (
+            <View key={index} style={styles.proposalItem}>
+              <ThemedText style={styles.proposalItemTitle}>{assignment.taskTitle}</ThemedText>
+              <ThemedText style={[styles.proposalItemMeta, { color: theme.textSecondary }]}>
+                Assign to: {assignment.suggestedPeople.map(p => p.personName).join(", ")}
+              </ThemedText>
+            </View>
+          ))}
+          <Pressable
+            style={[styles.proposalButton, { backgroundColor: theme.primary }]}
+            onPress={() => implementAssignmentProposal(messageId, proposal)}
+            disabled={isImplementing}
+          >
+            {isImplementing ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <ThemedText style={styles.proposalButtonText}>Assign Tasks</ThemedText>
+            )}
+          </Pressable>
+        </View>
+      );
+    }
+
+    return null;
+  };
+
+  const renderQuickReplies = (replies: string[]) => (
+    <View style={styles.quickRepliesContainer}>
+      {replies.map((reply, index) => (
+        <Pressable
+          key={index}
+          style={[styles.quickReplyChip, { backgroundColor: theme.primary + "20", borderColor: theme.primary }]}
+          onPress={() => handleQuickReply(reply)}
+        >
+          <ThemedText style={[styles.quickReplyText, { color: theme.primary }]}>{reply}</ThemedText>
+        </Pressable>
+      ))}
+    </View>
+  );
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.role === "user";
@@ -334,15 +803,8 @@ ${peopleInfo}
     }
 
     if (!isUser && item.planImplemented && item.plan) {
-      const textContent = extractTextFromMessage(item.content);
-      
       return (
         <View style={[styles.messageContainer, styles.assistantMessageContainer]}>
-          {textContent ? (
-            <View style={[styles.messageBubble, styles.assistantBubble, { backgroundColor: theme.backgroundDefault, marginBottom: Spacing.sm }]}>
-              <ThemedText style={styles.messageText}>{textContent}</ThemedText>
-            </View>
-          ) : null}
           <View style={[styles.implementedBadge, { backgroundColor: theme.success + "20" }]}>
             <Feather name="check-circle" size={16} color={theme.success} />
             <ThemedText style={[styles.implementedText, { color: theme.success }]}>
@@ -352,25 +814,37 @@ ${peopleInfo}
         </View>
       );
     }
+
+    if (!isUser && item.refinementProposal) {
+      const textContent = extractTextFromMessage(item.content);
+      
+      return (
+        <View style={[styles.messageContainer, styles.assistantMessageContainer]}>
+          {textContent ? (
+            <View style={[styles.messageBubble, styles.assistantBubble, { backgroundColor: theme.backgroundDefault, marginBottom: Spacing.sm }]}>
+              <ThemedText style={styles.messageText}>{textContent}</ThemedText>
+            </View>
+          ) : null}
+          {renderProposal(item.refinementProposal, item.id, item.proposalImplemented || false)}
+        </View>
+      );
+    }
     
     return (
-      <View style={[
-        styles.messageContainer,
-        isUser ? styles.userMessageContainer : styles.assistantMessageContainer,
-      ]}>
+      <View style={[styles.messageContainer, isUser ? styles.userMessageContainer : styles.assistantMessageContainer]}>
         <View style={[
           styles.messageBubble,
           isUser 
             ? [styles.userBubble, { backgroundColor: theme.primary }]
             : [styles.assistantBubble, { backgroundColor: theme.backgroundDefault }],
         ]}>
-          <ThemedText style={[
-            styles.messageText,
-            isUser && { color: "#FFFFFF" },
-          ]}>
+          <ThemedText style={[styles.messageText, isUser && { color: "#FFFFFF" }]}>
             {item.content}
           </ThemedText>
         </View>
+        {!isUser && item.quickReplies && item.quickReplies.length > 0 && (
+          renderQuickReplies(item.quickReplies)
+        )}
       </View>
     );
   };
@@ -462,7 +936,7 @@ ${peopleInfo}
               multiline
               maxLength={1000}
               editable={!isLoading}
-              onSubmitEditing={sendMessage}
+              onSubmitEditing={() => sendMessage()}
               returnKeyType="send"
             />
             <Pressable
@@ -471,7 +945,7 @@ ${peopleInfo}
                 { backgroundColor: theme.primary },
                 (!inputText.trim() || isLoading) && { opacity: 0.5 },
               ]}
-              onPress={sendMessage}
+              onPress={() => sendMessage()}
               disabled={!inputText.trim() || isLoading}
             >
               {isLoading ? (
@@ -534,6 +1008,68 @@ const styles = StyleSheet.create({
   },
   implementedText: {
     fontSize: 14,
+    fontWeight: "500",
+  },
+  proposalCard: {
+    width: "90%",
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginTop: Spacing.xs,
+  },
+  proposalHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: Spacing.md,
+  },
+  proposalTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+  },
+  proposalItem: {
+    paddingVertical: Spacing.xs,
+    borderBottomWidth: 0.5,
+    borderBottomColor: "rgba(128,128,128,0.2)",
+  },
+  proposalItemTitle: {
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  proposalItemMeta: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  proposalMore: {
+    fontSize: 12,
+    marginTop: Spacing.sm,
+    fontStyle: "italic",
+  },
+  proposalButton: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+  },
+  proposalButtonText: {
+    color: "#FFFFFF",
+    fontWeight: "600",
+    fontSize: 14,
+  },
+  quickRepliesContainer: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: Spacing.xs,
+    marginTop: Spacing.sm,
+    maxWidth: "90%",
+  },
+  quickReplyChip: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.xs,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+  },
+  quickReplyText: {
+    fontSize: 13,
     fontWeight: "500",
   },
   emptyState: {

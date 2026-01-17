@@ -48,6 +48,32 @@ function isPlanningRequest(message: string): boolean {
   return false;
 }
 
+function isRefinementBranchRequest(message: string): "scheduling" | "habits" | "assignments" | "done" | null {
+  const lower = message.toLowerCase().trim();
+  
+  if (lower.includes("schedul") || lower.includes("due date") || lower.includes("deadline") || 
+      lower.includes("milestone") || lower.includes("reminder") || lower.includes("calendar")) {
+    return "scheduling";
+  }
+  
+  if (lower.includes("habit") || lower.includes("recurring") || lower.includes("daily") ||
+      lower.includes("weekly") || lower.includes("routine") || lower.includes("track")) {
+    return "habits";
+  }
+  
+  if (lower.includes("assign") || lower.includes("people") || lower.includes("delegate") ||
+      lower.includes("team") || lower.includes("share with") || lower.includes("collaborate")) {
+    return "assignments";
+  }
+  
+  if (lower.includes("done") || lower.includes("no") || lower.includes("that's all") ||
+      lower.includes("finish") || lower.includes("complete") || lower === "no") {
+    return "done";
+  }
+  
+  return null;
+}
+
 function getPlanningSystemPrompt(context: string): string {
   return `You are an expert life coach and productivity assistant for the "My Life" app. Your role is to help users achieve their goals by creating actionable, hierarchical plans.
 
@@ -100,6 +126,116 @@ RULES:
 After the JSON, add a brief encouraging closing message.`;
 }
 
+function getSchedulingPrompt(context: string, refinementContext: any): string {
+  const taskList = refinementContext?.tasks?.map((t: any) => `- ${t.title} (${t.type}, ${t.priority} priority)`).join("\n") || "No tasks available";
+  
+  return `You are helping the user schedule their recently created plan. Based on their tasks, suggest appropriate due dates and calendar events.
+
+PLAN CONTEXT:
+Goal: ${refinementContext?.plan?.goal || "Unknown"}
+Tasks:
+${taskList}
+
+USER CONTEXT:
+${context}
+
+Ask the user 2-3 quick questions to understand their timeline:
+1. What's your target completion date for this goal?
+2. Are there any specific days/times that work best for working on this?
+3. Do you have any fixed deadlines or milestones?
+
+After they respond, generate a schedule proposal with this JSON format wrapped in \`\`\`json ... \`\`\` tags:
+{
+  "type": "schedule",
+  "tasks": [
+    {
+      "taskId": "task-id-from-context",
+      "title": "Task title",
+      "suggestedDueDate": "YYYY-MM-DD"
+    }
+  ],
+  "events": [
+    {
+      "title": "Milestone or reminder name",
+      "date": "YYYY-MM-DD",
+      "time": "HH:MM",
+      "isRecurring": false
+    }
+  ]
+}
+
+Be conversational and helpful. Ask questions first, then provide the schedule proposal based on their answers.`;
+}
+
+function getHabitsPrompt(context: string, refinementContext: any): string {
+  const taskList = refinementContext?.tasks?.map((t: any) => `- ${t.title} (${t.type})`).join("\n") || "No tasks available";
+  
+  return `You are helping the user identify which tasks from their plan could become trackable habits.
+
+PLAN CONTEXT:
+Goal: ${refinementContext?.plan?.goal || "Unknown"}
+Tasks:
+${taskList}
+
+USER CONTEXT:
+${context}
+
+Look at the tasks and identify any that are recurring in nature (like "exercise daily", "study language", "practice meditation", etc.).
+
+Suggest habits with this JSON format wrapped in \`\`\`json ... \`\`\` tags:
+{
+  "type": "habit",
+  "suggestions": [
+    {
+      "taskTitle": "Original task title this habit is based on",
+      "habitName": "Habit name",
+      "frequency": "daily|weekly|monthly",
+      "habitType": "positive|negative",
+      "goalCount": 1
+    }
+  ]
+}
+
+Before providing the JSON, briefly explain which tasks you identified as potential habits and why. Keep it conversational. If no tasks seem suitable for habits, say so and offer to help with something else.`;
+}
+
+function getAssignmentsPrompt(context: string, refinementContext: any): string {
+  const taskList = refinementContext?.tasks?.map((t: any) => `- ${t.id}: ${t.title} (${t.type})`).join("\n") || "No tasks available";
+  const peopleList = refinementContext?.people?.map((p: any) => `- ${p.id}: ${p.name} (${p.relationship || 'contact'})`).join("\n") || "No people available";
+  
+  return `You are helping the user assign tasks from their plan to people in their contacts.
+
+PLAN CONTEXT:
+Goal: ${refinementContext?.plan?.goal || "Unknown"}
+Tasks (with IDs):
+${taskList}
+
+Available People (with IDs):
+${peopleList}
+
+USER CONTEXT:
+${context}
+
+If there are people available, suggest logical task assignments based on relationships and task types. Generate an assignment proposal with this JSON format wrapped in \`\`\`json ... \`\`\` tags:
+{
+  "type": "assignment",
+  "suggestions": [
+    {
+      "taskId": "actual-task-id",
+      "taskTitle": "Task title",
+      "suggestedPeople": [
+        {
+          "personId": "actual-person-id",
+          "personName": "Person name"
+        }
+      ]
+    }
+  ]
+}
+
+If no people are available in their contacts, let them know they can add people in the People section and come back to assign tasks later. Be helpful and conversational.`;
+}
+
 function getRegularSystemPrompt(context: string): string {
   return `You are a helpful assistant for My Life app - a productivity app that helps users organize their lives through Life Bubbles (categories), tasks, events, habits, and people management.
 
@@ -111,7 +247,7 @@ Current app context: ${context || "No context available"}`;
 export async function registerRoutes(app: Express): Promise<Server> {
   app.post("/api/assistant/chat", async (req: Request, res: Response) => {
     try {
-      const { message, context, history = [] } = req.body;
+      const { message, context, history = [], refinementMode, refinementContext } = req.body;
 
       if (!message) {
         return res.status(400).json({ error: "Message is required" });
@@ -122,10 +258,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(500).json({ error: "AI assistant is not configured" });
       }
 
-      const isPlanning = isPlanningRequest(message);
-      const systemPrompt = isPlanning 
-        ? getPlanningSystemPrompt(context || "No context available")
-        : getRegularSystemPrompt(context || "No context available");
+      let systemPrompt: string;
+      let endRefinement = false;
+      let quickReplies: string[] = [];
+      
+      if (refinementMode && refinementContext) {
+        const branch = isRefinementBranchRequest(message);
+        
+        if (branch === "done") {
+          endRefinement = true;
+          systemPrompt = getRegularSystemPrompt(context);
+        } else if (branch === "scheduling") {
+          systemPrompt = getSchedulingPrompt(context, refinementContext);
+        } else if (branch === "habits") {
+          systemPrompt = getHabitsPrompt(context, refinementContext);
+        } else if (branch === "assignments") {
+          systemPrompt = getAssignmentsPrompt(context, refinementContext);
+        } else {
+          systemPrompt = `You are helping the user refine their recently created plan: "${refinementContext?.plan?.goal || 'their goal'}".
+          
+The user said: "${message}"
+
+If they're asking about scheduling, due dates, or timelines, help them set up a schedule.
+If they're asking about habits or recurring tasks, help identify potential habits.
+If they're asking about assignments or delegation, help assign tasks to people.
+If they seem done or want to finish, acknowledge completion and wish them luck.
+
+Available options to remind them of:
+- Scheduling (due dates, reminders, milestones)
+- Habits (convert recurring tasks to trackable habits)
+- Assignments (delegate tasks to contacts)
+
+Be conversational and helpful.`;
+        }
+      } else {
+        const isPlanning = isPlanningRequest(message);
+        systemPrompt = isPlanning 
+          ? getPlanningSystemPrompt(context || "No context available")
+          : getRegularSystemPrompt(context || "No context available");
+      }
 
       const messages = [
         { role: "system", content: systemPrompt },
@@ -142,8 +313,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         body: JSON.stringify({
           model: "llama-3.3-70b-versatile",
           messages,
-          temperature: isPlanning ? 0.6 : 0.7,
-          max_tokens: isPlanning ? 2048 : 1024,
+          temperature: 0.7,
+          max_tokens: 2048,
         }),
       });
 
@@ -158,7 +329,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       res.json({ 
         message: assistantMessage,
-        isPlanningResponse: isPlanning,
+        isPlanningResponse: isPlanningRequest(message),
+        endRefinement,
+        quickReplies,
       });
     } catch (error) {
       console.error("Assistant chat error:", error);
