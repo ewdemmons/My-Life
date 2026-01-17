@@ -80,7 +80,7 @@ function getPlanningSystemPrompt(context: string): string {
 The app organizes life into:
 - Life Bubbles (categories like Work, Health, Family, Finance, etc.)
 - Hierarchical entries: Goals → Objectives → Projects → Tasks → Sub-tasks
-- Also supports: Ideas, Lists, Items, Resources, Appointments
+- Calendar events linked to tasks for scheduling
 
 CURRENT USER CONTEXT:
 ${context}
@@ -105,7 +105,13 @@ When the user asks you to plan something or help achieve a goal, you MUST respon
               "title": "Task title",
               "description": "Brief description of what to do",
               "priority": "high|medium|low",
-              "dueOffset": 7
+              "event": {
+                "type": "due_date|reminder|appointment|meeting",
+                "startDate": "YYYY-MM-DD",
+                "startTime": "HH:MM",
+                "endTime": "HH:MM",
+                "recurrence": "none|daily|weekly|biweekly|monthly"
+              }
             }
           ]
         }
@@ -114,14 +120,26 @@ When the user asks you to plan something or help achieve a goal, you MUST respon
   ]
 }
 
+EVENT TYPE GUIDELINES:
+- "due_date": Task deadline - only needs startDate (no times needed)
+- "reminder": Notification/reminder - needs startDate and startTime (no endTime)
+- "appointment": Scheduled time slot - needs startDate, startTime, AND endTime
+- "meeting": Meeting with others - needs startDate, startTime, AND endTime
+
 RULES:
-- dueOffset is days from today (e.g., 7 = one week from now)
+- Include "event" object for tasks that have specific timing (deadlines, scheduled work sessions, meetings)
+- Omit "event" for tasks without specific timing requirements
+- startDate should be relative to today (calculate actual YYYY-MM-DD dates)
+- Use "due_date" for deadlines without specific times
+- Use "reminder" for recurring check-ins or notifications
+- Use "appointment" for scheduled work blocks
+- Use "meeting" for collaborative sessions
 - Match suggestedBubble to user's existing bubbles when possible
 - Keep tasks specific and actionable
 - Create 2-4 objectives with 1-2 projects each
 - Each project should have 2-5 tasks
 - Prioritize tasks appropriately (first steps should be high priority)
-- Consider user's existing commitments from context
+- For dates, calculate from today's date
 
 After the JSON, add a brief encouraging closing message.`;
 }

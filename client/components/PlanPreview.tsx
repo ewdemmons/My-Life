@@ -6,11 +6,19 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 
+export interface PlanTaskEvent {
+  type: "due_date" | "reminder" | "appointment" | "meeting";
+  startDate: string;
+  startTime?: string;
+  endTime?: string;
+  recurrence?: "none" | "daily" | "weekly" | "biweekly" | "monthly";
+}
+
 export interface PlanTask {
   title: string;
   description: string;
   priority: "low" | "medium" | "high";
-  dueOffset?: number;
+  event?: PlanTaskEvent;
 }
 
 export interface PlanProject {
@@ -71,6 +79,31 @@ export function PlanPreview({ plan, onImplement, isImplementing }: PlanPreviewPr
       case "low": return theme.success;
       default: return theme.warning;
     }
+  };
+
+  const getEventIcon = (type: string): "calendar" | "bell" | "clock" | "users" => {
+    switch (type) {
+      case "due_date": return "calendar";
+      case "reminder": return "bell";
+      case "appointment": return "clock";
+      case "meeting": return "users";
+      default: return "calendar";
+    }
+  };
+
+  const formatEventInfo = (event: PlanTaskEvent): string => {
+    const date = new Date(event.startDate).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    if (event.type === "due_date") {
+      return `Due ${date}`;
+    }
+    if (event.startTime) {
+      const time = event.startTime;
+      if (event.endTime) {
+        return `${date} ${time}-${event.endTime}`;
+      }
+      return `${date} ${time}`;
+    }
+    return date;
   };
 
   const totalTasks = plan.objectives.reduce((acc, obj) => 
@@ -164,12 +197,27 @@ export function PlanPreview({ plan, onImplement, isImplementing }: PlanPreviewPr
                                 {task.description}
                               </ThemedText>
                             ) : null}
+                            {task.event ? (
+                              <View style={styles.eventInfo}>
+                                <Feather 
+                                  name={getEventIcon(task.event.type)} 
+                                  size={10} 
+                                  color={theme.primary} 
+                                />
+                                <ThemedText style={[styles.eventText, { color: theme.primary }]}>
+                                  {formatEventInfo(task.event)}
+                                </ThemedText>
+                                {task.event.recurrence && task.event.recurrence !== "none" && (
+                                  <View style={[styles.recurrenceBadge, { backgroundColor: theme.primary + "20" }]}>
+                                    <Feather name="repeat" size={8} color={theme.primary} />
+                                    <ThemedText style={[styles.recurrenceText, { color: theme.primary }]}>
+                                      {task.event.recurrence}
+                                    </ThemedText>
+                                  </View>
+                                )}
+                              </View>
+                            ) : null}
                           </View>
-                          {task.dueOffset ? (
-                            <ThemedText style={[styles.dueText, { color: theme.textSecondary }]}>
-                              +{task.dueOffset}d
-                            </ThemedText>
-                          ) : null}
                         </View>
                       ))}
                     </View>
@@ -227,7 +275,13 @@ export function parsePlanFromMessage(message: string): Plan | null {
             title: task.title,
             description: task.description || "",
             priority: task.priority || "medium",
-            dueOffset: task.dueOffset,
+            event: task.event ? {
+              type: task.event.type || "due_date",
+              startDate: task.event.startDate,
+              startTime: task.event.startTime,
+              endTime: task.event.endTime,
+              recurrence: task.event.recurrence || "none",
+            } : undefined,
           })),
         })),
       })),
@@ -392,9 +446,28 @@ const styles = StyleSheet.create({
     fontSize: 11,
     marginTop: 1,
   },
-  dueText: {
-    fontSize: 11,
-    marginLeft: Spacing.sm,
+  eventInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginTop: 3,
+    gap: 4,
+  },
+  eventText: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  recurrenceBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    borderRadius: 4,
+    gap: 2,
+    marginLeft: 4,
+  },
+  recurrenceText: {
+    fontSize: 8,
+    fontWeight: "500",
   },
   implementButton: {
     flexDirection: "row",
