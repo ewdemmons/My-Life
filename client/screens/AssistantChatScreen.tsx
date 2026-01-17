@@ -259,7 +259,7 @@ export default function AssistantChatScreen() {
       });
       
       // Wait for the file to be fully written
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 1000));
       
       const uri = audioRecorder.uri;
       console.log("Recording stopped, URI:", uri);
@@ -297,20 +297,17 @@ export default function AssistantChatScreen() {
     try {
       console.log("Transcribing audio from URI:", uri);
       
-      // Use fetch to read the file as a blob, then convert to base64
-      const fileResponse = await fetch(uri);
-      const blob = await fileResponse.blob();
+      // Check if file exists first
+      const fileInfo = await FileSystem.getInfoAsync(uri);
+      console.log("File info:", JSON.stringify(fileInfo));
       
-      const base64Audio = await new Promise<string>((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const result = reader.result as string;
-          // Remove the data URL prefix (e.g., "data:audio/m4a;base64,")
-          const base64 = result.split(",")[1] || result;
-          resolve(base64);
-        };
-        reader.onerror = reject;
-        reader.readAsDataURL(blob);
+      if (!fileInfo.exists) {
+        throw new Error("Recording file not found");
+      }
+      
+      // Read file as base64
+      const base64Audio = await FileSystem.readAsStringAsync(uri, {
+        encoding: "base64",
       });
       
       console.log("Audio read, length:", base64Audio.length);
