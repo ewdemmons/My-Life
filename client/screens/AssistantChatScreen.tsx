@@ -297,21 +297,34 @@ export default function AssistantChatScreen() {
     try {
       console.log("Transcribing audio from URI:", uri);
       
-      // Use the new File API from expo-file-system/next
-      const audioFile = new File(uri);
+      // Try to read the audio file as base64
+      // First try with the URI as-is, then try stripping file:// prefix
+      let base64Audio: string | null = null;
       
-      // Check if file exists
-      const exists = audioFile.exists;
-      console.log("File exists:", exists);
-      
-      if (!exists) {
-        throw new Error("Recording file not found");
+      // Try original URI first
+      try {
+        const audioFile = new File(uri);
+        base64Audio = await audioFile.base64();
+        console.log("Audio read with original URI, length:", base64Audio.length);
+      } catch (e1) {
+        console.log("Failed with original URI, trying stripped path...");
+        // Try without file:// prefix
+        const filePath = uri.startsWith("file://") ? uri.substring(7) : uri;
+        try {
+          const audioFile = new File(filePath);
+          base64Audio = await audioFile.base64();
+          console.log("Audio read with stripped path, length:", base64Audio.length);
+        } catch (e2) {
+          console.error("Both read attempts failed:", e1, e2);
+          throw new Error("Could not read recording file");
+        }
       }
       
-      // Read file as base64
-      const base64Audio = await audioFile.base64();
+      if (!base64Audio || base64Audio.length === 0) {
+        throw new Error("Recording file is empty");
+      }
       
-      console.log("Audio read, length:", base64Audio.length);
+      console.log("Audio read successfully, length:", base64Audio.length);
 
       const response = await apiRequest("POST", "/api/assistant/transcribe", {
         audio: base64Audio,
