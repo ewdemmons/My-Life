@@ -18,7 +18,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
 import * as Speech from "expo-speech";
-import { File } from "expo-file-system/next";
+import * as FileSystem from "expo-file-system/legacy";
 import * as Network from "expo-network";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -259,8 +259,12 @@ export default function AssistantChatScreen() {
       });
       
       const uri = audioRecorder.uri;
+      console.log("Recording stopped, URI:", uri);
       if (uri) {
         await transcribeAudio(uri);
+      } else {
+        console.error("No recording URI available");
+        Alert.alert("Error", "Recording failed. Please try again.");
       }
     } catch (error) {
       console.error("Failed to stop recording:", error);
@@ -288,8 +292,11 @@ export default function AssistantChatScreen() {
     setIsTranscribing(true);
     
     try {
-      const file = new File(uri);
-      const base64Audio = await file.base64();
+      console.log("Transcribing audio from URI:", uri);
+      const base64Audio = await FileSystem.readAsStringAsync(uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      console.log("Audio read, length:", base64Audio.length);
 
       const response = await apiRequest("POST", "/api/assistant/transcribe", {
         audio: base64Audio,
