@@ -333,6 +333,56 @@ Be conversational and helpful.`;
     }
   });
 
+  app.post("/api/assistant/transcribe", async (req: Request, res: Response) => {
+    try {
+      const { audio, mimeType } = req.body;
+
+      if (!audio) {
+        return res.status(400).json({ error: "Audio data is required" });
+      }
+
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "Transcription service not configured" });
+      }
+
+      const audioBuffer = Buffer.from(audio, "base64");
+      
+      const formData = new FormData();
+      const blob = new Blob([audioBuffer], { type: mimeType || "audio/m4a" });
+      formData.append("file", blob, "audio.m4a");
+      formData.append("model", "whisper-large-v3");
+      formData.append("language", "en");
+      formData.append("response_format", "json");
+
+      const response = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+        },
+        body: formData,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Groq Whisper API error:", errorText);
+        return res.status(500).json({ error: "Failed to transcribe audio" });
+      }
+
+      const data = await response.json();
+      const transcription = data.text || "";
+
+      if (!transcription.trim()) {
+        return res.status(400).json({ error: "No speech detected. Please try again." });
+      }
+
+      res.json({ text: transcription });
+    } catch (error) {
+      console.error("Transcription error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
   const httpServer = createServer(app);
 
   return httpServer;
