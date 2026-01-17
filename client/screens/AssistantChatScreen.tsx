@@ -18,7 +18,7 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
 import * as Speech from "expo-speech";
-import * as FileSystem from "expo-file-system";
+import { File } from "expo-file-system/next";
 import * as Network from "expo-network";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -297,18 +297,19 @@ export default function AssistantChatScreen() {
     try {
       console.log("Transcribing audio from URI:", uri);
       
-      // Check if file exists first
-      const fileInfo = await FileSystem.getInfoAsync(uri);
-      console.log("File info:", JSON.stringify(fileInfo));
+      // Use the new File API from expo-file-system/next
+      const audioFile = new File(uri);
       
-      if (!fileInfo.exists) {
+      // Check if file exists
+      const exists = audioFile.exists;
+      console.log("File exists:", exists);
+      
+      if (!exists) {
         throw new Error("Recording file not found");
       }
       
       // Read file as base64
-      const base64Audio = await FileSystem.readAsStringAsync(uri, {
-        encoding: "base64",
-      });
+      const base64Audio = await audioFile.base64();
       
       console.log("Audio read, length:", base64Audio.length);
 
