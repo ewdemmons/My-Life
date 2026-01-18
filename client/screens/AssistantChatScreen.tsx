@@ -86,6 +86,8 @@ interface Message {
   proposalImplemented?: boolean;
   isRefinementPrompt?: boolean;
   quickReplies?: string[];
+  isImportedPlan?: boolean;
+  importSource?: "text" | "url";
 }
 
 interface RefinementState {
@@ -127,6 +129,7 @@ export default function AssistantChatScreen() {
   const [recordingPermission, setRecordingPermission] = useState<boolean | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [autoSpeak, setAutoSpeak] = useState(false);
+  const [isParsingExternalPlan, setIsParsingExternalPlan] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -504,9 +507,81 @@ ${refinementContext}
     return null;
   };
 
+  const detectExternalPlanRequest = (message: string): { isConvert: boolean; hasUrl: boolean; url?: string; planText?: string } => {
+    const convertPatterns = [
+      /convert\s+(?:this\s+)?(?:plan|text)/i,
+      /import\s+(?:this\s+)?plan/i,
+      /parse\s+(?:this\s+)?plan/i,
+      /turn\s+(?:this\s+)?(?:into\s+)?(?:a\s+)?plan/i,
+      /make\s+(?:this\s+)?(?:into\s+)?(?:a\s+)?plan/i,
+      /create\s+(?:a\s+)?plan\s+from/i,
+    ];
+    
+    const isConvert = convertPatterns.some(pattern => pattern.test(message));
+    
+    const urlPattern = /(https?:\/\/[^\s]+)/gi;
+    const urlMatch = message.match(urlPattern);
+    const hasUrl = !!urlMatch;
+    const url = urlMatch?.[0];
+    
+    let planText: string | undefined;
+    if (isConvert && !hasUrl) {
+      planText = message
+        .replace(/convert\s+(?:this\s+)?(?:plan|text)\s*:?\s*/i, "")
+        .replace(/import\s+(?:this\s+)?plan\s*:?\s*/i, "")
+        .replace(/parse\s+(?:this\s+)?plan\s*:?\s*/i, "")
+        .replace(/turn\s+(?:this\s+)?(?:into\s+)?(?:a\s+)?plan\s*:?\s*/i, "")
+        .replace(/make\s+(?:this\s+)?(?:into\s+)?(?:a\s+)?plan\s*:?\s*/i, "")
+        .replace(/create\s+(?:a\s+)?plan\s+from\s*:?\s*/i, "")
+        .trim();
+    }
+    
+    return { isConvert, hasUrl, url, planText };
+  };
+
+  const fetchUrlContent = async (url: string): Promise<string | null> => {
+    try {
+      const response = await apiRequest("POST", "/api/assistant/fetch-url", { url });
+      const data = await response.json();
+      return data.content || null;
+    } catch (error) {
+      console.error("Failed to fetch URL:", error);
+      return null;
+    }
+  };
+
+  const parseExternalPlan = async (planText: string): Promise<Plan | null> => {
+    try {
+      const response = await apiRequest("POST", "/api/assistant/parse-plan", { planText });
+      const data = await response.json();
+      if (data.plan) {
+        return {
+          goal: data.plan.goal || "Imported Plan",
+          advice: data.plan.advice || "Imported from external source",
+          suggestedBubble: data.plan.suggestedBubble || "General",
+          objectives: (data.plan.objectives || []).map((obj: any) => ({
+            name: obj.name,
+            projects: (obj.projects || []).map((proj: any) => ({
+              name: proj.name,
+              tasks: (proj.tasks || []).map((task: any) => ({
+                title: task.title,
+                description: task.description || "",
+                priority: task.priority || "medium",
+              })),
+            })),
+          })),
+        };
+      }
+      return null;
+    } catch (error) {
+      console.error("Failed to parse plan:", error);
+      return null;
+    }
+  };
+
   const sendMessage = async (overrideText?: string) => {
     const messageText = overrideText || inputText.trim();
-    if (!messageText || isLoading) return;
+    if (!messageText || isLoading || isParsingExternalPlan) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -517,6 +592,113 @@ ${refinementContext}
 
     setMessages(prev => [...prev, userMessage]);
     setInputText("");
+
+    const externalPlanRequest = detectExternalPlanRequest(messageText);
+    
+    if (externalPlanRequest.isConvert || externalPlanRequest.hasUrl) {
+      setIsParsingExternalPlan(true);
+      
+      try {
+        let planTextToConvert: string | null = null;
+        let importSource: "text" | "url" = "text";
+        
+        if (externalPlanRequest.hasUrl && externalPlanRequest.url) {
+          importSource = "url";
+          const statusMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: "Fetching content from the link...",
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, statusMessage]);
+          
+          planTextToConvert = await fetchUrlContent(externalPlanRequest.url);
+          
+          if (!planTextToConvert) {
+            setMessages(prev => prev.filter(m => m.id !== statusMessage.id));
+            const errorMessage: Message = {
+              id: (Date.now() + 2).toString(),
+              role: "assistant",
+              content: "I couldn't fetch content from that link. The page might be protected or unavailable. Try copying and pasting the plan text directly instead.",
+              timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, errorMessage]);
+            return;
+          }
+          
+          setMessages(prev => prev.map(m => 
+            m.id === statusMessage.id 
+              ? { ...m, content: "Content fetched! Converting to a structured plan..." }
+              : m
+          ));
+        } else if (externalPlanRequest.planText) {
+          planTextToConvert = externalPlanRequest.planText;
+          
+          const statusMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: "Converting your text to a structured plan...",
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, statusMessage]);
+        }
+        
+        if (planTextToConvert && planTextToConvert.length > 20) {
+          const parsedPlan = await parseExternalPlan(planTextToConvert);
+          
+          setMessages(prev => prev.filter(m => 
+            !m.content.includes("Converting") && !m.content.includes("Fetching") && !m.content.includes("Content fetched")
+          ));
+          
+          if (parsedPlan) {
+            const successMessage: Message = {
+              id: (Date.now() + 3).toString(),
+              role: "assistant",
+              content: `I've converted your ${importSource === "url" ? "linked content" : "text"} into a structured plan! Here's what I found:`,
+              timestamp: new Date(),
+              plan: parsedPlan,
+              planImplemented: false,
+              isImportedPlan: true,
+              importSource,
+            };
+            setMessages(prev => [...prev, successMessage]);
+          } else {
+            const errorMessage: Message = {
+              id: (Date.now() + 3).toString(),
+              role: "assistant",
+              content: "I couldn't convert that into a structured plan. The text might not contain actionable items. Try providing a more detailed plan with specific goals and tasks.",
+              timestamp: new Date(),
+            };
+            setMessages(prev => [...prev, errorMessage]);
+          }
+        } else {
+          setMessages(prev => prev.filter(m => 
+            !m.content.includes("Converting")
+          ));
+          
+          const errorMessage: Message = {
+            id: (Date.now() + 3).toString(),
+            role: "assistant",
+            content: "Please provide more content to convert. You can:\n\n• Paste plan text after \"Convert this plan:\"\n• Share a link to a ChatGPT or Grok conversation\n\nExample: \"Convert this plan: 1. Wake up early, 2. Exercise, 3. Work on project...\"",
+            timestamp: new Date(),
+          };
+          setMessages(prev => [...prev, errorMessage]);
+        }
+      } catch (error) {
+        console.error("External plan parsing error:", error);
+        const errorMessage: Message = {
+          id: (Date.now() + 3).toString(),
+          role: "assistant",
+          content: "Sorry, I encountered an error while processing your plan. Please try again.",
+          timestamp: new Date(),
+        };
+        setMessages(prev => [...prev, errorMessage]);
+      } finally {
+        setIsParsingExternalPlan(false);
+      }
+      return;
+    }
+
     setIsLoading(true);
 
     try {
