@@ -539,14 +539,20 @@ ${refinementContext}
     return { isConvert, hasUrl, url, planText };
   };
 
-  const fetchUrlContent = async (url: string): Promise<string | null> => {
+  const fetchUrlContent = async (url: string): Promise<{ content: string | null; errorType?: "blocked" | "unavailable" | "unknown" }> => {
     try {
       const response = await apiRequest("POST", "/api/assistant/fetch-url", { url });
       const data = await response.json();
-      return data.content || null;
-    } catch (error) {
+      return { content: data.content || null };
+    } catch (error: any) {
+      const errorMessage = error?.message || "";
+      if (errorMessage.includes("403") || errorMessage.includes("forbidden")) {
+        return { content: null, errorType: "blocked" };
+      } else if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+        return { content: null, errorType: "unavailable" };
+      }
       console.error("Failed to fetch URL:", error);
-      return null;
+      return { content: null, errorType: "unknown" };
     }
   };
 
@@ -612,14 +618,25 @@ ${refinementContext}
           };
           setMessages(prev => [...prev, statusMessage]);
           
-          planTextToConvert = await fetchUrlContent(externalPlanRequest.url);
+          const fetchResult = await fetchUrlContent(externalPlanRequest.url);
+          planTextToConvert = fetchResult.content;
           
           if (!planTextToConvert) {
             setMessages(prev => prev.filter(m => m.id !== statusMessage.id));
+            
+            let errorContent = "";
+            if (fetchResult.errorType === "blocked") {
+              errorContent = "That link is protected and can't be accessed directly (sites like Grok and ChatGPT block automated access).\n\n**Instead, try this:**\n1. Open the link in your browser\n2. Copy the plan text from the page\n3. Paste it here with \"Convert this plan:\" before it\n\nExample: \"Convert this plan: [paste your plan here]\"";
+            } else if (fetchResult.errorType === "unavailable") {
+              errorContent = "That link appears to be unavailable or expired. Please check the URL and try again, or copy/paste the plan content directly.";
+            } else {
+              errorContent = "I couldn't fetch content from that link. Try copying and pasting the plan text directly instead.\n\nExample: \"Convert this plan: [paste your plan here]\"";
+            }
+            
             const errorMessage: Message = {
               id: (Date.now() + 2).toString(),
               role: "assistant",
-              content: "I couldn't fetch content from that link. The page might be protected or unavailable. Try copying and pasting the plan text directly instead.",
+              content: errorContent,
               timestamp: new Date(),
             };
             setMessages(prev => [...prev, errorMessage]);
