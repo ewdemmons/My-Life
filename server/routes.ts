@@ -3,6 +3,71 @@ import { createServer, type Server } from "node:http";
 
 const GROQ_API_URL = "https://api.groq.com/openai/v1/chat/completions";
 
+function isExternalPlanRequest(message: string): { isConvert: boolean; hasUrl: boolean; url?: string } {
+  const lowerMessage = message.toLowerCase();
+  
+  const convertPatterns = [
+    /convert\s+(?:this\s+)?(?:plan|text)/i,
+    /import\s+(?:this\s+)?plan/i,
+    /parse\s+(?:this\s+)?plan/i,
+    /turn\s+(?:this\s+)?(?:into\s+)?(?:a\s+)?plan/i,
+    /make\s+(?:this\s+)?(?:into\s+)?(?:a\s+)?plan/i,
+    /create\s+(?:a\s+)?plan\s+from/i,
+  ];
+  
+  const isConvert = convertPatterns.some(pattern => pattern.test(message));
+  
+  const urlPattern = /(https?:\/\/[^\s]+)/gi;
+  const urlMatch = message.match(urlPattern);
+  const hasUrl = !!urlMatch;
+  const url = urlMatch?.[0];
+  
+  return { isConvert, hasUrl, url };
+}
+
+function getExternalPlanParsingPrompt(planText: string): string {
+  return `You are a plan parser for the "My Life" productivity app. Convert the following unstructured plan text into a structured JSON plan.
+
+PLAN TEXT TO CONVERT:
+${planText}
+
+IMPORTANT: You MUST respond with ONLY a JSON block in \`\`\`json ... \`\`\` tags with this EXACT structure:
+\`\`\`json
+{
+  "goal": "Main goal title (inferred from the plan)",
+  "advice": "Key insight or summary about this plan",
+  "suggestedBubble": "Life Bubble name (Work, Health, Learning, Personal, Finance, etc.)",
+  "objectives": [
+    {
+      "name": "Objective name (major milestone or phase)",
+      "projects": [
+        {
+          "name": "Project name (group of related tasks)", 
+          "tasks": [
+            {
+              "title": "Task title",
+              "description": "Brief description",
+              "priority": "high|medium|low"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
+\`\`\`
+
+RULES:
+- Analyze the text and identify the main goal
+- Group related items into objectives (2-4 objectives max)
+- Each objective should have 1-3 projects
+- Each project should have 2-5 specific, actionable tasks
+- Assign appropriate priorities based on importance/urgency
+- Choose the most fitting Life Bubble category
+- If the text is not a valid plan, still try to structure it as best as possible
+- ALWAYS include the JSON block - this is REQUIRED`;
+}
+
 function isPlanningRequest(message: string): boolean {
   const lowerMessage = message.toLowerCase().trim();
   
@@ -379,6 +444,115 @@ Be conversational and helpful.`;
       res.json({ text: transcription });
     } catch (error) {
       console.error("Transcription error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  });
+
+  app.post("/api/assistant/fetch-url", async (req: Request, res: Response) => {
+    try {
+      const { url } = req.body;
+
+      if (!url) {
+        return res.status(400).json({ error: "URL is required" });
+      }
+
+      const response = await fetch(url, {
+        headers: {
+          "User-Agent": "Mozilla/5.0 (compatible; MyLifeApp/1.0)",
+          "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        },
+      });
+
+      if (!response.ok) {
+        return res.status(400).json({ error: `Failed to fetch URL: ${response.status}` });
+      }
+
+      const contentType = response.headers.get("content-type") || "";
+      let text = await response.text();
+
+      if (contentType.includes("text/html")) {
+        text = text
+          .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
+          .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
+          .replace(/<[^>]+>/g, " ")
+          .replace(/&nbsp;/g, " ")
+          .replace(/&amp;/g, "&")
+          .replace(/&lt;/g, "<")
+          .replace(/&gt;/g, ">")
+          .replace(/\s+/g, " ")
+          .trim();
+      }
+
+      const maxLength = 10000;
+      if (text.length > maxLength) {
+        text = text.substring(0, maxLength) + "...";
+      }
+
+      res.json({ content: text, url });
+    } catch (error) {
+      console.error("URL fetch error:", error);
+      res.status(500).json({ error: "Failed to fetch URL content" });
+    }
+  });
+
+  app.post("/api/assistant/parse-plan", async (req: Request, res: Response) => {
+    try {
+      const { planText } = req.body;
+
+      if (!planText) {
+        return res.status(400).json({ error: "Plan text is required" });
+      }
+
+      const apiKey = process.env.GROQ_API_KEY;
+      if (!apiKey) {
+        return res.status(500).json({ error: "AI service not configured" });
+      }
+
+      const systemPrompt = getExternalPlanParsingPrompt(planText);
+
+      const response = await fetch(GROQ_API_URL, {
+        method: "POST",
+        headers: {
+          "Authorization": `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: "Please parse the plan text above into the structured JSON format." },
+          ],
+          temperature: 0.5,
+          max_tokens: 2048,
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Groq API error:", errorText);
+        return res.status(500).json({ error: "Failed to parse plan" });
+      }
+
+      const data = await response.json();
+      const assistantMessage = data.choices?.[0]?.message?.content || "";
+
+      const jsonMatch = assistantMessage.match(/```json\s*([\s\S]*?)\s*```/);
+      if (!jsonMatch) {
+        return res.status(400).json({ error: "Could not extract plan structure from text" });
+      }
+
+      try {
+        const plan = JSON.parse(jsonMatch[1].trim());
+        res.json({ 
+          plan,
+          rawMessage: assistantMessage,
+        });
+      } catch (parseError) {
+        console.error("JSON parse error:", parseError);
+        return res.status(400).json({ error: "Invalid plan structure generated" });
+      }
+    } catch (error) {
+      console.error("Plan parsing error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   });
