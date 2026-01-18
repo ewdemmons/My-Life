@@ -518,8 +518,8 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
       parentId: task.parentId || undefined,
       description: task.description,
     };
-    navigation.navigate("AssistantChat", { entryContext });
     setShowDetails(false);
+    navigation.navigate("AssistantChat", { entryContext });
   }, [task, category, navigation, tasksMap]);
 
   const taskEvents = getEventsByTask(task.id);
@@ -768,139 +768,140 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
               </View>
             </View>
 
-            {showDetails ? (
-              <View style={[styles.details, { borderTopColor: theme.border }]}>
-                {task.description ? (
-                  <ClickableDescription 
-                    text={task.description} 
-                    style={[styles.description, { color: isDark ? "#9CA3AF" : "#6B7280" }]}
-                  />
-                ) : null}
-                <View style={styles.actions}>
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
-                    onPress={handleEdit}
-                  >
-                    <Feather name="edit-2" size={14} color={theme.primary} />
-                    <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: "#3B82F6" + "15" }]}
-                    onPress={handleSchedule}
-                  >
-                    <Feather name="calendar" size={14} color="#3B82F6" />
-                    <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: task.isPinned ? "#F59E0B" + "25" : "#F59E0B" + "15" }]}
-                    onPress={() => task.isPinned ? unpinTask(task.id) : pinTask(task.id)}
-                  >
-                    <Feather name="star" size={14} color="#F59E0B" style={{ opacity: task.isPinned ? 1 : 0.7 }} />
-                    <ThemedText style={[styles.actionText, { color: "#F59E0B" }]}>
-                      {task.isPinned ? "Unpin" : "Pin"}
-                    </ThemedText>
-                  </Pressable>
-                  {linkedHabit ? (
-                    <View style={[styles.actionButton, { backgroundColor: "#22C55E" + "15" }]}>
-                      <Feather name="activity" size={14} color="#22C55E" />
-                      <ThemedText style={[styles.actionText, { color: "#22C55E" }]}>Habit Linked</ThemedText>
-                    </View>
-                  ) : (
-                    <Pressable
-                      style={[styles.actionButton, { backgroundColor: "#A855F7" + "15" }]}
-                      onPress={() => setShowHabitModal(true)}
-                    >
-                      <Feather name="activity" size={14} color="#A855F7" />
-                      <ThemedText style={[styles.actionText, { color: "#A855F7" }]}>Make Habit</ThemedText>
-                    </Pressable>
-                  )}
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
-                    onPress={handleAddSubtask}
-                  >
-                    <Feather name="plus" size={14} color={typeColor} />
-                    <ThemedText style={[styles.actionText, { color: typeColor }]}>Sub-entry</ThemedText>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: "#FBBF24" + "15" }]}
-                    onPress={handleAssist}
-                  >
-                    <Feather name="zap" size={14} color="#FBBF24" />
-                    <ThemedText style={[styles.actionText, { color: "#FBBF24" }]}>AI Assist</ThemedText>
-                  </Pressable>
-                  <Pressable
-                    style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
-                    onPress={handleDelete}
-                  >
-                    <Feather name="trash-2" size={14} color={theme.error} />
-                    <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
-                  </Pressable>
+          </Animated.View>
+        </GestureDetector>
+        
+        {showDetails ? (
+          <View style={[styles.details, { borderTopColor: theme.border, backgroundColor: isDark ? theme.backgroundDefault : "#FFFFFF", marginTop: -1, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }]}>
+            {task.description ? (
+              <ClickableDescription 
+                text={task.description} 
+                style={[styles.description, { color: isDark ? "#9CA3AF" : "#6B7280" }]}
+              />
+            ) : null}
+            <View style={styles.actions}>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
+                onPress={handleEdit}
+              >
+                <Feather name="edit-2" size={14} color={theme.primary} />
+                <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: "#3B82F6" + "15" }]}
+                onPress={handleSchedule}
+              >
+                <Feather name="calendar" size={14} color="#3B82F6" />
+                <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: task.isPinned ? "#F59E0B" + "25" : "#F59E0B" + "15" }]}
+                onPress={() => task.isPinned ? unpinTask(task.id) : pinTask(task.id)}
+              >
+                <Feather name="star" size={14} color="#F59E0B" style={{ opacity: task.isPinned ? 1 : 0.7 }} />
+                <ThemedText style={[styles.actionText, { color: "#F59E0B" }]}>
+                  {task.isPinned ? "Unpin" : "Pin"}
+                </ThemedText>
+              </Pressable>
+              {linkedHabit ? (
+                <View style={[styles.actionButton, { backgroundColor: "#22C55E" + "15" }]}>
+                  <Feather name="activity" size={14} color="#22C55E" />
+                  <ThemedText style={[styles.actionText, { color: "#22C55E" }]}>Habit Linked</ThemedText>
                 </View>
+              ) : (
+                <Pressable
+                  style={[styles.actionButton, { backgroundColor: "#A855F7" + "15" }]}
+                  onPress={() => setShowHabitModal(true)}
+                >
+                  <Feather name="activity" size={14} color="#A855F7" />
+                  <ThemedText style={[styles.actionText, { color: "#A855F7" }]}>Make Habit</ThemedText>
+                </Pressable>
+              )}
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
+                onPress={handleAddSubtask}
+              >
+                <Feather name="plus" size={14} color={typeColor} />
+                <ThemedText style={[styles.actionText, { color: typeColor }]}>Sub-entry</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: "#FBBF24" + "15" }]}
+                onPress={handleAssist}
+              >
+                <Feather name="zap" size={14} color="#FBBF24" />
+                <ThemedText style={[styles.actionText, { color: "#FBBF24" }]}>AI Assist</ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
+                onPress={handleDelete}
+              >
+                <Feather name="trash-2" size={14} color={theme.error} />
+                <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
+              </Pressable>
+            </View>
 
-                {taskOccurrences.length > 0 ? (
-                  <View style={[styles.historySection, { borderTopColor: theme.border }]}>
-                    <ThemedText style={[styles.historyTitle, { color: theme.textSecondary }]}>
-                      Completion History ({taskOccurrences.length})
-                    </ThemedText>
-                    {taskOccurrences.slice(0, 5).map((occ) => (
-                      <View key={occ.id} style={styles.historyItem}>
-                        <View style={styles.historyItemContent}>
-                          <Feather name="check-circle" size={12} color={theme.success} />
-                          <ThemedText style={[styles.historyDate, { color: theme.text }]} numberOfLines={1}>
-                            {new Date(occ.occurredAt).toLocaleDateString("en-US", {
-                              month: "short",
-                              day: "numeric",
-                              year: "numeric",
-                            })}
-                            {occ.notes ? ` - ${occ.notes}` : ""}
-                          </ThemedText>
-                        </View>
-                        <View style={styles.historyItemActions}>
-                          <Pressable
-                            onPress={() => setEditingOccurrence({ 
-                              id: occ.id, 
-                              notes: occ.notes || "", 
-                              date: new Date(occ.occurredAt) 
-                            })}
-                            hitSlop={10}
-                            style={styles.historyActionBtn}
-                          >
-                            <Feather name="edit-2" size={16} color={theme.primary} />
-                          </Pressable>
-                          <Pressable
-                            onPress={() => {
-                              Alert.alert(
-                                "Delete Entry",
-                                "Remove this completion log entry?",
-                                [
-                                  { text: "Cancel", style: "cancel" },
-                                  { 
-                                    text: "Delete", 
-                                    style: "destructive", 
-                                    onPress: () => deleteOccurrence(occ.id)
-                                  },
-                                ]
-                              );
-                            }}
-                            hitSlop={10}
-                            style={styles.historyActionBtn}
-                          >
-                            <Feather name="trash-2" size={16} color={theme.error} />
-                          </Pressable>
-                        </View>
-                      </View>
-                    ))}
-                    {taskOccurrences.length > 5 ? (
-                      <ThemedText style={[styles.historyMore, { color: theme.textSecondary }]}>
-                        +{taskOccurrences.length - 5} more
+            {taskOccurrences.length > 0 ? (
+              <View style={[styles.historySection, { borderTopColor: theme.border }]}>
+                <ThemedText style={[styles.historyTitle, { color: theme.textSecondary }]}>
+                  Completion History ({taskOccurrences.length})
+                </ThemedText>
+                {taskOccurrences.slice(0, 5).map((occ) => (
+                  <View key={occ.id} style={styles.historyItem}>
+                    <View style={styles.historyItemContent}>
+                      <Feather name="check-circle" size={12} color={theme.success} />
+                      <ThemedText style={[styles.historyDate, { color: theme.text }]} numberOfLines={1}>
+                        {new Date(occ.occurredAt).toLocaleDateString("en-US", {
+                          month: "short",
+                          day: "numeric",
+                          year: "numeric",
+                        })}
+                        {occ.notes ? ` - ${occ.notes}` : ""}
                       </ThemedText>
-                    ) : null}
+                    </View>
+                    <View style={styles.historyItemActions}>
+                      <Pressable
+                        onPress={() => setEditingOccurrence({ 
+                          id: occ.id, 
+                          notes: occ.notes || "", 
+                          date: new Date(occ.occurredAt) 
+                        })}
+                        hitSlop={10}
+                        style={styles.historyActionBtn}
+                      >
+                        <Feather name="edit-2" size={16} color={theme.primary} />
+                      </Pressable>
+                      <Pressable
+                        onPress={() => {
+                          Alert.alert(
+                            "Delete Entry",
+                            "Remove this completion log entry?",
+                            [
+                              { text: "Cancel", style: "cancel" },
+                              { 
+                                text: "Delete", 
+                                style: "destructive", 
+                                onPress: () => deleteOccurrence(occ.id)
+                              },
+                            ]
+                          );
+                        }}
+                        hitSlop={10}
+                        style={styles.historyActionBtn}
+                      >
+                        <Feather name="trash-2" size={16} color={theme.error} />
+                      </Pressable>
+                    </View>
                   </View>
+                ))}
+                {taskOccurrences.length > 5 ? (
+                  <ThemedText style={[styles.historyMore, { color: theme.textSecondary }]}>
+                    +{taskOccurrences.length - 5} more
+                  </ThemedText>
                 ) : null}
               </View>
             ) : null}
-          </Animated.View>
-        </GestureDetector>
+          </View>
+        ) : null}
 
         {isExpanded && hasChildren ? (
           <View style={styles.children}>
