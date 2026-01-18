@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { View, StyleSheet, Pressable, FlatList, Alert } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/hooks/useTheme";
@@ -11,6 +13,7 @@ import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, Occurrence } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { HabitProgressChart } from "@/components/HabitProgressChart";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
+import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 
 interface HabitsListProps {
   categoryId: string;
@@ -21,7 +24,8 @@ type ViewMode = "week" | "month" | "year";
 export function HabitsList({ categoryId }: HabitsListProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { habits, addOccurrence, getOccurrencesForItem, deleteOccurrence } = useApp();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { habits, categories, addOccurrence, getOccurrencesForItem, deleteOccurrence } = useApp();
 
   const [showAddHabitModal, setShowAddHabitModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
@@ -189,6 +193,20 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     setLogModalHabit(habit);
     setLogModalDate(undefined);
     setShowLogModal(true);
+  };
+
+  const handleAssist = (habit: Habit) => {
+    const category = categories.find(c => c.id === habit.categoryId);
+    const entryContext: EntryContext = {
+      id: habit.id,
+      title: habit.name,
+      type: "habit",
+      entryType: habit.habitType,
+      bubbleName: category?.name,
+      bubbleId: habit.categoryId || undefined,
+      description: habit.linkedTaskId ? "Linked to a task" : undefined,
+    };
+    navigation.navigate("AssistantChat", { entryContext });
   };
 
   const renderViewModeToggle = () => (
@@ -371,6 +389,15 @@ export function HabitsList({ categoryId }: HabitsListProps) {
                 <Feather name="edit-2" size={14} color={theme.primary} />
                 <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
                   Edit Habit
+                </ThemedText>
+              </Pressable>
+              <Pressable
+                style={[styles.actionButton, { backgroundColor: "#FBBF24" + "15" }]}
+                onPress={() => handleAssist(item)}
+              >
+                <Feather name="zap" size={14} color="#FBBF24" />
+                <ThemedText style={[styles.actionButtonText, { color: "#FBBF24" }]}>
+                  AI Assist
                 </ThemedText>
               </Pressable>
             </View>

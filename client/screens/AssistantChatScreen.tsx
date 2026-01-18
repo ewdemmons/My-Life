@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { useRoute, RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
@@ -29,6 +30,7 @@ import { useApp } from "@/context/AppContext";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { PlanPreview, Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
 import { Task, TaskType, Habit, CalendarEvent } from "@/types";
+import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 
 const MESSAGES_STORAGE_KEY = "@assistant_messages";
 const REFINEMENT_STATE_KEY = "@assistant_refinement_state";
@@ -101,6 +103,8 @@ interface RefinementState {
 export default function AssistantChatScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
+  const route = useRoute<RouteProp<RootStackParamList, "AssistantChat">>();
+  const entryContext = route.params?.entryContext;
   const { theme, isDark } = useTheme();
   const { 
     categories, 
@@ -122,6 +126,7 @@ export default function AssistantChatScreen() {
   const [implementingPlanId, setImplementingPlanId] = useState<string | null>(null);
   const [implementingProposalId, setImplementingProposalId] = useState<string | null>(null);
   const [refinementState, setRefinementState] = useState<RefinementState>({ isActive: false });
+  const [entryContextHandled, setEntryContextHandled] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   
   const [isRecording, setIsRecording] = useState(false);
@@ -166,6 +171,65 @@ export default function AssistantChatScreen() {
       pulseAnim.setValue(1);
     }
   }, [isRecording]);
+
+  useEffect(() => {
+    if (entryContext && !entryContextHandled && !isLoadingHistory) {
+      setEntryContextHandled(true);
+      
+      const parentInfo = entryContext.parentTitle 
+        ? `Parent: "${entryContext.parentTitle}". ` 
+        : "";
+      const bubbleInfo = entryContext.bubbleName 
+        ? `in ${entryContext.bubbleName} bubble` 
+        : "";
+      
+      const typeLabel = entryContext.entryType 
+        ? entryContext.entryType.charAt(0).toUpperCase() + entryContext.entryType.slice(1)
+        : entryContext.type.charAt(0).toUpperCase() + entryContext.type.slice(1);
+      
+      const contextualGreeting: Message = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `I'm here to help with "${entryContext.title}" (${typeLabel}) ${bubbleInfo}.\n\n${parentInfo}What would you like to do with this entry?`,
+        timestamp: new Date(),
+        isRefinementPrompt: true,
+        quickReplies: getEntryQuickActions(entryContext),
+      };
+      
+      setMessages(prev => [...prev, contextualGreeting]);
+      
+      setRefinementState({
+        isActive: true,
+        bubbleId: entryContext.bubbleId,
+        createdTaskIds: entryContext.type === "task" ? [entryContext.id] : [],
+      });
+    }
+  }, [entryContext, entryContextHandled, isLoadingHistory]);
+
+  const getEntryQuickActions = (context: EntryContext): string[] => {
+    const actions: string[] = [];
+    
+    if (context.type === "task") {
+      const taskType = context.entryType || "task";
+      if (["goal", "objective", "project"].includes(taskType)) {
+        actions.push("Plan sub-entries");
+      }
+      actions.push("Schedule this");
+      actions.push("Make it a habit");
+      actions.push("Assign to someone");
+      actions.push("Give me advice");
+    } else if (context.type === "habit") {
+      actions.push("Improve this habit");
+      actions.push("Schedule reminders");
+      actions.push("Give me advice");
+    } else if (context.type === "event") {
+      actions.push("Create related tasks");
+      actions.push("Reschedule");
+      actions.push("Give me advice");
+    }
+    
+    return actions;
+  };
 
   const isWebPlatform = Platform.OS as string === "web";
 
@@ -458,6 +522,40 @@ Current branch: ${refinementState.currentBranch || "none"}
       `;
     }
 
+    let entryContextInfo = "";
+    if (entryContext) {
+      const task = entryContext.type === "task" ? tasks.find(t => t.id === entryContext.id) : null;
+      const habit = entryContext.type === "habit" ? habits.find(h => h.id === entryContext.id) : null;
+      
+      let hierarchy = "";
+      if (task) {
+        const getParentChain = (taskId: string | null | undefined): string[] => {
+          if (!taskId) return [];
+          const parent = tasks.find(t => t.id === taskId);
+          if (!parent) return [];
+          return [...getParentChain(parent.parentId), `${parent.title} (${parent.type})`];
+        };
+        const parentChain = getParentChain(task.parentId);
+        if (parentChain.length > 0) {
+          hierarchy = `\nHierarchy: ${parentChain.join(" > ")} > ${task.title}`;
+        }
+        
+        const children = tasks.filter(t => t.parentId === task.id);
+        if (children.length > 0) {
+          hierarchy += `\nSub-entries (${children.length}): ${children.map(c => `${c.title} (${c.type})`).join(", ")}`;
+        }
+      }
+      
+      entryContextInfo = `
+ENTRY-SPECIFIC ASSISTANCE:
+Focused on: "${entryContext.title}" (${entryContext.entryType || entryContext.type})
+Bubble: ${entryContext.bubbleName || "Not assigned"}${hierarchy}
+Entry ID: ${entryContext.id}
+
+When creating sub-entries or plans for this entry, create them as children under this entry, NOT at the root level.
+      `;
+    }
+
     return `
 Life Bubbles: ${bubbleInfo || "None created yet"}
 Tasks by bubble: ${Object.entries(tasksByBubble).map(([name, count]) => `${name}: ${count}`).join(", ") || "None"}
@@ -465,6 +563,7 @@ Summary: ${goalCount} goals, ${projectCount} projects, ${pendingTasks} pending t
 ${habitInfo}
 ${peopleInfo}
 ${refinementContext}
+${entryContextInfo}
     `.trim();
   };
 
@@ -790,30 +889,38 @@ ${refinementContext}
     const createdTaskIds: string[] = [];
 
     try {
-      let categoryId = categories.find(
-        c => c.name.toLowerCase() === plan.suggestedBubble.toLowerCase()
-      )?.id;
+      let categoryId: string | undefined;
+      let parentEntryId: string | null = null;
+      
+      if (entryContext && entryContext.type === "task") {
+        categoryId = entryContext.bubbleId;
+        parentEntryId = entryContext.id;
+      } else {
+        categoryId = categories.find(
+          c => c.name.toLowerCase() === plan.suggestedBubble.toLowerCase()
+        )?.id;
 
-      if (!categoryId) {
-        const similarCategory = categories.find(c => 
-          c.name.toLowerCase().includes(plan.suggestedBubble.toLowerCase()) ||
-          plan.suggestedBubble.toLowerCase().includes(c.name.toLowerCase())
-        );
-        
-        if (similarCategory) {
-          categoryId = similarCategory.id;
-        } else {
-          await addCategory({
-            name: plan.suggestedBubble,
-            description: `Created for: ${plan.goal}`,
-            color: "#3B82F6",
-            icon: "target",
-          });
+        if (!categoryId) {
+          const similarCategory = categories.find(c => 
+            c.name.toLowerCase().includes(plan.suggestedBubble.toLowerCase()) ||
+            plan.suggestedBubble.toLowerCase().includes(c.name.toLowerCase())
+          );
           
-          await new Promise(resolve => setTimeout(resolve, 500));
-          
-          const newCategory = categories.find(c => c.name === plan.suggestedBubble);
-          categoryId = newCategory?.id;
+          if (similarCategory) {
+            categoryId = similarCategory.id;
+          } else {
+            await addCategory({
+              name: plan.suggestedBubble,
+              description: `Created for: ${plan.goal}`,
+              color: "#3B82F6",
+              icon: "target",
+            });
+            
+            await new Promise(resolve => setTimeout(resolve, 500));
+            
+            const newCategory = categories.find(c => c.name === plan.suggestedBubble);
+            categoryId = newCategory?.id;
+          }
         }
       }
 
@@ -824,23 +931,30 @@ ${refinementContext}
       let createdCount = 0;
       let failedCount = 0;
 
-      const createdGoal = await addTask({
-        title: plan.goal,
-        description: plan.advice,
-        type: "goal" as TaskType,
-        categoryId,
-        parentId: null,
-        priority: "high",
-        status: "pending",
-      });
+      let goalId: string;
+      
+      if (parentEntryId) {
+        goalId = parentEntryId;
+        createdTaskIds.push(parentEntryId);
+      } else {
+        const createdGoal = await addTask({
+          title: plan.goal,
+          description: plan.advice,
+          type: "goal" as TaskType,
+          categoryId,
+          parentId: null,
+          priority: "high",
+          status: "pending",
+        });
 
-      if (!createdGoal) {
-        console.error("Failed to create goal task");
-        throw new Error("Failed to create goal task");
+        if (!createdGoal) {
+          console.error("Failed to create goal task");
+          throw new Error("Failed to create goal task");
+        }
+        createdCount++;
+        createdTaskIds.push(createdGoal.id);
+        goalId = createdGoal.id;
       }
-      createdCount++;
-      createdTaskIds.push(createdGoal.id);
-      const goalId = createdGoal.id;
 
       for (const objective of plan.objectives) {
         const createdObjective = await addTask({
