@@ -1418,7 +1418,7 @@ ${refinementContext}
                   },
                 ]}
                 onPress={isRecording ? stopRecording : startRecording}
-                disabled={isLoading || isTranscribing}
+                disabled={isLoading || isTranscribing || isParsingExternalPlan}
               >
                 <Feather 
                   name={isRecording ? "mic-off" : "mic"} 
@@ -1429,13 +1429,13 @@ ${refinementContext}
             </Animated.View>
             <TextInput
               style={[styles.input, { color: theme.text }]}
-              placeholder={isRecording ? "Listening..." : "Ask your assistant..."}
+              placeholder={isRecording ? "Listening..." : isParsingExternalPlan ? "Converting plan..." : "Ask your assistant..."}
               placeholderTextColor={theme.textSecondary}
               value={inputText}
               onChangeText={setInputText}
               multiline
               maxLength={1000}
-              editable={!isLoading && !isRecording}
+              editable={!isLoading && !isRecording && !isParsingExternalPlan}
               onSubmitEditing={() => sendMessage()}
               returnKeyType="send"
             />
@@ -1443,12 +1443,12 @@ ${refinementContext}
               style={[
                 styles.sendButton,
                 { backgroundColor: theme.primary },
-                (!inputText.trim() || isLoading || isRecording) && { opacity: 0.5 },
+                (!inputText.trim() || isLoading || isRecording || isParsingExternalPlan) && { opacity: 0.5 },
               ]}
               onPress={() => sendMessage()}
-              disabled={!inputText.trim() || isLoading || isRecording}
+              disabled={!inputText.trim() || isLoading || isRecording || isParsingExternalPlan}
             >
-              {isLoading ? (
+              {isLoading || isParsingExternalPlan ? (
                 <ActivityIndicator size="small" color="#FFFFFF" />
               ) : (
                 <Feather name="send" size={18} color="#FFFFFF" />
