@@ -28,7 +28,7 @@ import { AddHabitModal } from "@/components/AddHabitModal";
 import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
-import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 
 function isTemporarilyComplete(task: Task): boolean {
   if (task.completionType !== "until" || !task.completionDate) return false;
@@ -330,6 +330,7 @@ export function HierarchicalTaskList({
               showCategory={showCategory}
               categories={categories}
               parentColor={null}
+              tasksMap={tasksMap}
             />
           ))}
         </View>
@@ -412,9 +413,10 @@ interface TaskItemProps {
   showCategory: boolean;
   categories: { id: string; name: string; color: string }[];
   parentColor: string | null;
+  tasksMap: Map<string, Task>;
 }
 
-function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskItemProps) {
+function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits, pinTask, unpinTask } = useApp();
@@ -502,6 +504,23 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
     setShowSchedulingModal(true);
     setShowDetails(false);
   }, []);
+
+  const handleAssist = useCallback(() => {
+    const parentTask = task.parentId ? tasksMap.get(task.parentId) : null;
+    const entryContext: EntryContext = {
+      id: task.id,
+      title: task.title,
+      type: "task",
+      entryType: task.type,
+      bubbleName: category?.name,
+      bubbleId: task.categoryId || undefined,
+      parentTitle: parentTask?.title,
+      parentId: task.parentId || undefined,
+      description: task.description,
+    };
+    navigation.navigate("AssistantChat", { entryContext });
+    setShowDetails(false);
+  }, [task, category, navigation, tasksMap]);
 
   const taskEvents = getEventsByTask(task.id);
   const hasScheduledEvents = taskEvents.length > 0;
@@ -803,6 +822,13 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                     <ThemedText style={[styles.actionText, { color: typeColor }]}>Sub-entry</ThemedText>
                   </Pressable>
                   <Pressable
+                    style={[styles.actionButton, { backgroundColor: "#FBBF24" + "15" }]}
+                    onPress={handleAssist}
+                  >
+                    <Feather name="zap" size={14} color="#FBBF24" />
+                    <ThemedText style={[styles.actionText, { color: "#FBBF24" }]}>AI Assist</ThemedText>
+                  </Pressable>
+                  <Pressable
                     style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
                     onPress={handleDelete}
                   >
@@ -886,6 +912,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor }: TaskIt
                 showCategory={showCategory}
                 categories={categories}
                 parentColor={categoryColor}
+                tasksMap={tasksMap}
               />
             ))}
           </View>

@@ -15,6 +15,18 @@ import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { LifeCategory, Task } from "@/types";
 
+export type EntryContext = {
+  id: string;
+  title: string;
+  type: "task" | "event" | "habit";
+  entryType?: string;
+  bubbleName?: string;
+  bubbleId?: string;
+  parentTitle?: string;
+  parentId?: string;
+  description?: string;
+};
+
 export type RootStackParamList = {
   Main: undefined;
   CategoryDetail: { category?: LifeCategory; categoryId?: string; initialTaskId?: string; initialEventId?: string };
@@ -23,7 +35,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   CentralDashboard: undefined;
   Profile: undefined;
-  AssistantChat: undefined;
+  AssistantChat: { entryContext?: EntryContext };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
