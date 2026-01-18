@@ -32,6 +32,7 @@
 - **Task Completion & Habit Tracking**: Detailed completion logging with "As of" or "Until" types, notes, and history. Habits have positive/negative types, goal settings (frequency/count), streak tracking, and automatic logging from linked tasks.
 - **People Management & Sharing**: Comprehensive person profiles with relationship types, photos, and notes. Supports linking people to categories, tasks, and events. Features an invitation system for sharing Life Bubbles with other users via email/SMS, including deep linking and contact import.
 - **Voice-Enabled AI Assistant**: Hands-free voice input using `expo-audio` for recording and Groq Whisper API for transcription. Text-to-speech output using `expo-speech` for reading responses aloud. Features pulsing mic button animation, offline detection, and permission handling.
+- **External Plan Import**: Users can import and convert external plans from pasted text or URLs (e.g., ChatGPT/Grok share links). The AI parses unstructured text into structured JSON hierarchy (Goal → Objectives → Projects → Tasks), shows a preview, and allows one-click implementation with post-plan refinement options (scheduling, habits, people assignments).
 
 ### Feature Specifications
 - **Life Wheel**: Visual dashboard for categories; tap for details, long-press for edit/delete.
