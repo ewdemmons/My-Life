@@ -28,7 +28,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
-import { PlanPreview, Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
+import { Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
+import { PlanPreviewModal, PlanPreviewButton } from "@/components/PlanPreviewModal";
 import { Task, TaskType, Habit, CalendarEvent } from "@/types";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 
@@ -125,6 +126,7 @@ export default function AssistantChatScreen() {
   const [isLoadingHistory, setIsLoadingHistory] = useState(true);
   const [implementingPlanId, setImplementingPlanId] = useState<string | null>(null);
   const [implementingProposalId, setImplementingProposalId] = useState<string | null>(null);
+  const [previewPlanMessageId, setPreviewPlanMessageId] = useState<string | null>(null);
   const [refinementState, setRefinementState] = useState<RefinementState>({ isActive: false });
   const [entryContextHandled, setEntryContextHandled] = useState(false);
   const flatListRef = useRef<FlatList>(null);
@@ -1362,10 +1364,9 @@ ${entryContextInfo}
               <ThemedText style={styles.messageText}>{textContent}</ThemedText>
             </View>
           ) : null}
-          <PlanPreview
+          <PlanPreviewButton
             plan={item.plan}
-            onImplement={() => implementPlan(item.id, item.plan!)}
-            isImplementing={implementingPlanId === item.id}
+            onPress={() => setPreviewPlanMessageId(item.id)}
           />
         </View>
       );
@@ -1588,6 +1589,30 @@ ${entryContextInfo}
           </View>
         </View>
       </ThemedView>
+
+      {(() => {
+        const previewMessage = messages.find(m => m.id === previewPlanMessageId);
+        if (!previewMessage?.plan) return null;
+        return (
+          <PlanPreviewModal
+            visible={!!previewPlanMessageId}
+            plan={previewMessage.plan}
+            onClose={() => setPreviewPlanMessageId(null)}
+            onImplement={() => {
+              implementPlan(previewMessage.id, previewMessage.plan!);
+              setPreviewPlanMessageId(null);
+            }}
+            onRefine={() => {
+              setPreviewPlanMessageId(null);
+              setTimeout(() => {
+                setInputText("I'd like to refine this plan. ");
+                flatListRef.current?.scrollToEnd({ animated: true });
+              }, 300);
+            }}
+            isImplementing={implementingPlanId === previewMessage.id}
+          />
+        );
+      })()}
     </KeyboardAvoidingView>
   );
 }
