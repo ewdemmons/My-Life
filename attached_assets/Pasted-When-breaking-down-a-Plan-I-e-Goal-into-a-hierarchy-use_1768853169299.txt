@@ -1,0 +1,34 @@
+When breaking down a Plan (I.e. Goal) into a hierarchy, use this exact structure:
+- Goal (top level)
+  - Objectives (major milestones or key results needed to achieve the Goal)
+    - Projects (ONLY if needed — see rules below)
+      - Tasks (actionable steps)
+         - Sub-tasks (actionable sub-steps only if needed)
+
+CRITICAL HIERARCHY RULES — follow these exactly to avoid redundancy:
+
+1. Objectives: Always create 1–5 distinct Objectives per Goal. Each Objective should represent a major, distinct phase or outcome.
+
+2. Projects under an Objective:
+   - ONLY create Projects if the Objective naturally requires **multiple distinct initiatives, phases, or groupings** of work.
+   - Examples of when to create Projects:
+     • Objective involves parallel efforts (e.g., "Launch New Product" → Projects: "Design Packaging", "Develop Marketing Campaign", "Set Up Manufacturing").
+     • Objective has clear phases that benefit from grouping (e.g., "Move to New House" → Projects: "Find and Buy House", "Pack Belongings", "Set Up Utilities").
+   - DO NOT create a Project if:
+     • There is only one logical bundle of work.
+     • The Project would have a name that is a near-rephrasing or synonym of the Objective (e.g., avoid "Gather Necessary Documents" → Project "Collect Tax Documents").
+     • The Objective can be fully achieved through a flat list of 2–8 direct Tasks.
+   - In cases where no Projects are needed, attach Tasks **directly to the Objective**.
+
+3. Tasks:
+   - Always 2–8 actionable, specific Tasks per Project (or per Objective if no Projects).
+   - Tasks must be concrete steps a person can check off.
+    - Break into Sub-tasks if necessary.
+
+4. General rules:
+   - Never create a level that duplicates the parent level's purpose.
+   - Prioritize clean, minimal hierarchy — fewer levels are better when they don't sacrifice clarity.
+   - Names at each level must be meaningfully distinct.
+   - Provide details of entries in Description field if necessary 
+
+Output the hierarchy in the exact visual format used in the app (Goal → Objectives → Projects → Tasks) and only include a level if it contains children.
