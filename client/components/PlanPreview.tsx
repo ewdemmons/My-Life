@@ -19,7 +19,8 @@ export interface PlanProject {
 
 export interface PlanObjective {
   name: string;
-  projects: PlanProject[];
+  projects?: PlanProject[];
+  tasks?: PlanTask[];
 }
 
 export interface Plan {
@@ -72,8 +73,11 @@ export function PlanPreview({ plan, onImplement, isImplementing }: PlanPreviewPr
     }
   };
 
-  const totalTasks = plan.objectives.reduce((acc, obj) => 
-    acc + obj.projects.reduce((pacc, proj) => pacc + proj.tasks.length, 0), 0);
+  const totalTasks = plan.objectives.reduce((acc, obj) => {
+    const projectTasks = (obj.projects || []).reduce((pacc, proj) => pacc + proj.tasks.length, 0);
+    const directTasks = (obj.tasks || []).length;
+    return acc + projectTasks + directTasks;
+  }, 0);
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundDefault }]}>
@@ -105,74 +109,102 @@ export function PlanPreview({ plan, onImplement, isImplementing }: PlanPreviewPr
       </View>
 
       <View style={styles.hierarchyContainer}>
-        {plan.objectives.map((objective, objIndex) => (
-          <View key={objIndex} style={styles.objectiveContainer}>
-            <Pressable 
-              style={styles.objectiveHeader}
-              onPress={() => toggleObjective(objIndex)}
-            >
-              <View style={styles.objectiveLeft}>
-                <Feather 
-                  name={expandedObjectives.has(objIndex) ? "chevron-down" : "chevron-right"} 
-                  size={16} 
-                  color={theme.textSecondary} 
-                />
-                <View style={[styles.typeIcon, { backgroundColor: "#F59E0B" + "20" }]}>
-                  <Feather name="flag" size={14} color="#F59E0B" />
+        {plan.objectives.map((objective, objIndex) => {
+          const hasProjects = objective.projects && objective.projects.length > 0;
+          const hasDirectTasks = objective.tasks && objective.tasks.length > 0;
+          const itemCount = hasProjects 
+            ? `${objective.projects!.length} projects` 
+            : hasDirectTasks 
+              ? `${objective.tasks!.length} tasks` 
+              : "";
+          
+          return (
+            <View key={objIndex} style={styles.objectiveContainer}>
+              <Pressable 
+                style={styles.objectiveHeader}
+                onPress={() => toggleObjective(objIndex)}
+              >
+                <View style={styles.objectiveLeft}>
+                  <Feather 
+                    name={expandedObjectives.has(objIndex) ? "chevron-down" : "chevron-right"} 
+                    size={16} 
+                    color={theme.textSecondary} 
+                  />
+                  <View style={[styles.typeIcon, { backgroundColor: "#F59E0B" + "20" }]}>
+                    <Feather name="flag" size={14} color="#F59E0B" />
+                  </View>
+                  <ThemedText style={styles.objectiveName}>{objective.name}</ThemedText>
                 </View>
-                <ThemedText style={styles.objectiveName}>{objective.name}</ThemedText>
-              </View>
-              <ThemedText style={[styles.itemCount, { color: theme.textSecondary }]}>
-                {objective.projects.length} projects
-              </ThemedText>
-            </Pressable>
+                <ThemedText style={[styles.itemCount, { color: theme.textSecondary }]}>
+                  {itemCount}
+                </ThemedText>
+              </Pressable>
 
-            {expandedObjectives.has(objIndex) && objective.projects.map((project, projIndex) => {
-              const projectKey = `${objIndex}-${projIndex}`;
-              return (
-                <View key={projIndex} style={styles.projectContainer}>
-                  <Pressable 
-                    style={styles.projectHeader}
-                    onPress={() => toggleProject(projectKey)}
-                  >
-                    <View style={styles.projectLeft}>
-                      <Feather 
-                        name={expandedProjects.has(projectKey) ? "chevron-down" : "chevron-right"} 
-                        size={14} 
-                        color={theme.textSecondary} 
-                      />
-                      <View style={[styles.typeIcon, styles.smallIcon, { backgroundColor: "#8B5CF6" + "20" }]}>
-                        <Feather name="folder" size={12} color="#8B5CF6" />
-                      </View>
-                      <ThemedText style={styles.projectName}>{project.name}</ThemedText>
-                    </View>
-                    <ThemedText style={[styles.itemCount, { color: theme.textSecondary }]}>
-                      {project.tasks.length} tasks
-                    </ThemedText>
-                  </Pressable>
-
-                  {expandedProjects.has(projectKey) && (
-                    <View style={styles.taskList}>
-                      {project.tasks.map((task, taskIndex) => (
-                        <View key={taskIndex} style={styles.taskItem}>
-                          <View style={[styles.taskDot, { backgroundColor: getPriorityColor(task.priority) }]} />
-                          <View style={styles.taskContent}>
-                            <ThemedText style={styles.taskTitle}>{task.title}</ThemedText>
-                            {task.description ? (
-                              <ThemedText style={[styles.taskDescription, { color: theme.textSecondary }]} numberOfLines={1}>
-                                {task.description}
-                              </ThemedText>
-                            ) : null}
-                          </View>
+              {expandedObjectives.has(objIndex) && hasProjects && objective.projects!.map((project, projIndex) => {
+                const projectKey = `${objIndex}-${projIndex}`;
+                return (
+                  <View key={projIndex} style={styles.projectContainer}>
+                    <Pressable 
+                      style={styles.projectHeader}
+                      onPress={() => toggleProject(projectKey)}
+                    >
+                      <View style={styles.projectLeft}>
+                        <Feather 
+                          name={expandedProjects.has(projectKey) ? "chevron-down" : "chevron-right"} 
+                          size={14} 
+                          color={theme.textSecondary} 
+                        />
+                        <View style={[styles.typeIcon, styles.smallIcon, { backgroundColor: "#8B5CF6" + "20" }]}>
+                          <Feather name="folder" size={12} color="#8B5CF6" />
                         </View>
-                      ))}
+                        <ThemedText style={styles.projectName}>{project.name}</ThemedText>
+                      </View>
+                      <ThemedText style={[styles.itemCount, { color: theme.textSecondary }]}>
+                        {project.tasks.length} tasks
+                      </ThemedText>
+                    </Pressable>
+
+                    {expandedProjects.has(projectKey) && (
+                      <View style={styles.taskList}>
+                        {project.tasks.map((task, taskIndex) => (
+                          <View key={taskIndex} style={styles.taskItem}>
+                            <View style={[styles.taskDot, { backgroundColor: getPriorityColor(task.priority) }]} />
+                            <View style={styles.taskContent}>
+                              <ThemedText style={styles.taskTitle}>{task.title}</ThemedText>
+                              {task.description ? (
+                                <ThemedText style={[styles.taskDescription, { color: theme.textSecondary }]} numberOfLines={1}>
+                                  {task.description}
+                                </ThemedText>
+                              ) : null}
+                            </View>
+                          </View>
+                        ))}
+                      </View>
+                    )}
+                  </View>
+                );
+              })}
+
+              {expandedObjectives.has(objIndex) && hasDirectTasks && (
+                <View style={styles.taskList}>
+                  {objective.tasks!.map((task, taskIndex) => (
+                    <View key={taskIndex} style={styles.taskItem}>
+                      <View style={[styles.taskDot, { backgroundColor: getPriorityColor(task.priority) }]} />
+                      <View style={styles.taskContent}>
+                        <ThemedText style={styles.taskTitle}>{task.title}</ThemedText>
+                        {task.description ? (
+                          <ThemedText style={[styles.taskDescription, { color: theme.textSecondary }]} numberOfLines={1}>
+                            {task.description}
+                          </ThemedText>
+                        ) : null}
+                      </View>
                     </View>
-                  )}
+                  ))}
                 </View>
-              );
-            })}
-          </View>
-        ))}
+              )}
+            </View>
+          );
+        })}
       </View>
 
       <Pressable
@@ -215,14 +247,19 @@ export function parsePlanFromMessage(message: string): Plan | null {
       suggestedBubble: parsed.suggestedBubble || "General",
       objectives: parsed.objectives.map((obj: any) => ({
         name: obj.name,
-        projects: (obj.projects || []).map((proj: any) => ({
+        projects: obj.projects ? (obj.projects || []).map((proj: any) => ({
           name: proj.name,
           tasks: (proj.tasks || []).map((task: any) => ({
             title: task.title,
             description: task.description || "",
             priority: task.priority || "medium",
           })),
-        })),
+        })) : undefined,
+        tasks: obj.tasks ? (obj.tasks || []).map((task: any) => ({
+          title: task.title,
+          description: task.description || "",
+          priority: task.priority || "medium",
+        })) : undefined,
       })),
     };
   } catch (error) {

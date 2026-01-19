@@ -978,33 +978,57 @@ ${entryContextInfo}
         createdTaskIds.push(createdObjective.id);
         const objectiveId = createdObjective.id;
 
-        for (const project of objective.projects) {
-          const createdProject = await addTask({
-            title: project.name,
-            description: "",
-            type: "project" as TaskType,
-            categoryId,
-            parentId: objectiveId,
-            priority: "medium",
-            status: "pending",
-          });
+        if (objective.projects && objective.projects.length > 0) {
+          for (const project of objective.projects) {
+            const createdProject = await addTask({
+              title: project.name,
+              description: "",
+              type: "project" as TaskType,
+              categoryId,
+              parentId: objectiveId,
+              priority: "medium",
+              status: "pending",
+            });
 
-          if (!createdProject) {
-            console.error(`Failed to create project: ${project.name}`);
-            failedCount++;
-            continue;
+            if (!createdProject) {
+              console.error(`Failed to create project: ${project.name}`);
+              failedCount++;
+              continue;
+            }
+            createdCount++;
+            createdTaskIds.push(createdProject.id);
+            const projectId = createdProject.id;
+
+            for (const taskItem of project.tasks) {
+              const createdTask = await addTask({
+                title: taskItem.title,
+                description: taskItem.description,
+                type: "task" as TaskType,
+                categoryId,
+                parentId: projectId,
+                priority: taskItem.priority || "medium",
+                status: "pending",
+              });
+
+              if (!createdTask) {
+                console.error(`Failed to create task: ${taskItem.title}`);
+                failedCount++;
+              } else {
+                createdCount++;
+                createdTaskIds.push(createdTask.id);
+              }
+            }
           }
-          createdCount++;
-          createdTaskIds.push(createdProject.id);
-          const projectId = createdProject.id;
+        }
 
-          for (const taskItem of project.tasks) {
+        if (objective.tasks && objective.tasks.length > 0) {
+          for (const taskItem of objective.tasks) {
             const createdTask = await addTask({
               title: taskItem.title,
               description: taskItem.description,
               type: "task" as TaskType,
               categoryId,
-              parentId: projectId,
+              parentId: objectiveId,
               priority: taskItem.priority || "medium",
               status: "pending",
             });

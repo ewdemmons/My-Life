@@ -184,7 +184,7 @@ export function PlanPreviewModal({
     const allObjectives = new Set(plan.objectives.map((_, i) => i));
     const allProjects = new Set<string>();
     plan.objectives.forEach((obj, objIdx) => {
-      obj.projects.forEach((_, projIdx) => {
+      (obj.projects || []).forEach((_, projIdx) => {
         allProjects.add(`${objIdx}-${projIdx}`);
       });
     });
@@ -197,10 +197,13 @@ export function PlanPreviewModal({
     setExpandedProjects(new Set());
   }, []);
 
-  const totalTasks = plan.objectives.reduce((acc, obj) => 
-    acc + obj.projects.reduce((pacc, proj) => pacc + proj.tasks.length, 0), 0);
+  const totalTasks = plan.objectives.reduce((acc, obj) => {
+    const projectTasks = (obj.projects || []).reduce((pacc, proj) => pacc + proj.tasks.length, 0);
+    const directTasks = (obj.tasks || []).length;
+    return acc + projectTasks + directTasks;
+  }, 0);
 
-  const totalProjects = plan.objectives.reduce((acc, obj) => acc + obj.projects.length, 0);
+  const totalProjects = plan.objectives.reduce((acc, obj) => acc + (obj.projects || []).length, 0);
 
   return (
     <Modal
@@ -278,43 +281,63 @@ export function PlanPreviewModal({
           </View>
 
           <View style={[styles.treeContainer, { backgroundColor: theme.backgroundDefault }]}>
-            {plan.objectives.map((objective, objIndex) => (
-              <TreeNode
-                key={objIndex}
-                type="objective"
-                title={objective.name}
-                childCount={objective.projects.length}
-                depth={0}
-                isExpanded={expandedObjectives.has(objIndex)}
-                onToggle={() => toggleObjective(objIndex)}
-              >
-                {objective.projects.map((project, projIndex) => {
-                  const projectKey = `${objIndex}-${projIndex}`;
-                  return (
+            {plan.objectives.map((objective, objIndex) => {
+              const hasProjects = objective.projects && objective.projects.length > 0;
+              const hasDirectTasks = objective.tasks && objective.tasks.length > 0;
+              const childCount = hasProjects 
+                ? objective.projects!.length 
+                : hasDirectTasks 
+                  ? objective.tasks!.length 
+                  : 0;
+              
+              return (
+                <TreeNode
+                  key={objIndex}
+                  type="objective"
+                  title={objective.name}
+                  childCount={childCount}
+                  depth={0}
+                  isExpanded={expandedObjectives.has(objIndex)}
+                  onToggle={() => toggleObjective(objIndex)}
+                >
+                  {hasProjects && objective.projects!.map((project, projIndex) => {
+                    const projectKey = `${objIndex}-${projIndex}`;
+                    return (
+                      <TreeNode
+                        key={projIndex}
+                        type="project"
+                        title={project.name}
+                        childCount={project.tasks.length}
+                        depth={1}
+                        isExpanded={expandedProjects.has(projectKey)}
+                        onToggle={() => toggleProject(projectKey)}
+                      >
+                        {project.tasks.map((task, taskIndex) => (
+                          <TreeNode
+                            key={taskIndex}
+                            type="task"
+                            title={task.title}
+                            description={task.description}
+                            priority={task.priority}
+                            depth={2}
+                          />
+                        ))}
+                      </TreeNode>
+                    );
+                  })}
+                  {hasDirectTasks && objective.tasks!.map((task, taskIndex) => (
                     <TreeNode
-                      key={projIndex}
-                      type="project"
-                      title={project.name}
-                      childCount={project.tasks.length}
+                      key={`direct-${taskIndex}`}
+                      type="task"
+                      title={task.title}
+                      description={task.description}
+                      priority={task.priority}
                       depth={1}
-                      isExpanded={expandedProjects.has(projectKey)}
-                      onToggle={() => toggleProject(projectKey)}
-                    >
-                      {project.tasks.map((task, taskIndex) => (
-                        <TreeNode
-                          key={taskIndex}
-                          type="task"
-                          title={task.title}
-                          description={task.description}
-                          priority={task.priority}
-                          depth={2}
-                        />
-                      ))}
-                    </TreeNode>
-                  );
-                })}
-              </TreeNode>
-            ))}
+                    />
+                  ))}
+                </TreeNode>
+              );
+            })}
           </View>
         </ScrollView>
 
@@ -354,8 +377,11 @@ interface PlanPreviewButtonProps {
 export function PlanPreviewButton({ plan, onPress }: PlanPreviewButtonProps) {
   const { theme } = useTheme();
   
-  const totalTasks = plan.objectives.reduce((acc, obj) => 
-    acc + obj.projects.reduce((pacc, proj) => pacc + proj.tasks.length, 0), 0);
+  const totalTasks = plan.objectives.reduce((acc, obj) => {
+    const projectTasks = (obj.projects || []).reduce((pacc, proj) => pacc + proj.tasks.length, 0);
+    const directTasks = (obj.tasks || []).length;
+    return acc + projectTasks + directTasks;
+  }, 0);
 
   return (
     <Pressable 

@@ -159,30 +159,50 @@ YOUR RESPONSE FORMAT:
   "objectives": [
     {
       "name": "Objective name",
-      "projects": [
-        {
-          "name": "Project name", 
-          "tasks": [
-            {
-              "title": "Task title",
-              "description": "What to do",
-              "priority": "high|medium|low"
-            }
-          ]
-        }
-      ]
+      "projects": [...],  // OPTIONAL - see rules below
+      "tasks": [...]      // Direct tasks if no projects needed
     }
   ]
 }
 \`\`\`
 
+Projects structure (when needed):
+"projects": [
+  {
+    "name": "Project name", 
+    "tasks": [
+      { "title": "Task title", "description": "What to do", "priority": "high|medium|low" }
+    ]
+  }
+]
+
+Direct tasks structure (when projects not needed):
+"tasks": [
+  { "title": "Task title", "description": "What to do", "priority": "high|medium|low" }
+]
+
 3. Brief encouraging closing
 
-RULES:
-- Create 2-3 objectives, each with 1-2 projects
-- Each project has 2-4 specific, actionable tasks
-- ALWAYS include the JSON block wrapped in \`\`\`json and \`\`\` - this is REQUIRED
-- Do NOT add scheduling or events - users will be prompted to add those after creating the plan`;
+CRITICAL HIERARCHY RULES:
+
+1. Objectives: Create 1-5 distinct Objectives per Goal. Each represents a major, distinct phase or outcome.
+
+2. Projects under an Objective — ONLY create Projects if the Objective requires MULTIPLE DISTINCT initiatives, phases, or groupings:
+   - CREATE Projects when: parallel efforts needed (e.g., "Launch Product" → "Design Packaging", "Marketing Campaign", "Manufacturing Setup")
+   - CREATE Projects when: clear distinct phases benefit from grouping
+   - DO NOT create Projects if: there's only one logical bundle of work
+   - DO NOT create Projects if: the Project name would just rephrase the Objective
+   - If no Projects needed, attach Tasks DIRECTLY to the Objective using the "tasks" array
+
+3. Tasks: Always 2-8 actionable, specific Tasks per Project (or per Objective if no Projects).
+
+4. General rules:
+   - Never create a level that duplicates the parent level's purpose
+   - Prioritize clean, minimal hierarchy — fewer levels are better when they don't sacrifice clarity
+   - Names at each level must be meaningfully distinct
+   - Provide details in the description field when needed
+   - ALWAYS include the JSON block wrapped in \`\`\`json and \`\`\` - this is REQUIRED
+   - Do NOT add scheduling or events - users will be prompted to add those after creating the plan`;
 }
 
 function getSchedulingPrompt(context: string, refinementContext: any): string {
