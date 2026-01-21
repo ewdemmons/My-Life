@@ -432,6 +432,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
   const [showHabitModal, setShowHabitModal] = useState(false);
+  const [showActionsMenu, setShowActionsMenu] = useState(false);
   const rotation = useSharedValue(0);
   const scale = useSharedValue(1);
   const isDragging = draggedTaskId === task.id;
@@ -781,64 +782,146 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
             ) : null}
             <View style={styles.actions}>
               <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
-                onPress={handleEdit}
+                style={[styles.actionsMenuButton, { backgroundColor: theme.primary + "15" }]}
+                onPress={() => setShowActionsMenu(true)}
               >
-                <Feather name="edit-2" size={14} color={theme.primary} />
-                <ThemedText style={[styles.actionText, { color: theme.primary }]}>Edit</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: "#3B82F6" + "15" }]}
-                onPress={handleSchedule}
-              >
-                <Feather name="calendar" size={14} color="#3B82F6" />
-                <ThemedText style={[styles.actionText, { color: "#3B82F6" }]}>Schedule</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: task.isPinned ? "#F59E0B" + "25" : "#F59E0B" + "15" }]}
-                onPress={() => task.isPinned ? unpinTask(task.id) : pinTask(task.id)}
-              >
-                <Feather name="star" size={14} color="#F59E0B" style={{ opacity: task.isPinned ? 1 : 0.7 }} />
-                <ThemedText style={[styles.actionText, { color: "#F59E0B" }]}>
-                  {task.isPinned ? "Unpin" : "Pin"}
-                </ThemedText>
-              </Pressable>
-              {linkedHabit ? (
-                <View style={[styles.actionButton, { backgroundColor: "#22C55E" + "15" }]}>
-                  <Feather name="activity" size={14} color="#22C55E" />
-                  <ThemedText style={[styles.actionText, { color: "#22C55E" }]}>Habit Linked</ThemedText>
-                </View>
-              ) : (
-                <Pressable
-                  style={[styles.actionButton, { backgroundColor: "#A855F7" + "15" }]}
-                  onPress={() => setShowHabitModal(true)}
-                >
-                  <Feather name="activity" size={14} color="#A855F7" />
-                  <ThemedText style={[styles.actionText, { color: "#A855F7" }]}>Make Habit</ThemedText>
-                </Pressable>
-              )}
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: typeColor + "15" }]}
-                onPress={handleAddSubtask}
-              >
-                <Feather name="plus" size={14} color={typeColor} />
-                <ThemedText style={[styles.actionText, { color: typeColor }]}>Sub-entry</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: "#FBBF24" + "15" }]}
-                onPress={handleAssist}
-              >
-                <Feather name="zap" size={14} color="#FBBF24" />
-                <ThemedText style={[styles.actionText, { color: "#FBBF24" }]}>AI Assist</ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.error + "15" }]}
-                onPress={handleDelete}
-              >
-                <Feather name="trash-2" size={14} color={theme.error} />
-                <ThemedText style={[styles.actionText, { color: theme.error }]}>Delete</ThemedText>
+                <Feather name="more-horizontal" size={18} color={theme.primary} />
+                <ThemedText style={[styles.actionsMenuButtonText, { color: theme.primary }]}>Actions</ThemedText>
               </Pressable>
             </View>
+
+            <Modal
+              visible={showActionsMenu}
+              transparent
+              animationType="fade"
+              onRequestClose={() => setShowActionsMenu(false)}
+            >
+              <Pressable 
+                style={styles.actionsMenuOverlay} 
+                onPress={() => setShowActionsMenu(false)}
+              >
+                <View style={[styles.actionsMenuContent, { backgroundColor: theme.backgroundDefault }]}>
+                  <View style={[styles.actionsMenuHeader, { borderBottomColor: theme.border }]}>
+                    <ThemedText style={styles.actionsMenuTitle} numberOfLines={1}>
+                      {task.title}
+                    </ThemedText>
+                    <Pressable onPress={() => setShowActionsMenu(false)} hitSlop={10}>
+                      <Feather name="x" size={20} color={theme.textSecondary} />
+                    </Pressable>
+                  </View>
+                  
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      handleAddSubtask();
+                    }}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: typeColor + "15" }]}>
+                      <Feather name="plus" size={18} color={typeColor} />
+                    </View>
+                    <ThemedText style={styles.actionsMenuItemText}>Add Sub-entry</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      handleSchedule();
+                    }}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#3B82F6" + "15" }]}>
+                      <Feather name="calendar" size={18} color="#3B82F6" />
+                    </View>
+                    <ThemedText style={styles.actionsMenuItemText}>Schedule</ThemedText>
+                  </Pressable>
+
+                  {linkedHabit ? (
+                    <View style={[styles.actionsMenuItem, { opacity: 0.6 }]}>
+                      <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#22C55E" + "15" }]}>
+                        <Feather name="activity" size={18} color="#22C55E" />
+                      </View>
+                      <ThemedText style={styles.actionsMenuItemText}>Habit Linked</ThemedText>
+                      <Feather name="check" size={16} color="#22C55E" style={{ marginLeft: "auto" }} />
+                    </View>
+                  ) : (
+                    <Pressable
+                      style={styles.actionsMenuItem}
+                      onPress={() => {
+                        setShowActionsMenu(false);
+                        setShowHabitModal(true);
+                      }}
+                    >
+                      <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#A855F7" + "15" }]}>
+                        <Feather name="activity" size={18} color="#A855F7" />
+                      </View>
+                      <ThemedText style={styles.actionsMenuItemText}>Make Habit</ThemedText>
+                    </Pressable>
+                  )}
+
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      handleEdit();
+                    }}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: theme.primary + "15" }]}>
+                      <Feather name="edit-2" size={18} color={theme.primary} />
+                    </View>
+                    <ThemedText style={styles.actionsMenuItemText}>Edit</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      handleDelete();
+                    }}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: theme.error + "15" }]}>
+                      <Feather name="trash-2" size={18} color={theme.error} />
+                    </View>
+                    <ThemedText style={[styles.actionsMenuItemText, { color: theme.error }]}>Delete</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      if (task.isPinned) {
+                        unpinTask(task.id);
+                      } else {
+                        pinTask(task.id);
+                      }
+                    }}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#F59E0B" + "15" }]}>
+                      <Feather name="star" size={18} color="#F59E0B" />
+                    </View>
+                    <ThemedText style={styles.actionsMenuItemText}>
+                      {task.isPinned ? "Unpin from To Do" : "Pin to To Do"}
+                    </ThemedText>
+                    {task.isPinned ? (
+                      <Feather name="check" size={16} color="#F59E0B" style={{ marginLeft: "auto" }} />
+                    ) : null}
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      handleAssist();
+                    }}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#FBBF24" + "15" }]}>
+                      <Feather name="zap" size={18} color="#FBBF24" />
+                    </View>
+                    <ThemedText style={styles.actionsMenuItemText}>AI Assist</ThemedText>
+                  </Pressable>
+                </View>
+              </Pressable>
+            </Modal>
 
             {taskOccurrences.length > 0 ? (
               <View style={[styles.historySection, { borderTopColor: theme.border }]}>
@@ -1432,5 +1515,63 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.sm,
     borderRadius: BorderRadius.sm,
     marginBottom: Spacing.sm,
+  },
+  actionsMenuButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    paddingHorizontal: Spacing.lg,
+    borderRadius: BorderRadius.sm,
+    gap: 6,
+  },
+  actionsMenuButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  actionsMenuOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "flex-end",
+  },
+  actionsMenuContent: {
+    borderTopLeftRadius: BorderRadius.xl,
+    borderTopRightRadius: BorderRadius.xl,
+    paddingTop: Spacing.sm,
+    paddingBottom: Spacing.xl + 20,
+    paddingHorizontal: Spacing.md,
+  },
+  actionsMenuHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+    marginBottom: Spacing.xs,
+    borderBottomWidth: 1,
+  },
+  actionsMenuTitle: {
+    fontSize: 16,
+    fontWeight: "700",
+    flex: 1,
+    marginRight: Spacing.md,
+  },
+  actionsMenuItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+    gap: Spacing.md,
+  },
+  actionsMenuIconWrap: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  actionsMenuItemText: {
+    fontSize: 16,
+    fontWeight: "500",
   },
 });
