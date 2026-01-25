@@ -35,7 +35,7 @@ export type RootStackParamList = {
   Notifications: undefined;
   CentralDashboard: undefined;
   Profile: undefined;
-  AssistantChat: { entryContext?: EntryContext };
+  AssistantChat: { entryContext?: EntryContext; isOnboarding?: boolean };
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
