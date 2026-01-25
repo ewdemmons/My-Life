@@ -106,6 +106,7 @@ export default function AssistantChatScreen() {
   const headerHeight = useHeaderHeight();
   const route = useRoute<RouteProp<RootStackParamList, "AssistantChat">>();
   const entryContext = route.params?.entryContext;
+  const isOnboarding = route.params?.isOnboarding ?? false;
   const { theme, isDark } = useTheme();
   const { 
     categories, 
@@ -137,6 +138,8 @@ export default function AssistantChatScreen() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isParsingExternalPlan, setIsParsingExternalPlan] = useState(false);
+  const [isOnboardingMode, setIsOnboardingMode] = useState(isOnboarding);
+  const [onboardingInitialized, setOnboardingInitialized] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -207,6 +210,29 @@ export default function AssistantChatScreen() {
       });
     }
   }, [entryContext, entryContextHandled, isLoadingHistory]);
+
+  useEffect(() => {
+    if (isOnboardingMode && !onboardingInitialized && !isLoadingHistory) {
+      setOnboardingInitialized(true);
+      
+      const welcomeMessage: Message = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: "Welcome to My Life! I'm here to help you set up your personal life management system.\n\nLet's get to know you a bit so I can personalize your experience. What's one goal or area of your life you'd like to focus on first?",
+        timestamp: new Date(),
+        isRefinementPrompt: true,
+        quickReplies: [
+          "Get healthier",
+          "Be more productive at work",
+          "Spend more time with family",
+          "Learn a new skill",
+          "Better manage my finances",
+        ],
+      };
+      
+      setMessages([welcomeMessage]);
+    }
+  }, [isOnboardingMode, onboardingInitialized, isLoadingHistory]);
 
   const getEntryQuickActions = (context: EntryContext): string[] => {
     const actions: string[] = [];
@@ -524,6 +550,34 @@ Current branch: ${refinementState.currentBranch || "none"}
       `;
     }
 
+    let onboardingContext = "";
+    if (isOnboardingMode) {
+      onboardingContext = `
+ONBOARDING MODE - IMPORTANT:
+You are guiding a NEW USER through setting up their life management system for the first time.
+The user has just created 6 default Life Bubbles: Family, Home, Work, Health, Finance, and Hobbies.
+
+Your role in this conversation:
+1. Have a friendly, conversational exchange to understand their goals and priorities
+2. Ask 2-3 follow-up questions to understand what matters most to them
+3. After gathering enough context (usually 2-3 exchanges), create a personalized starter plan
+4. The plan should be practical and achievable, not overwhelming
+5. Explain how features work as you introduce them (bubbles organize life areas, tasks can be hierarchical, etc.)
+
+When creating the starter plan, use this JSON format:
+\`\`\`json
+{
+  "goal": "User's main goal",
+  "items": [
+    { "type": "objective", "title": "First objective", "bubble": "Work", "items": [...] }
+  ]
+}
+\`\`\`
+
+Keep your responses warm, encouraging, and concise. This is their first impression of the app!
+`;
+    }
+
     let entryContextInfo = "";
     if (entryContext) {
       const task = entryContext.type === "task" ? tasks.find(t => t.id === entryContext.id) : null;
@@ -559,6 +613,7 @@ When creating sub-entries or plans for this entry, create them as children under
     }
 
     return `
+${onboardingContext}
 Life Bubbles: ${bubbleInfo || "None created yet"}
 Tasks by bubble: ${Object.entries(tasksByBubble).map(([name, count]) => `${name}: ${count}`).join(", ") || "None"}
 Summary: ${goalCount} goals, ${projectCount} projects, ${pendingTasks} pending tasks, ${completedTasks} completed
@@ -828,6 +883,7 @@ ${entryContextInfo}
         history: messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
         refinementMode: refinementState.isActive,
         refinementContext: refinementContext,
+        isOnboarding: isOnboardingMode,
       });
 
       const data = await response.json();
