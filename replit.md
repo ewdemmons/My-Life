@@ -33,6 +33,7 @@
 - **People Management & Sharing**: Comprehensive person profiles with relationship types, photos, and notes. Supports linking people to categories, tasks, and events. Features an invitation system for sharing Life Bubbles with other users via email/SMS, including deep linking and contact import.
 - **Voice-Enabled AI Assistant**: Hands-free voice input using `expo-audio` for recording and Groq Whisper API for transcription. Text-to-speech output using `expo-speech` for reading responses aloud. Features pulsing mic button animation, offline detection, and permission handling.
 - **External Plan Import**: Users can import and convert external plans from pasted text or URLs (e.g., ChatGPT/Grok share links). The AI parses unstructured text into structured JSON hierarchy (Goal → Objectives → Projects → Tasks), shows a preview, and allows one-click implementation with post-plan refinement options (scheduling, habits, people assignments).
+- **AI-Driven Onboarding**: New users are greeted with an animated welcome modal featuring the Life Wheel. The onboarding flow guides users through a conversational setup with the AI assistant, which learns about their goals and creates a personalized starter plan. The assistant explains app features as it sets things up, then provides an easy transition to the main app.
 
 ### Feature Specifications
 - **Life Wheel**: Visual dashboard for categories; tap for details, long-press for edit/delete.
