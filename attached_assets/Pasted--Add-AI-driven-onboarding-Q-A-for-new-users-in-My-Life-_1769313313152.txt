@@ -1,0 +1,40 @@
+
+Add AI-driven onboarding Q&A for new users in "My Life", with brief feature explanations woven into the conversation.
+
+Requirements:
+1. On first login/signup:
+   - Auto-create 6 default bubbles: Family (purple), Home (pink), Work (orange), Health (red), Finance (green), Hobbies (yellow).
+   - welcome screen: "Your Life Wheel is ready with common categories!" + animated wheel.
+2. Transition to AI Q&A:
+   - Open Assistant chat: 
+   - Conversational flow with branching questions.
+    - After relevant answers, include brief, natural explanations of key features:
+   - After creating bubbles: "Bubbles are your top level categories — tap one to focus in on that area of life."
+   - After Entries: "Entries can consist of different types like Tasks, objectives, goals, ideas or lists and can easily nest into custom hierarchies (Goals → Objectives → Projects → Tasks) for projects."
+   - After events: "Events sync to your calendar — set reminders or appointments."
+   - After habits: "Track habits and monitor progress — positive habits you want to build, or negative ones you want break."
+   - After people: "Add people to assign tasks or share bubbles with them."
+   - End: "I'm your AI Assistant — ask me for help with planning, voice commands, or advice anytime!"
+3. Questions:
+   - Start: "Welcome! Let's build your Life Wheel.
+ - “What's most important in your life right now? (family, career, health...) Are there any big projects or specific hobbies or interests that you’d like to include?”
+   - Suggestions chips: Family, Work, Health, Finance, Hobbies, Fitness, School, Learning, Other
+   - "Are there any big responsibilities or priorities you want to capture?"
+   - "Goals you're working toward?"
+   - "Habits to build or break?"
+   - "Key people in your life?"
+   - "Upcoming events?"
+   - "How do you want to use My Life?
+4. Auto-create items on answers (with toast confirmations).
+5. End: Summary + "Your app is ready — explore!"
+
+Plan step-by-step:
+1. Add onboarding trigger.
+2. Implement Q&A with explanations after creations.
+3. Auto-create + explain.
+4. Test flow.
+
+Demo:
+- Answer questions → items created + feature explanations
+- Natural conversation
+- Ends with populated app + AI 
