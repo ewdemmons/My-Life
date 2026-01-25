@@ -14,7 +14,8 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useRoute, RouteProp } from "@react-navigation/native";
+import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
@@ -105,6 +106,7 @@ export default function AssistantChatScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const route = useRoute<RouteProp<RootStackParamList, "AssistantChat">>();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const entryContext = route.params?.entryContext;
   const isOnboarding = route.params?.isOnboarding ?? false;
   const { theme, isDark } = useTheme();
@@ -1114,14 +1116,27 @@ ${entryContextInfo}
       setRefinementState(newRefinementState);
       saveRefinementState(newRefinementState);
 
-      const refinementMessage: Message = {
-        id: (Date.now() + 2).toString(),
-        role: "assistant",
-        content: `Great! Your "${plan.goal}" plan has been created with ${createdCount} items in the ${plan.suggestedBubble} bubble!\n\nWould you like to enhance this plan further? I can help you with:\n\n- **Scheduling**: Set due dates, milestones, and reminders\n- **Habits**: Convert recurring tasks into trackable habits\n- **Assignments**: Assign tasks to people in your contacts\n\nWhat would you like to do?`,
-        timestamp: new Date(),
-        isRefinementPrompt: true,
-        quickReplies: ["Add scheduling", "Create habits", "Assign people", "I'm done for now"],
-      };
+      let refinementMessage: Message;
+      
+      if (isOnboardingMode) {
+        refinementMessage = {
+          id: (Date.now() + 2).toString(),
+          role: "assistant",
+          content: `Awesome! I've set up your "${plan.goal}" plan with ${createdCount} items!\n\nHere's what I created for you:\n- **Life Bubbles** organize different areas of your life (you have 6 to start)\n- **Your plan** is now in the ${plan.suggestedBubble} bubble\n- **Tasks** are organized hierarchically so you can break big goals into smaller steps\n\nYou're all set to start using My Life! Tap the Life Wheel on your home screen to explore your bubbles, or dive into your first tasks.\n\nWould you like to explore more features or start using the app?`,
+          timestamp: new Date(),
+          isRefinementPrompt: true,
+          quickReplies: ["Start using the app", "Show me more features", "Add scheduling"],
+        };
+      } else {
+        refinementMessage = {
+          id: (Date.now() + 2).toString(),
+          role: "assistant",
+          content: `Great! Your "${plan.goal}" plan has been created with ${createdCount} items in the ${plan.suggestedBubble} bubble!\n\nWould you like to enhance this plan further? I can help you with:\n\n- **Scheduling**: Set due dates, milestones, and reminders\n- **Habits**: Convert recurring tasks into trackable habits\n- **Assignments**: Assign tasks to people in your contacts\n\nWhat would you like to do?`,
+          timestamp: new Date(),
+          isRefinementPrompt: true,
+          quickReplies: ["Add scheduling", "Create habits", "Assign people", "I'm done for now"],
+        };
+      }
 
       setMessages(prev => [...prev, refinementMessage]);
     } catch (error) {
@@ -1278,6 +1293,15 @@ ${entryContextInfo}
 
   const handleQuickReply = (reply: string) => {
     const lowerReply = reply.toLowerCase();
+    
+    if (lowerReply === "start using the app") {
+      setIsOnboardingMode(false);
+      const newState = { isActive: false };
+      setRefinementState(newState);
+      saveRefinementState(newState);
+      navigation.goBack();
+      return;
+    }
     
     if (lowerReply.includes("done") || lowerReply === "no") {
       const newState = { isActive: false };
