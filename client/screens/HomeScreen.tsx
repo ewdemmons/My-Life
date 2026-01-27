@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from "react";
+import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Modal, Alert, Image, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -11,9 +11,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { LifeWheel } from "@/components/LifeWheel";
-import { OnboardingWelcomeModal } from "@/components/OnboardingWelcomeModal";
 import { useApp } from "@/context/AppContext";
-import { useAuth } from "@/context/AuthContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { LifeCategory, Task, getTaskTypeInfo } from "@/types";
 
@@ -25,21 +23,7 @@ export default function HomeScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { categories, tasks, deleteCategory, isLoading, pinnedTasks, unpinTask, updateTask } = useApp();
-  const { isNewUser, resetOnboardingFlag } = useAuth();
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
-  const [showOnboardingModal, setShowOnboardingModal] = useState(false);
-
-  useEffect(() => {
-    if (isNewUser && !isLoading) {
-      setShowOnboardingModal(true);
-    }
-  }, [isNewUser, isLoading]);
-
-  const handleOnboardingContinue = () => {
-    setShowOnboardingModal(false);
-    resetOnboardingFlag();
-    navigation.navigate("AssistantChat", { isOnboarding: true });
-  };
 
   const handleCategoryPress = (category: LifeCategory) => {
     navigation.navigate("CategoryDetail", { category });
@@ -162,7 +146,7 @@ export default function HomeScreen() {
             bottom: insets.bottom + Spacing.lg + 50, // Match FAB.tsx TAB_BAR_HEIGHT offset logic
           },
         ]}
-        onPress={() => navigation.navigate("AssistantChat", {})}
+        onPress={() => navigation.navigate("AssistantChat")}
       >
         <Feather name="zap" size={28} color="#FFFFFF" />
       </Pressable>
@@ -229,11 +213,6 @@ export default function HomeScreen() {
           </View>
         </Pressable>
       </Modal>
-
-      <OnboardingWelcomeModal
-        visible={showOnboardingModal}
-        onContinue={handleOnboardingContinue}
-      />
     </View>
   );
 }

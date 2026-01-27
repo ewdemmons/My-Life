@@ -1,24 +1,17 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
+import React, { createContext, useContext, useEffect, useState } from "react";
 import { Alert } from "react-native";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { initializeDefaultBubbles } from "@/lib/defaultBubbles";
 import { activatePendingInvite } from "@/lib/pendingInvites";
 
-const ONBOARDING_KEY = "@mylife_onboarding_complete";
-
 type AuthContextType = {
   session: Session | null;
   user: User | null;
   isLoading: boolean;
-  hasCompletedOnboarding: boolean;
-  isNewUser: boolean;
   signUp: (email: string, password: string) => Promise<{ error: Error | null }>;
   signIn: (email: string, password: string) => Promise<{ error: Error | null }>;
   signOut: () => Promise<void>;
-  completeOnboarding: () => Promise<void>;
-  resetOnboardingFlag: () => void;
 };
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,37 +19,6 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasCompletedOnboarding, setHasCompletedOnboarding] = useState(true);
-  const [isNewUser, setIsNewUser] = useState(false);
-
-  const checkOnboardingStatus = useCallback(async (userId: string) => {
-    try {
-      const key = `${ONBOARDING_KEY}_${userId}`;
-      const completed = await AsyncStorage.getItem(key);
-      const isComplete = completed === "true";
-      setHasCompletedOnboarding(isComplete);
-      return isComplete;
-    } catch (err) {
-      console.warn("Error checking onboarding status:", err);
-      return true;
-    }
-  }, []);
-
-  const completeOnboarding = useCallback(async () => {
-    if (!session?.user?.id) return;
-    try {
-      const key = `${ONBOARDING_KEY}_${session.user.id}`;
-      await AsyncStorage.setItem(key, "true");
-      setHasCompletedOnboarding(true);
-      setIsNewUser(false);
-    } catch (err) {
-      console.warn("Error saving onboarding status:", err);
-    }
-  }, [session?.user?.id]);
-
-  const resetOnboardingFlag = useCallback(() => {
-    setIsNewUser(false);
-  }, []);
 
   useEffect(() => {
     const initializeAuth = async () => {
@@ -69,7 +31,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (session?.user) {
           await initializeDefaultBubbles(session.user.id);
-          await checkOnboardingStatus(session.user.id);
         }
       } catch (err) {
         console.warn("Auth initialization error:", err);
@@ -87,11 +48,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         if (event === "SIGNED_IN" && session?.user) {
           await initializeDefaultBubbles(session.user.id);
-          const isComplete = await checkOnboardingStatus(session.user.id);
-          
-          if (!isComplete) {
-            setIsNewUser(true);
-          }
 
           const inviteResult = await activatePendingInvite(
             session.user.id,
@@ -109,7 +65,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     );
 
     return () => subscription.unsubscribe();
-  }, [checkOnboardingStatus]);
+  }, []);
 
   const signUp = async (email: string, password: string) => {
     try {
@@ -167,13 +123,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         session,
         user: session?.user ?? null,
         isLoading,
-        hasCompletedOnboarding,
-        isNewUser,
         signUp,
         signIn,
         signOut,
-        completeOnboarding,
-        resetOnboardingFlag,
       }}
     >
       {children}

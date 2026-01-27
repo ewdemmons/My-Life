@@ -14,8 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
-import { useRoute, RouteProp, useNavigation } from "@react-navigation/native";
-import { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useRoute, RouteProp } from "@react-navigation/native";
 import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
@@ -106,9 +105,7 @@ export default function AssistantChatScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const route = useRoute<RouteProp<RootStackParamList, "AssistantChat">>();
-  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const entryContext = route.params?.entryContext;
-  const isOnboarding = route.params?.isOnboarding ?? false;
   const { theme, isDark } = useTheme();
   const { 
     categories, 
@@ -140,8 +137,6 @@ export default function AssistantChatScreen() {
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [autoSpeak, setAutoSpeak] = useState(false);
   const [isParsingExternalPlan, setIsParsingExternalPlan] = useState(false);
-  const [isOnboardingMode, setIsOnboardingMode] = useState(isOnboarding);
-  const [onboardingInitialized, setOnboardingInitialized] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
@@ -212,29 +207,6 @@ export default function AssistantChatScreen() {
       });
     }
   }, [entryContext, entryContextHandled, isLoadingHistory]);
-
-  useEffect(() => {
-    if (isOnboardingMode && !onboardingInitialized && !isLoadingHistory) {
-      setOnboardingInitialized(true);
-      
-      const welcomeMessage: Message = {
-        id: Date.now().toString(),
-        role: "assistant",
-        content: "Welcome to My Life! I'm here to help you set up your personal life management system.\n\nLet's get to know you a bit so I can personalize your experience. What's one goal or area of your life you'd like to focus on first?",
-        timestamp: new Date(),
-        isRefinementPrompt: true,
-        quickReplies: [
-          "Get healthier",
-          "Be more productive at work",
-          "Spend more time with family",
-          "Learn a new skill",
-          "Better manage my finances",
-        ],
-      };
-      
-      setMessages([welcomeMessage]);
-    }
-  }, [isOnboardingMode, onboardingInitialized, isLoadingHistory]);
 
   const getEntryQuickActions = (context: EntryContext): string[] => {
     const actions: string[] = [];
@@ -552,34 +524,6 @@ Current branch: ${refinementState.currentBranch || "none"}
       `;
     }
 
-    let onboardingContext = "";
-    if (isOnboardingMode) {
-      onboardingContext = `
-ONBOARDING MODE - IMPORTANT:
-You are guiding a NEW USER through setting up their life management system for the first time.
-The user has just created 6 default Life Bubbles: Family, Home, Work, Health, Finance, and Hobbies.
-
-Your role in this conversation:
-1. Have a friendly, conversational exchange to understand their goals and priorities
-2. Ask 2-3 follow-up questions to understand what matters most to them
-3. After gathering enough context (usually 2-3 exchanges), create a personalized starter plan
-4. The plan should be practical and achievable, not overwhelming
-5. Explain how features work as you introduce them (bubbles organize life areas, tasks can be hierarchical, etc.)
-
-When creating the starter plan, use this JSON format:
-\`\`\`json
-{
-  "goal": "User's main goal",
-  "items": [
-    { "type": "objective", "title": "First objective", "bubble": "Work", "items": [...] }
-  ]
-}
-\`\`\`
-
-Keep your responses warm, encouraging, and concise. This is their first impression of the app!
-`;
-    }
-
     let entryContextInfo = "";
     if (entryContext) {
       const task = entryContext.type === "task" ? tasks.find(t => t.id === entryContext.id) : null;
@@ -615,7 +559,6 @@ When creating sub-entries or plans for this entry, create them as children under
     }
 
     return `
-${onboardingContext}
 Life Bubbles: ${bubbleInfo || "None created yet"}
 Tasks by bubble: ${Object.entries(tasksByBubble).map(([name, count]) => `${name}: ${count}`).join(", ") || "None"}
 Summary: ${goalCount} goals, ${projectCount} projects, ${pendingTasks} pending tasks, ${completedTasks} completed
@@ -885,7 +828,6 @@ ${entryContextInfo}
         history: messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
         refinementMode: refinementState.isActive,
         refinementContext: refinementContext,
-        isOnboarding: isOnboardingMode,
       });
 
       const data = await response.json();
@@ -1116,27 +1058,14 @@ ${entryContextInfo}
       setRefinementState(newRefinementState);
       saveRefinementState(newRefinementState);
 
-      let refinementMessage: Message;
-      
-      if (isOnboardingMode) {
-        refinementMessage = {
-          id: (Date.now() + 2).toString(),
-          role: "assistant",
-          content: `Awesome! I've set up your "${plan.goal}" plan with ${createdCount} items!\n\nHere's what I created for you:\n- **Life Bubbles** organize different areas of your life (you have 6 to start)\n- **Your plan** is now in the ${plan.suggestedBubble} bubble\n- **Tasks** are organized hierarchically so you can break big goals into smaller steps\n\nYou're all set to start using My Life! Tap the Life Wheel on your home screen to explore your bubbles, or dive into your first tasks.\n\nWould you like to explore more features or start using the app?`,
-          timestamp: new Date(),
-          isRefinementPrompt: true,
-          quickReplies: ["Start using the app", "Show me more features", "Add scheduling"],
-        };
-      } else {
-        refinementMessage = {
-          id: (Date.now() + 2).toString(),
-          role: "assistant",
-          content: `Great! Your "${plan.goal}" plan has been created with ${createdCount} items in the ${plan.suggestedBubble} bubble!\n\nWould you like to enhance this plan further? I can help you with:\n\n- **Scheduling**: Set due dates, milestones, and reminders\n- **Habits**: Convert recurring tasks into trackable habits\n- **Assignments**: Assign tasks to people in your contacts\n\nWhat would you like to do?`,
-          timestamp: new Date(),
-          isRefinementPrompt: true,
-          quickReplies: ["Add scheduling", "Create habits", "Assign people", "I'm done for now"],
-        };
-      }
+      const refinementMessage: Message = {
+        id: (Date.now() + 2).toString(),
+        role: "assistant",
+        content: `Great! Your "${plan.goal}" plan has been created with ${createdCount} items in the ${plan.suggestedBubble} bubble!\n\nWould you like to enhance this plan further? I can help you with:\n\n- **Scheduling**: Set due dates, milestones, and reminders\n- **Habits**: Convert recurring tasks into trackable habits\n- **Assignments**: Assign tasks to people in your contacts\n\nWhat would you like to do?`,
+        timestamp: new Date(),
+        isRefinementPrompt: true,
+        quickReplies: ["Add scheduling", "Create habits", "Assign people", "I'm done for now"],
+      };
 
       setMessages(prev => [...prev, refinementMessage]);
     } catch (error) {
@@ -1293,15 +1222,6 @@ ${entryContextInfo}
 
   const handleQuickReply = (reply: string) => {
     const lowerReply = reply.toLowerCase();
-    
-    if (lowerReply === "start using the app") {
-      setIsOnboardingMode(false);
-      const newState = { isActive: false };
-      setRefinementState(newState);
-      saveRefinementState(newState);
-      navigation.goBack();
-      return;
-    }
     
     if (lowerReply.includes("done") || lowerReply === "no") {
       const newState = { isActive: false };
