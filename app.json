@@ -10,7 +10,11 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.mylife.app"
+      "bundleIdentifier": "com.ed.mylife.app",
+      "appleTeamId": "3888TK6P5C",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -47,7 +51,10 @@
     },
     "extra": {
       "supabaseUrl": "https://dukhghtcjsoodblsundw.supabase.co",
-      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1a2hnaHRjanNvb2RibHN1bmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMjMzNTcsImV4cCI6MjA4MjU5OTM1N30.8_9lLNaKSq_M8TMginAbFPDHcLoVtjYtCTN4bOLkDoE"
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImR1a2hnaHRjanNvb2RibHN1bmR3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjcwMjMzNTcsImV4cCI6MjA4MjU5OTM1N30.8_9lLNaKSq_M8TMginAbFPDHcLoVtjYtCTN4bOLkDoE",
+      "eas": {
+        "projectId": "4fb1c2e8-0343-4a21-8dac-1e4c21b2f42a"
+      }
     }
   }
 }
