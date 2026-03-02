@@ -1,0 +1,201 @@
+# My Life App — Cursor AI Rules
+
+## What This App Is
+My Life is a productivity and life management mobile app designed to help users Thrive. It promotes organization, personal growth, and life balance by centralizing all aspects of a user's life into one intelligent platform. The app is built around a visual "Life Wheel" concept where users organize everything — tasks, goals, habits, events, and people — under customizable life categories called Life Areas.
+
+---
+
+## Tech Stack
+- **Framework:** React Native with Expo (SDK managed workflow)
+- **Language:** TypeScript
+- **Database:** Supabase (PostgreSQL with Row Level Security)
+- **AI/Chat:** Groq API
+- **Navigation:** Expo Router / React Navigation
+- **Bundle Identifier:** com.ed.mylife.app (iOS)
+- **Expo Project ID:** 4fb1c2e8-0343-4a21-8dac-1e4c21b2f42a
+- **Supabase Project URL:** https://dukhghtcjsoodblsundw.supabase.co
+
+---
+
+## Project Structure
+```
+/client          → All React Native frontend code
+  /components    → Reusable UI components
+  /constants     → App-wide constants
+  /context       → React context providers
+  /hooks         → Custom React hooks
+  /lib           → Utility libraries (Supabase client, etc.)
+  /navigation    → Navigation configuration
+  /screens       → Full app screens
+  /types         → TypeScript type definitions
+  /utils         → Helper functions
+/server          → Backend server code
+/shared          → Shared types and schema (Drizzle ORM)
+  schema.ts      → Drizzle schema definitions
+/supabase        → Supabase configuration and migrations
+  schema.sql     → Full database schema
+/assets          → Images, fonts, and static files
+/scripts         → Build scripts
+```
+
+---
+
+## App Terminology & Feature Definitions
+
+### Core Concepts
+
+**Life Wheel**
+The central visual feature on the app's Homepage. Displays all of a user's Life Areas as an interconnected visual arrangement.
+
+**Life Areas** (Database: `life_bubbles`, formerly called Life Bubbles or Life Categories)
+Customizable category containers representing key areas of a user's life (e.g., Health, Career, Family, Finance). Everything in the app — Entries, Events, Habits, People — can be organized under a Life Area.
+
+**Shared Life Area** (formerly Shared Bubble)
+A Life Area shared with other My Life users for collaboration.
+
+**Homepage**
+The app's primary landing screen. Displays the Life Wheel. Distinct from My Dashboard.
+
+**My Dashboard** (formerly Central Dashboard — do NOT use "Home" for this screen)
+The summary screen showing the Master List and upcoming Events. Distinct from the Homepage.
+
+---
+
+### Cards (UI Building Block)
+**Card** — A fundamental UI building block. Entries, Events, Habits, and People are all displayed as Cards in the interface. This is a technical/developer/AI term, not a primary user-facing label.
+
+---
+
+### Entries (Database: `tasks`)
+The primary content objects users create. Each Entry is displayed as a Card. Every Entry has a type:
+
+- **Task** — A specific, actionable to-do item
+- **Goal** — A desired future outcome. Can contain Objectives, Projects, and Tasks
+- **Objective** — A measurable checkpoint within a Goal
+- **Project** — A multi-step effort grouping related Tasks and Steps
+- **Step** (formerly Sub-task) — A discrete action within a Task or Project
+- **Note** — Free-form written content
+- **Idea** — An unstructured thought worth capturing
+- **List** — A collection of related Items
+- **Item** — A single entry within a List
+- **Resource** — Reference material (link, file, contact, etc.)
+
+Entries support: parent-child hierarchies (via `parent_id`), Life Area assignment (via `bubble_id`), pinning to Master List (via `is_pinned`), status (pending/in_progress/completed), priority (low/medium/high), assignee tagging (via `assignee_ids`).
+
+---
+
+### Events (Database: `events`)
+Calendar entries linked to specific dates and times. Displayed as Cards. Event types:
+- **Reminder**, **Appointment**, **Meeting**
+- **Deadline** (formerly Due Date) — A time-bound target date attached to an Entry
+
+---
+
+### Habits (Database: `habits`)
+Recurring behaviors a user wants to track. Displayed as Cards.
+- **Build Habit** (formerly Positive Habit) — behaviors to encourage
+- **Break Habit** (formerly Negative Habit) — behaviors to reduce
+- **Streak** — consecutive periods a Habit goal has been met
+
+---
+
+### Occurrences (Database: `occurrences`)
+Individual logged instances of a habit or task completion. Used for streak tracking and analytics.
+
+---
+
+### People (Database: `people`)
+Contacts in the user's life. Displayed as Cards. Types: Family, Friend, Colleague, Pet, Teammate, Other.
+- **Tag** — associating a Person with an Entry or Event
+
+---
+
+### Master List
+Consolidated prioritized list of all Tasks and high-priority Entries across all Life Areas. Pinned items appear first. Accessible via My Dashboard.
+
+---
+
+### AI Life Coach
+- **Life Coach** — User-facing name for the AI assistant (powered by Groq)
+- **AI Assist** — Inline AI on any Entry Card, Event Card, or Habit Card
+- **Goal Manifestation** — Transforms a Goal into a full hierarchy instantly
+- **Voice Command** — Execute any app function through spoken language
+
+---
+
+### System Features
+- **Notifications** (Database: `notifications`) — In-app alerts
+- **Recycle Bin** (Database: `recycle_bin`) — Soft-delete with restoration
+- **User Profile** (Database: `profiles`) — Account settings and identity
+- **Hierarchy** — Parent-child structure linking Entries (Goal → Objective → Task → Step) via `parent_id`
+- **Bubble Shares** (Database: `bubble_shares`) — Active sharing, permission levels: view, edit, co-owner
+- **Pending Shares** (Database: `pending_shares`) — Invites to non-app-users, expire after 30 days
+
+---
+
+## Database Schema Summary
+
+| Table | Purpose |
+|-------|---------|
+| `profiles` | User profiles extending Supabase auth |
+| `life_bubbles` | Life Areas |
+| `tasks` | All Entry types |
+| `events` | Calendar events with recurrence |
+| `habits` | Habit definitions |
+| `occurrences` | Habit and task completion tracking |
+| `people` | Contacts and relationships |
+| `recycle_bin` | Soft-deleted items |
+| `notifications` | In-app notification system |
+| `bubble_shares` | Active Life Area sharing |
+| `pending_shares` | Pending invites for non-users |
+
+### Key RPC Functions
+- `activate_pending_invite(invite_code)` — Activates a Life Area share
+- `lookup_user_by_email(email)` — Finds user by email for linking
+- `notify_linked_user(...)` — Sends in-app notification
+- `respond_to_connection(person_id, responder_user_id, status)` — Approves/declines connection
+
+---
+
+## Coding Conventions
+
+### General
+- Always use **TypeScript** — avoid `any`
+- Use **async/await** for all async operations
+- Handle errors with try/catch
+- Check for null/undefined before accessing nested properties
+
+### Supabase
+- Use the Supabase client from `/client/lib/supabase.ts`
+- Filter by `user_id` matching `auth.uid()`
+- Use `.select()` with specific column names
+- Destructure errors: `const { data, error } = await supabase...`
+
+### React Native / Expo
+- Functional components with hooks only — no class components
+- `StyleSheet.create()` for styles
+- Always handle loading and error states
+- Use `Platform.OS` for platform-specific behavior
+- Use `SafeAreaView` or `useSafeAreaInsets` for safe areas
+
+### State Management
+- React Context for global state (`/client/context/`)
+- `useState` for component-level state
+- Custom hooks in `/client/hooks/` for reusable logic
+
+---
+
+## Critical Notes for AI
+
+1. **Entries = tasks table** — The `tasks` table handles all 10 Entry types via the `type` field.
+2. **Correct terminology** — Life Areas (not Bubbles), Steps (not Sub-tasks), Build/Break Habits (not Positive/Negative), Deadlines (not Due Dates), My Dashboard (not Home or Central Dashboard), Shared Life Areas (not Shared Bubbles).
+3. **Cards = UI components** — Every Entry, Event, Habit, and Person renders as a Card.
+4. **Mobile-first** — All UI designed for touch on iOS (primary) with tablet support.
+5. **Supabase only** — All data through Supabase client; secure ops use RPC functions.
+6. **RLS is active** — Never assume unrestricted database access.
+7. **Groq = Life Coach** — User-facing name is "Life Coach"; use existing Groq integration.
+8. **Soft delete only** — Always use Recycle Bin, never hard delete.
+9. **My Dashboard ≠ Homepage** — Homepage = Life Wheel screen. My Dashboard = Master List + Events screen. Never use "Home" for My Dashboard.
+10. **Text dates in events** — `start_date`/`end_date` as `YYYY-MM-DD`; `start_time`/`end_time` as `HH:MM`.
+11. **Hierarchy via parent_id** — Child Entries reference parent via `parent_id`. Deleting parent cascades.
+12. **bubble_id = Life Area** — The `bubble_id` foreign key on tasks/events/habits links to the `life_bubbles` table (UI name: Life Area).

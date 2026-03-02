@@ -82,7 +82,7 @@ function MainAppNavigator() {
         name="CentralDashboard"
         component={CentralDashboardScreen}
         options={{
-          headerTitle: "Dashboard",
+          headerTitle: "My Dashboard",
         }}
       />
       <Stack.Screen
@@ -96,7 +96,7 @@ function MainAppNavigator() {
         name="AssistantChat"
         component={AssistantChatScreen}
         options={{
-          headerTitle: "Life Assistant",
+          headerTitle: "Life Coach",
         }}
       />
     </Stack.Navigator>

@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "My Life",
-    "slug": "my-life",
+    "slug": "my-life-dev",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",

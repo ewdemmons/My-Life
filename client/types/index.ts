@@ -114,7 +114,7 @@ export const TASK_TYPES: { value: TaskType; label: string; icon: string }[] = [
   { value: "objective", label: "Objective", icon: "flag" },
   { value: "project", label: "Project", icon: "folder" },
   { value: "task", label: "Task", icon: "check-square" },
-  { value: "subtask", label: "Sub-task", icon: "corner-down-right" },
+  { value: "subtask", label: "Step", icon: "corner-down-right" },
   { value: "appointment", label: "Appointment", icon: "calendar" },
   { value: "idea", label: "Idea", icon: "zap" },
   { value: "list", label: "List", icon: "list" },
@@ -156,7 +156,7 @@ export const EVENT_TYPES: { value: EventType; label: string; icon: string; color
   { value: "reminder", label: "Reminder", icon: "bell", color: "#F59E0B" },
   { value: "appointment", label: "Appointment", icon: "calendar", color: "#3B82F6" },
   { value: "meeting", label: "Meeting", icon: "users", color: "#8B5CF6" },
-  { value: "due_date", label: "Due Date", icon: "clock", color: "#EF4444" },
+  { value: "due_date", label: "Deadline", icon: "clock", color: "#EF4444" },
 ];
 
 export const RECURRENCE_OPTIONS: { value: RecurrenceType; label: string }[] = [
@@ -222,8 +222,8 @@ export interface Habit {
 }
 
 export const HABIT_TYPES: { value: HabitType; label: string; icon: string; color: string }[] = [
-  { value: "positive", label: "Positive", icon: "plus-circle", color: "#22C55E" },
-  { value: "negative", label: "Negative", icon: "minus-circle", color: "#EF4444" },
+  { value: "positive", label: "Build Habit", icon: "plus-circle", color: "#22C55E" },
+  { value: "negative", label: "Break Habit", icon: "minus-circle", color: "#EF4444" },
 ];
 
 export const GOAL_FREQUENCIES: { value: GoalFrequency; label: string }[] = [

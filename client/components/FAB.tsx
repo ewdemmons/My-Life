@@ -127,9 +127,9 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson, onAddHa
                   <Feather name="circle" size={20} color={theme.primary} />
                 </View>
                 <View style={styles.menuTextContainer}>
-                  <ThemedText style={styles.menuTitle}>Add Life Category</ThemedText>
+                  <ThemedText style={styles.menuTitle}>Add Life Area</ThemedText>
                   <ThemedText style={[styles.menuSubtitle, { color: theme.textSecondary }]}>
-                    Create a new life area
+                    Create a new Life Area
                   </ThemedText>
                 </View>
               </Pressable>

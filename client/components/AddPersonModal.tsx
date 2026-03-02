@@ -481,7 +481,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
           </View>
 
           <View style={styles.inputGroup}>
-            <ThemedText style={styles.label}>Life Categories</ThemedText>
+            <ThemedText style={styles.label}>Life Areas</ThemedText>
             <Pressable
               style={[
                 styles.selector,
@@ -603,7 +603,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
             onPress={() => setShowCategoryPicker(false)}
           >
             <View style={[styles.pickerContainer, { backgroundColor: theme.backgroundDefault, maxHeight: 400 }]}>
-              <ThemedText style={styles.pickerTitle}>Select Life Categories</ThemedText>
+              <ThemedText style={styles.pickerTitle}>Select Life Areas</ThemedText>
               <ThemedText style={[styles.pickerSubtitle, { color: theme.textSecondary }]}>
                 Tag this person to categories
               </ThemedText>

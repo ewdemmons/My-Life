@@ -617,7 +617,7 @@ export default function PeopleScreen() {
             </View>
 
             <View style={styles.formGroup}>
-              <ThemedText style={styles.label}>Life Categories</ThemedText>
+              <ThemedText style={styles.label}>Life Areas</ThemedText>
               <Pressable
                 style={[styles.pickerButton, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}
                 onPress={() => setShowCategoryPicker(true)}
@@ -741,7 +741,7 @@ export default function PeopleScreen() {
             onPress={() => setShowCategoryPicker(false)}
           >
             <View style={[styles.pickerModal, { backgroundColor: theme.backgroundDefault }]}>
-              <ThemedText style={styles.pickerTitle}>Select Life Categories</ThemedText>
+              <ThemedText style={styles.pickerTitle}>Select Life Areas</ThemedText>
               <FlatList
                 data={categories}
                 keyExtractor={(item) => item.id}

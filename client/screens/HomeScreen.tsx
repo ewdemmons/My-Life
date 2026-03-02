@@ -130,7 +130,7 @@ export default function HomeScreen() {
             <Feather name="plus-circle" size={48} color={theme.primary} />
             <ThemedText style={styles.emptyTitle}>Get Started</ThemedText>
             <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-              Add your first life category to begin organizing your life
+              Add your first Life Area to begin organizing your life
             </ThemedText>
           </View>
         )}
@@ -206,7 +206,7 @@ export default function HomeScreen() {
               ) : null}
               {selectedCategory?.isShared && selectedCategory.sharePermission === "view" ? (
                 <ThemedText style={[styles.viewOnlyHint, { color: theme.textSecondary }]}>
-                  You can view entries in this bubble
+                  You can view entries in this Life Area
                 </ThemedText>
               ) : null}
             </BlurView>

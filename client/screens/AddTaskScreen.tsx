@@ -175,7 +175,7 @@ export default function AddTaskScreen() {
         </View>
 
         <View style={styles.section}>
-          <ThemedText style={styles.label}>Life Category</ThemedText>
+          <ThemedText style={styles.label}>Life Area</ThemedText>
           <View style={styles.categoryGrid}>
             {categories.map((cat) => (
               <Pressable

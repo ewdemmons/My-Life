@@ -124,7 +124,7 @@ export default function AddCategoryScreen() {
               borderColor: theme.border,
             },
           ]}
-          placeholder="Describe this life category..."
+          placeholder="Describe this Life Area..."
           placeholderTextColor={theme.textSecondary}
           value={description}
           onChangeText={setDescription}

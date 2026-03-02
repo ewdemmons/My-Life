@@ -87,7 +87,7 @@ export default function InviteCodeModal({
           </View>
 
           <ThemedText style={[styles.description, { color: theme.textSecondary }]}>
-            Enter the 8-character code from your invitation to access a shared Life Bubble.
+            Enter the 8-character code from your invitation to access a Shared Life Area.
           </ThemedText>
 
           <TextInput

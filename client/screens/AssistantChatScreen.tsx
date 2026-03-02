@@ -559,7 +559,7 @@ When creating sub-entries or plans for this entry, create them as children under
     }
 
     return `
-Life Bubbles: ${bubbleInfo || "None created yet"}
+Life Areas: ${bubbleInfo || "None created yet"}
 Tasks by bubble: ${Object.entries(tasksByBubble).map(([name, count]) => `${name}: ${count}`).join(", ") || "None"}
 Summary: ${goalCount} goals, ${projectCount} projects, ${pendingTasks} pending tasks, ${completedTasks} completed
 ${habitInfo}
@@ -1470,11 +1470,11 @@ ${entryContextInfo}
     }
     
     return (
-      <View style={styles.emptyState}>
+        <View style={styles.emptyState}>
         <View style={[styles.emptyIcon, { backgroundColor: theme.primary + "20" }]}>
           <Feather name="zap" size={32} color={theme.primary} />
         </View>
-        <ThemedText style={styles.emptyTitle}>Hi! I'm your Life Assistant</ThemedText>
+        <ThemedText style={styles.emptyTitle}>Hi! I'm your Life Coach</ThemedText>
         <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
           Ask me anything about organizing your life, or try planning a goal:
         </ThemedText>
@@ -1585,7 +1585,7 @@ ${entryContextInfo}
             </Animated.View>
             <TextInput
               style={[styles.input, { color: theme.text }]}
-              placeholder={isRecording ? "Listening..." : isParsingExternalPlan ? "Converting plan..." : "Ask your assistant..."}
+              placeholder={isRecording ? "Listening..." : isParsingExternalPlan ? "Converting plan..." : "Ask your Life Coach..."}
               placeholderTextColor={theme.textSecondary}
               value={inputText}
               onChangeText={setInputText}

@@ -503,7 +503,7 @@ export function SchedulingModal({
                     />
                   </View>
                   <View style={styles.rowContent}>
-                    <ThemedText style={styles.rowLabel}>Life Category</ThemedText>
+                    <ThemedText style={styles.rowLabel}>Life Area</ThemedText>
                     <View style={styles.rowValue}>
                       <ThemedText
                         style={{ color: selectedCategory?.color || theme.textSecondary }}
@@ -524,7 +524,7 @@ export function SchedulingModal({
                     />
                   </View>
                   <View style={styles.rowContent}>
-                    <ThemedText style={styles.rowLabel}>Life Category</ThemedText>
+                    <ThemedText style={styles.rowLabel}>Life Area</ThemedText>
                     <View style={styles.rowValue}>
                       <ThemedText
                         style={{ color: theme.textSecondary }}
@@ -774,7 +774,7 @@ export function SchedulingModal({
           onPress={() => setShowCategoryPicker(false)}
         >
           <View style={[styles.pickerContent, { backgroundColor: theme.backgroundRoot }]}>
-            <ThemedText style={styles.pickerTitle}>Life Category</ThemedText>
+            <ThemedText style={styles.pickerTitle}>Life Area</ThemedText>
             <Pressable
               style={[
                 styles.pickerItem,

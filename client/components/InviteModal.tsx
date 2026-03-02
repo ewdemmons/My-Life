@@ -52,7 +52,7 @@ export function InviteModal({ visible, onClose, person, preSelectedCategoryIds }
 
   const handleSendInvite = async (method: "email" | "sms") => {
     if (selectedCategoryIds.length === 0) {
-      Alert.alert("Select Categories", "Please select at least one Life Category to share.");
+      Alert.alert("Select Categories", "Please select at least one Life Area to share.");
       return;
     }
 
@@ -172,7 +172,7 @@ export function InviteModal({ visible, onClose, person, preSelectedCategoryIds }
           <View style={styles.section}>
             <ThemedText style={styles.sectionTitle}>Share Categories</ThemedText>
             <ThemedText style={[styles.sectionSubtitle, { color: theme.textSecondary }]}>
-              Select the Life Categories you want to share
+              Select the Life Areas you want to share
             </ThemedText>
             {categories.length === 0 ? (
               <View style={styles.emptyCategories}>
