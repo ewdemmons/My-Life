@@ -1,9 +1,12 @@
 import React, { createContext, useContext, useEffect, useState } from "react";
 import { Alert } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase";
 import { initializeDefaultBubbles } from "@/lib/defaultBubbles";
 import { activatePendingInvite } from "@/lib/pendingInvites";
+
+const PENDING_ONBOARDING_KEY = "@pending_onboarding";
 
 type AuthContextType = {
   session: Session | null;
@@ -47,7 +50,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         setIsLoading(false);
 
         if (event === "SIGNED_IN" && session?.user) {
-          await initializeDefaultBubbles(session.user.id);
+          const pendingOnboarding = await AsyncStorage.getItem(PENDING_ONBOARDING_KEY);
+          if (pendingOnboarding !== "true") {
+            await initializeDefaultBubbles(session.user.id);
+          }
 
           const inviteResult = await activatePendingInvite(
             session.user.id,

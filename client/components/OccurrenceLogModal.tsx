@@ -1,5 +1,6 @@
-import React, { useMemo } from "react";
-import { View, StyleSheet, Modal, Pressable, FlatList, Alert } from "react-native";
+import React, { useMemo, useState } from "react";
+import { View, StyleSheet, Modal, Pressable, FlatList, Alert, Platform } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -14,6 +15,8 @@ interface OccurrenceLogModalProps {
   habit: Habit | null;
   occurrences: Occurrence[];
   onDeleteOccurrence?: (id: string) => void;
+  onUpdateOccurrence?: (id: string, updates: Partial<Occurrence>) => Promise<void>;
+  onAddOccurrence?: (occurrence: Omit<Occurrence, "id" | "createdAt">) => Promise<Occurrence | null>;
   filterDate?: string;
 }
 
@@ -23,10 +26,16 @@ export function OccurrenceLogModal({
   habit,
   occurrences,
   onDeleteOccurrence,
+  onUpdateOccurrence,
+  onAddOccurrence,
   filterDate,
 }: OccurrenceLogModalProps) {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
+  const [editingGroup, setEditingGroup] = useState<{ date: string; items: Occurrence[] } | null>(null);
+  const [editDate, setEditDate] = useState<string>("");
+  const [editCount, setEditCount] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const filteredOccurrences = useMemo(() => {
     let filtered = [...occurrences];
@@ -70,6 +79,59 @@ export function OccurrenceLogModal({
     );
   };
 
+  const openEdit = (occurrence: Occurrence) => {
+    const items = filteredOccurrences.filter((o) => o.occurredDate === occurrence.occurredDate);
+    if (!items.length || !onUpdateOccurrence || !onAddOccurrence) return;
+    setEditingGroup({
+      date: occurrence.occurredDate,
+      items: [...items].sort((a, b) => a.occurredAt - b.occurredAt),
+    });
+    setEditDate(occurrence.occurredDate);
+    setEditCount(items.length);
+  };
+
+  const handleSaveEdit = async () => {
+    if (!editingGroup || !habit || !onUpdateOccurrence || !onAddOccurrence) return;
+    setSaving(true);
+    try {
+      const newDate = editDate;
+      const currentCount = editingGroup.items.length;
+      const baseTime = new Date(newDate + "T12:00:00").getTime();
+
+      if (newDate !== editingGroup.date) {
+        for (let i = 0; i < editingGroup.items.length; i++) {
+          await onUpdateOccurrence(editingGroup.items[i].id, {
+            occurredDate: newDate,
+            occurredAt: baseTime + i * 60000,
+          });
+        }
+      }
+
+      if (editCount > currentCount) {
+        for (let i = 0; i < editCount - currentCount; i++) {
+          await onAddOccurrence({
+            itemId: habit.id,
+            itemType: "habit",
+            occurredAt: baseTime + (currentCount + i) * 60000,
+            occurredDate: newDate,
+          });
+        }
+      } else if (editCount < currentCount) {
+        const toDelete = currentCount - editCount;
+        const sorted = [...editingGroup.items].sort((a, b) => b.occurredAt - a.occurredAt);
+        for (let i = 0; i < toDelete && i < sorted.length; i++) {
+          await onDeleteOccurrence?.(sorted[i].id);
+        }
+      }
+
+      setEditingGroup(null);
+    } catch (e) {
+      Alert.alert("Error", "Failed to save changes. Please try again.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const groupedByDate = useMemo(() => {
     const groups: Map<string, Occurrence[]> = new Map();
     filteredOccurrences.forEach((o) => {
@@ -102,15 +164,22 @@ export function OccurrenceLogModal({
           </ThemedText>
         )}
       </View>
-      {onDeleteOccurrence ? (
-        <Pressable
-          onPress={() => handleDelete(occurrence.id)}
-          hitSlop={8}
-          style={styles.deleteBtn}
-        >
-          <Feather name="trash-2" size={16} color={theme.error} />
-        </Pressable>
-      ) : null}
+      <View style={styles.occurrenceActions}>
+        {onUpdateOccurrence && onAddOccurrence ? (
+          <Pressable onPress={() => openEdit(occurrence)} hitSlop={8} style={styles.editBtn}>
+            <Feather name="edit-2" size={16} color={theme.primary} />
+          </Pressable>
+        ) : null}
+        {onDeleteOccurrence ? (
+          <Pressable
+            onPress={() => handleDelete(occurrence.id)}
+            hitSlop={8}
+            style={styles.deleteBtn}
+          >
+            <Feather name="trash-2" size={16} color={theme.error} />
+          </Pressable>
+        ) : null}
+      </View>
     </View>
   );
 
@@ -125,7 +194,10 @@ export function OccurrenceLogModal({
 
   if (!habit) return null;
 
+  const editModalVisible = editingGroup !== null;
+
   return (
+    <>
     <Modal
       visible={visible}
       transparent
@@ -179,8 +251,69 @@ export function OccurrenceLogModal({
             </View>
           )}
         </View>
+
+        {editModalVisible && editingGroup ? (
+          <View style={styles.editOverlay}>
+            <Pressable style={styles.editBackdrop} onPress={() => setEditingGroup(null)} />
+            <View style={[styles.editSheet, { backgroundColor: theme.backgroundRoot }]}>
+              <ThemedText style={[styles.editTitle, { color: theme.text }]}>Edit log entries</ThemedText>
+              <ThemedText style={[styles.editLabel, { color: theme.textSecondary }]}>Date</ThemedText>
+              <View style={styles.editDateRow}>
+                <DateTimePicker
+                  value={new Date(editDate + "T12:00:00")}
+                  mode="date"
+                  maximumDate={new Date()}
+                  onChange={(_, selectedDate) => {
+                    if (selectedDate) {
+                      const y = selectedDate.getFullYear();
+                      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+                      const d = String(selectedDate.getDate()).padStart(2, "0");
+                      setEditDate(`${y}-${m}-${d}`);
+                    }
+                  }}
+                  display={Platform.OS === "ios" ? "spinner" : "default"}
+                />
+              </View>
+              <ThemedText style={[styles.editLabel, { color: theme.textSecondary }]}>
+                Number of occurrences
+              </ThemedText>
+              <View style={[styles.countStepper, { borderColor: theme.border }]}>
+                <Pressable
+                  style={[styles.stepperBtn, { backgroundColor: theme.border }]}
+                  onPress={() => setEditCount((c) => Math.max(1, c - 1))}
+                  disabled={editCount <= 1}
+                >
+                  <Feather name="minus" size={18} color={theme.text} />
+                </Pressable>
+                <ThemedText style={[styles.stepperValue, { color: theme.text }]}>{editCount}</ThemedText>
+                <Pressable
+                  style={[styles.stepperBtn, { backgroundColor: theme.primary }]}
+                  onPress={() => setEditCount((c) => c + 1)}
+                >
+                  <Feather name="plus" size={18} color="#FFFFFF" />
+                </Pressable>
+              </View>
+              <View style={styles.editActions}>
+                <Pressable
+                  style={[styles.editActionBtn, { backgroundColor: theme.border }]}
+                  onPress={() => setEditingGroup(null)}
+                >
+                  <ThemedText style={[styles.editActionBtnText, { color: theme.text }]}>Cancel</ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[styles.editActionBtn, { backgroundColor: theme.primary }]}
+                  onPress={handleSaveEdit}
+                  disabled={saving}
+                >
+                  <ThemedText style={styles.editActionBtnTextPrimary}>Save</ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        ) : null}
       </BlurView>
     </Modal>
+    </>
   );
 }
 
@@ -262,8 +395,84 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontStyle: "italic",
   },
+  occurrenceActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.xs,
+  },
+  editBtn: {
+    padding: Spacing.xs,
+  },
   deleteBtn: {
     padding: Spacing.xs,
+  },
+  editOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.lg,
+  },
+  editBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(0,0,0,0.5)",
+  },
+  editSheet: {
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    minWidth: 280,
+  },
+  editTitle: {
+    fontSize: 18,
+    fontWeight: "600",
+    marginBottom: Spacing.md,
+    textAlign: "center",
+  },
+  editLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginBottom: Spacing.xs,
+  },
+  editDateRow: {
+    marginBottom: Spacing.md,
+    alignItems: "center",
+  },
+  countStepper: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    marginBottom: Spacing.lg,
+    overflow: "hidden",
+  },
+  stepperBtn: {
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.lg,
+  },
+  stepperValue: {
+    fontSize: 18,
+    fontWeight: "700",
+    minWidth: 48,
+    textAlign: "center",
+  },
+  editActions: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+  },
+  editActionBtn: {
+    flex: 1,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+  },
+  editActionBtnText: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  editActionBtnTextPrimary: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
   emptyState: {
     alignItems: "center",

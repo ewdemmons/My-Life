@@ -79,6 +79,7 @@ export type CompletionType = "as_of" | "until" | null;
 
 export interface Task {
   id: string;
+  userId?: string;
   title: string;
   description: string;
   type: TaskType;
@@ -95,6 +96,7 @@ export interface Task {
   isRecurring?: boolean;
   isPinned?: boolean;
   pinnedOrder?: number;
+  deadline?: string;
 }
 
 export interface DeletedItem {
@@ -132,6 +134,7 @@ export type RecurrenceType = "none" | "daily" | "weekly" | "biweekly" | "monthly
 
 export interface CalendarEvent {
   id: string;
+  userId?: string;
   title: string;
   description: string;
   startDate: string;

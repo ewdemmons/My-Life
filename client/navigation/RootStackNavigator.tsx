@@ -1,8 +1,11 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 import { View, ActivityIndicator, StyleSheet } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
 import AuthNavigator from "@/navigation/AuthNavigator";
+import OnboardingIntroScreen from "@/screens/auth/OnboardingIntroScreen";
+import OnboardingScreen from "@/screens/auth/OnboardingScreen";
 import CategoryDetailScreen from "@/screens/CategoryDetailScreen";
 import AddCategoryScreen from "@/screens/AddCategoryScreen";
 import AddTaskScreen from "@/screens/AddTaskScreen";
@@ -14,6 +17,8 @@ import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { LifeCategory, Task } from "@/types";
+
+const PENDING_ONBOARDING_KEY = "@pending_onboarding";
 
 export type EntryContext = {
   id: string;
@@ -38,7 +43,14 @@ export type RootStackParamList = {
   AssistantChat: { entryContext?: EntryContext };
 };
 
+export type PostSignUpStackParamList = {
+  OnboardingIntro: undefined;
+  Onboarding: undefined;
+  Main: undefined;
+};
+
 const Stack = createNativeStackNavigator<RootStackParamList>();
+const PostSignUpStack = createNativeStackNavigator<PostSignUpStackParamList>();
 
 function MainAppNavigator() {
   const screenOptions = useScreenOptions();
@@ -103,9 +115,50 @@ function MainAppNavigator() {
   );
 }
 
+function PostSignUpNavigator() {
+  const screenOptions = useScreenOptions();
+  return (
+    <PostSignUpStack.Navigator
+      screenOptions={screenOptions}
+      initialRouteName="OnboardingIntro"
+    >
+      <PostSignUpStack.Screen
+        name="OnboardingIntro"
+        component={OnboardingIntroScreen}
+        options={{ headerShown: false }}
+      />
+      <PostSignUpStack.Screen
+        name="Onboarding"
+        component={OnboardingScreen}
+        options={{ headerShown: false }}
+      />
+      <PostSignUpStack.Screen
+        name="Main"
+        component={MainAppNavigator}
+        options={{ headerShown: false }}
+      />
+    </PostSignUpStack.Navigator>
+  );
+}
+
 export default function RootStackNavigator() {
   const { session, isLoading } = useAuth();
   const { theme } = useTheme();
+  const [pendingOnboarding, setPendingOnboarding] = useState<boolean | null>(null);
+
+  useEffect(() => {
+    if (!session) {
+      setPendingOnboarding(null);
+      return;
+    }
+    let cancelled = false;
+    AsyncStorage.getItem(PENDING_ONBOARDING_KEY).then((value) => {
+      if (!cancelled) setPendingOnboarding(value === "true");
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [session]);
 
   if (isLoading) {
     return (
@@ -115,7 +168,23 @@ export default function RootStackNavigator() {
     );
   }
 
-  return session ? <MainAppNavigator /> : <AuthNavigator />;
+  if (!session) {
+    return <AuthNavigator />;
+  }
+
+  if (pendingOnboarding === null) {
+    return (
+      <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
+        <ActivityIndicator size="large" color={theme.primary} />
+      </View>
+    );
+  }
+
+  if (pendingOnboarding) {
+    return <PostSignUpNavigator />;
+  }
+
+  return <MainAppNavigator />;
 }
 
 const styles = StyleSheet.create({

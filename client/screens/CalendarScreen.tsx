@@ -17,6 +17,8 @@ import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { CalendarEvent, getEventTypeInfo, LifeCategory } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
+import { useAuth } from "@/context/AuthContext";
+import { canModifyEntriesInCategory, canModifyEntryInLifeArea } from "@/lib/permissions";
 
 type ViewMode = "upcoming" | "day" | "week" | "month";
 
@@ -29,7 +31,26 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
+  const { user } = useAuth();
   const { categories, events, deleteEvent, deleteEventSeries } = useApp();
+
+  const canModifyEvent = useCallback(
+    (event: CalendarEvent) => {
+      if (!user) return false;
+      if (categoryFilter) return canModifyEntriesInCategory(categoryFilter);
+      return canModifyEntryInLifeArea(
+        user.id,
+        event.userId ?? user.id,
+        event.categoryId,
+        categories,
+      );
+    },
+    [user, categoryFilter, categories],
+  );
+
+  const canAddEvents = categoryFilter
+    ? canModifyEntriesInCategory(categoryFilter)
+    : true;
 
   const now = new Date();
   const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
@@ -124,6 +145,7 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
   }, [filteredEvents, selectedDate, theme, categoryFilter, categories]);
 
   const handleEventPress = (event: CalendarEvent) => {
+    if (!canModifyEvent(event)) return;
     setEditingEvent(event);
     if (isRecurringEvent(event)) {
       setShowRecurringModal(true);
@@ -439,12 +461,14 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
         </Animated.View>
       </GestureDetector>
 
+      {canAddEvents ? (
       <Pressable
         style={[styles.fab, { backgroundColor: accentColor, bottom: tabBarHeight + Spacing.lg }]}
         onPress={handleAddEvent}
       >
         <Feather name="plus" size={24} color="#FFFFFF" />
       </Pressable>
+      ) : null}
 
       <SchedulingModal
         visible={showSchedulingModal}
@@ -457,9 +481,11 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
         editingEvent={editingEvent}
         editingAsInstance={editingAsInstance}
         preselectedCategoryId={categoryFilter?.id}
+        readOnly={editingEvent ? !canModifyEvent(editingEvent) : false}
+        canDelete={editingEvent ? canModifyEvent(editingEvent) : false}
       />
       <RecurringEventModal
-        visible={showRecurringModal}
+        visible={showRecurringModal && (editingEvent ? canModifyEvent(editingEvent) : false)}
         event={editingEvent}
         onClose={() => {
           setShowRecurringModal(false);

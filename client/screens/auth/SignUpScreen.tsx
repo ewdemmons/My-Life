@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
@@ -11,6 +12,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { useAuth } from "@/context/AuthContext";
 import { AuthStackParamList } from "@/navigation/AuthNavigator";
+
+const PENDING_ONBOARDING_KEY = "@pending_onboarding";
 
 type NavigationProp = NativeStackNavigationProp<AuthStackParamList, "SignUp">;
 
@@ -49,10 +52,12 @@ export default function SignUpScreen() {
     }
 
     setIsLoading(true);
+    await AsyncStorage.setItem(PENDING_ONBOARDING_KEY, "true");
     const { error } = await signUp(email.trim(), password);
     setIsLoading(false);
 
     if (error) {
+      await AsyncStorage.removeItem(PENDING_ONBOARDING_KEY);
       Alert.alert("Sign Up Failed", error.message);
     }
   };

@@ -150,7 +150,7 @@ const styles = StyleSheet.create({
     height: "100%",
     justifyContent: "center",
     alignItems: "center",
-    padding: Spacing["2xl"],
+    padding: Spacing.xxl,
   },
   content: {
     alignItems: "center",
@@ -170,7 +170,7 @@ const styles = StyleSheet.create({
   },
   topButton: {
     position: "absolute",
-    top: Spacing["2xl"] + Spacing.lg,
+    top: Spacing.xxl + Spacing.lg,
     right: Spacing.lg,
     width: 44,
     height: 44,
@@ -183,7 +183,7 @@ const styles = StyleSheet.create({
   button: {
     paddingVertical: Spacing.lg,
     borderRadius: BorderRadius.md,
-    paddingHorizontal: Spacing["2xl"],
+    paddingHorizontal: Spacing.xxl,
     minWidth: 200,
     shadowColor: "#000",
     shadowOffset: {

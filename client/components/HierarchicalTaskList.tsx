@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, createContext, useContext, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput, Animated as RNAnimated } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -86,6 +86,7 @@ interface HierarchicalTaskListProps {
   filterType?: TaskType | null;
   highlightedTaskId?: string | null;
   onHighlightCleared?: () => void;
+  canModifyEntries?: boolean;
 }
 
 export function HierarchicalTaskList({ 
@@ -94,6 +95,7 @@ export function HierarchicalTaskList({
   filterType = null,
   highlightedTaskId = null,
   onHighlightCleared,
+  canModifyEntries = true,
 }: HierarchicalTaskListProps) {
   const { categories, moveTaskToParent, reorderTasks } = useApp();
   const { theme } = useTheme();
@@ -331,6 +333,7 @@ export function HierarchicalTaskList({
               categories={categories}
               parentColor={null}
               tasksMap={tasksMap}
+              canModifyEntries={canModifyEntries}
             />
           ))}
         </View>
@@ -414,9 +417,10 @@ interface TaskItemProps {
   categories: { id: string; name: string; color: string }[];
   parentColor: string | null;
   tasksMap: Map<string, Task>;
+  canModifyEntries: boolean;
 }
 
-function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap }: TaskItemProps) {
+function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap, canModifyEntries }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits, pinTask, unpinTask } = useApp();
@@ -435,6 +439,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   const [showActionsMenu, setShowActionsMenu] = useState(false);
   const rotation = useSharedValue(0);
   const scale = useSharedValue(1);
+  const cardOpacity = useRef(new RNAnimated.Value(1)).current;
   const isDragging = draggedTaskId === task.id;
   const isValidDropTarget = draggedTaskId !== null && draggedTaskId !== task.id;
   const isSelectedTarget = targetTaskId === task.id;
@@ -561,9 +566,10 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   });
 
   const startDrag = useCallback(() => {
+    if (!canModifyEntries) return;
     setDraggedTaskId(task.id);
     Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [task.id, setDraggedTaskId]);
+  }, [task.id, setDraggedTaskId, canModifyEntries]);
 
   const toggleDetails = useCallback(() => {
     setShowDetails(!showDetails);
@@ -576,6 +582,27 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
     handleTaskTap(task.id, toggleDetails);
   }, [task.id, handleTaskTap, toggleDetails]);
 
+  const pulseCardOpacity = useCallback(() => {
+    RNAnimated.sequence([
+      RNAnimated.timing(cardOpacity, {
+        toValue: 0.7,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      RNAnimated.timing(cardOpacity, {
+        toValue: 1.0,
+        duration: 150,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, [cardOpacity]);
+
+  const onDoubleTapHandler = useCallback(() => {
+    if (!canModifyEntries) return;
+    pulseCardOpacity();
+    handleEdit();
+  }, [pulseCardOpacity, handleEdit, canModifyEntries]);
+
   const longPressGesture = Gesture.LongPress()
     .minDuration(400)
     .onEnd((_event, success) => {
@@ -585,12 +612,21 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
       }
     });
 
+  const doubleTapGesture = Gesture.Tap()
+    .numberOfTaps(2)
+    .maxDuration(300)
+    .onEnd(() => {
+      runOnJS(onDoubleTapHandler)();
+    });
+
   const tapGesture = Gesture.Tap()
+    .numberOfTaps(1)
     .onEnd(() => {
       runOnJS(onTapHandler)();
     });
 
-  const composed = Gesture.Race(longPressGesture, tapGesture);
+  const tapGestures = Gesture.Exclusive(doubleTapGesture, tapGesture);
+  const composed = Gesture.Race(longPressGesture, tapGestures);
 
   return (
     <View style={styles.itemWrapper}>
@@ -607,6 +643,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
       ) : null}
       <View style={[styles.itemContainer, { marginLeft: depth * 20 }]}>
         <GestureDetector gesture={composed}>
+          <RNAnimated.View style={{ opacity: cardOpacity }}>
           <Animated.View
             style={[
               styles.item,
@@ -661,7 +698,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                   >
                     {task.title}
                   </ThemedText>
-                  <Pressable onPress={handleToggleComplete} hitSlop={14} style={styles.checkboxButton}>
+                  <Pressable
+                    onPress={canModifyEntries ? handleToggleComplete : undefined}
+                    disabled={!canModifyEntries}
+                    hitSlop={14}
+                    style={styles.checkboxButton}
+                  >
                     <View style={styles.checkboxContainer}>
                       <View style={[
                         styles.checkbox,
@@ -770,6 +812,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
             </View>
 
           </Animated.View>
+          </RNAnimated.View>
         </GestureDetector>
         
         {showDetails ? (
@@ -780,18 +823,41 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                 style={[styles.description, { color: isDark ? "#9CA3AF" : "#6B7280" }]}
               />
             ) : null}
+            {canModifyEntries ? (
             <View style={styles.actions}>
               <Pressable
-                style={[styles.actionsMenuButton, { backgroundColor: theme.primary + "15" }]}
+                style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: "#F59E0B" + "15" }]}
+                onPress={() => {
+                  if (task.isPinned) {
+                    unpinTask(task.id);
+                  } else {
+                    pinTask(task.id);
+                  }
+                }}
+              >
+                <Feather name="star" size={18} color="#F59E0B" />
+                {task.isPinned ? (
+                  <Feather name="check" size={14} color="#F59E0B" />
+                ) : null}
+              </Pressable>
+              <Pressable
+                style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: typeColor + "15" }]}
+                onPress={handleAddSubtask}
+              >
+                <Feather name="plus" size={18} color={typeColor} />
+              </Pressable>
+              <Pressable
+                style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: theme.primary + "15" }]}
                 onPress={() => setShowActionsMenu(true)}
               >
                 <Feather name="more-horizontal" size={18} color={theme.primary} />
                 <ThemedText style={[styles.actionsMenuButtonText, { color: theme.primary }]}>Actions</ThemedText>
               </Pressable>
             </View>
+            ) : null}
 
             <Modal
-              visible={showActionsMenu}
+              visible={showActionsMenu && canModifyEntries}
               transparent
               animationType="fade"
               onRequestClose={() => setShowActionsMenu(false)}
@@ -997,6 +1063,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                 categories={categories}
                 parentColor={categoryColor}
                 tasksMap={tasksMap}
+                canModifyEntries={canModifyEntries}
               />
             ))}
           </View>
@@ -1329,7 +1396,12 @@ const styles = StyleSheet.create({
   actions: {
     flexDirection: "row",
     gap: Spacing.xs,
-    flexWrap: "wrap",
+    flexWrap: "nowrap",
+  },
+  actionsRowButton: {
+    flex: 1,
+    minWidth: 0,
+    paddingHorizontal: Spacing.sm,
   },
   actionButton: {
     flexDirection: "row",

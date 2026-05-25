@@ -26,6 +26,7 @@ import { HabitsList } from "@/components/HabitsList";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task, Habit } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
+import { canModifyEntriesInCategory } from "@/lib/permissions";
 
 const TASK_TYPE_COLORS: Record<TaskType, string> = {
   goal: "#FF6B6B",
@@ -93,6 +94,7 @@ export default function CategoryDetailScreen() {
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(initialTaskId || null);
   const categoryTasks = getTasksByCategory(category.id);
+  const canModifyEntries = canModifyEntriesInCategory(category);
 
   const handleUpdateSharing = async (shares: ShareRecord[]) => {
     await updateCategory(category.id, { sharedWith: shares });
@@ -111,6 +113,7 @@ export default function CategoryDetailScreen() {
   };
 
   const handleEventPress = (event: CalendarEvent) => {
+    if (!canModifyEntries) return;
     setEditingEvent(event);
     if (isRecurringEvent(event)) {
       setShowRecurringModal(true);
@@ -178,18 +181,19 @@ export default function CategoryDetailScreen() {
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: "",
-      headerRight: () => (
-        <View style={{ flexDirection: "row", gap: 8 }}>
-          <HeaderButton onPress={() => setShowBubbleShareModal(true)}>
-            <Feather name="user-plus" size={20} color={theme.primary} />
-          </HeaderButton>
-          <HeaderButton onPress={() => navigation.navigate("AddCategory", { category })}>
-            <Feather name="edit-2" size={20} color={theme.primary} />
-          </HeaderButton>
-        </View>
-      ),
+      headerRight: () =>
+        canModifyEntries ? (
+          <View style={{ flexDirection: "row", gap: 8 }}>
+            <HeaderButton onPress={() => setShowBubbleShareModal(true)}>
+              <Feather name="user-plus" size={20} color={theme.primary} />
+            </HeaderButton>
+            <HeaderButton onPress={() => navigation.navigate("AddCategory", { category })}>
+              <Feather name="edit-2" size={20} color={theme.primary} />
+            </HeaderButton>
+          </View>
+        ) : null,
     });
-  }, [navigation, category, theme]);
+  }, [navigation, category, theme, canModifyEntries]);
 
   const linkedPeople = useMemo(() => {
     const personIds = new Set<string>();
@@ -313,6 +317,7 @@ export default function CategoryDetailScreen() {
           filterType={selectedType}
           highlightedTaskId={highlightedTaskId}
           onHighlightCleared={() => setHighlightedTaskId(null)}
+          canModifyEntries={canModifyEntries}
         />
       </ScrollView>
     </>
@@ -548,6 +553,7 @@ export default function CategoryDetailScreen() {
                   ? "No upcoming events scheduled" 
                   : `No events for this ${calendarViewMode}`}
               </ThemedText>
+              {canModifyEntries ? (
               <Pressable
                 style={[styles.calAddButton, { backgroundColor: category.color }]}
                 onPress={handleAddEvent}
@@ -555,6 +561,7 @@ export default function CategoryDetailScreen() {
                 <Feather name="plus" size={16} color="#FFFFFF" />
                 <ThemedText style={styles.calAddButtonText}>Add Event</ThemedText>
               </Pressable>
+              ) : null}
             </View>
           }
         />
@@ -821,6 +828,7 @@ export default function CategoryDetailScreen() {
               ) : null}
             </View>
           </View>
+          {canModifyEntries ? (
           <Pressable
             style={[styles.headerAddBtn, { backgroundColor: category.color }]}
             onPress={() => setShowActionMenu(true)}
@@ -828,6 +836,7 @@ export default function CategoryDetailScreen() {
           >
             <Feather name="plus" size={22} color="#FFFFFF" />
           </Pressable>
+          ) : null}
         </View>
       </View>
 
@@ -876,9 +885,11 @@ export default function CategoryDetailScreen() {
         lockedCategoryId={category.id}
         editingEvent={editingEvent}
         editingAsInstance={editingAsInstance}
+        readOnly={!canModifyEntries}
+        canDelete={canModifyEntries}
       />
       <RecurringEventModal
-        visible={showRecurringModal}
+        visible={showRecurringModal && canModifyEntries}
         event={editingEvent}
         onClose={() => {
           setShowRecurringModal(false);
@@ -916,7 +927,7 @@ export default function CategoryDetailScreen() {
       />
 
       <Modal
-        visible={showActionMenu}
+        visible={showActionMenu && canModifyEntries}
         transparent
         animationType="fade"
         onRequestClose={() => setShowActionMenu(false)}

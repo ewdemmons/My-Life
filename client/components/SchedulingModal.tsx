@@ -36,6 +36,8 @@ interface SchedulingModalProps {
   preselectedCategoryId?: string;
   lockedCategoryId?: string;
   editingAsInstance?: boolean;
+  readOnly?: boolean;
+  canDelete?: boolean;
 }
 
 export function SchedulingModal({
@@ -47,6 +49,8 @@ export function SchedulingModal({
   preselectedCategoryId,
   lockedCategoryId,
   editingAsInstance = false,
+  readOnly = false,
+  canDelete = true,
 }: SchedulingModalProps) {
   const { theme } = useTheme();
   const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories } = useApp();
@@ -285,15 +289,19 @@ export function SchedulingModal({
             <ThemedText style={styles.headerTitle}>
               {editingEvent ? "Edit Event" : "New Event"}
             </ThemedText>
-            <Pressable
-              onPress={handleSave}
-              style={[styles.headerButton, (!title.trim() || isSaving) && { opacity: 0.5 }]}
-              disabled={!title.trim() || isSaving}
-            >
-              <ThemedText style={[styles.saveText, { color: theme.primary }]}>
-                {isUpdatingSeries ? "Updating series..." : isSaving ? "Saving..." : "Save"}
-              </ThemedText>
-            </Pressable>
+            {readOnly ? (
+              <View style={styles.headerButton} />
+            ) : (
+              <Pressable
+                onPress={handleSave}
+                style={[styles.headerButton, (!title.trim() || isSaving) && { opacity: 0.5 }]}
+                disabled={!title.trim() || isSaving}
+              >
+                <ThemedText style={[styles.saveText, { color: theme.primary }]}>
+                  {isUpdatingSeries ? "Updating series..." : isSaving ? "Saving..." : "Save"}
+                </ThemedText>
+              </Pressable>
+            )}
           </View>
 
           <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
@@ -572,7 +580,7 @@ export function SchedulingModal({
               />
             </View>
 
-            {editingEvent ? (
+            {editingEvent && canDelete && !readOnly ? (
               <Pressable
                 style={[styles.deleteButton, { borderColor: theme.error }]}
                 onPress={handleDelete}

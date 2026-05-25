@@ -1,6 +1,12 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES } from "@/types";
+import {
+  applyBulkLifeAreaOwnerFilter,
+  applyEntryOwnerFilter,
+  canModifyEntryInLifeArea,
+  hasFullControlAccess,
+} from "@/lib/permissions";
 import { generateRecurringInstances, generateUUID } from "@/utils/recurrence";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
@@ -24,7 +30,7 @@ interface AppContextType {
   occurrences: Occurrence[];
   recycleBin: DeletedItem[];
   isLoading: boolean;
-  addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<void>;
+  addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<LifeCategory | void>;
   updateCategory: (id: string, updates: Partial<LifeCategory>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
   addTask: (task: Omit<Task, "id" | "createdAt">) => Promise<Task | null>;
@@ -36,7 +42,10 @@ interface AppContextType {
   pinnedTasks: Task[];
   pinTask: (taskId: string) => Promise<void>;
   unpinTask: (taskId: string) => Promise<void>;
-  reorderPinnedTasks: (taskIds: string[]) => Promise<void>;
+  reorderPinnedTasks: (taskIds: string[]) => Promise<boolean>;
+  updatePinnedTasksBatch: (
+    updates: Array<{ id: string; pinnedOrder: number; deadline?: string | null }>,
+  ) => Promise<boolean>;
   addEvent: (event: Omit<CalendarEvent, "id" | "createdAt">) => Promise<void>;
   updateEvent: (id: string, updates: Partial<CalendarEvent>) => Promise<void>;
   deleteEvent: (id: string) => Promise<void>;
@@ -96,6 +105,7 @@ function mapSharedBubbleToCategory(share: any, bubble: any): LifeCategory {
 function mapSupabaseTaskToTask(task: any): Task {
   return {
     id: task.id,
+    userId: task.user_id,
     title: task.title,
     description: task.description || "",
     type: task.type || "task",
@@ -111,6 +121,7 @@ function mapSupabaseTaskToTask(task: any): Task {
     isRecurring: task.is_recurring || false,
     isPinned: task.is_pinned || false,
     pinnedOrder: task.pinned_order || 0,
+    deadline: task.deadline || undefined,
   };
 }
 
@@ -157,6 +168,7 @@ function mapTaskToSupabase(task: Partial<Task>, userId: string) {
   if (task.isRecurring !== undefined) result.is_recurring = task.isRecurring;
   if (task.isPinned !== undefined) result.is_pinned = task.isPinned;
   if (task.pinnedOrder !== undefined) result.pinned_order = task.pinnedOrder;
+  if (task.deadline !== undefined) result.deadline = task.deadline || null;
   return result;
 }
 
@@ -223,6 +235,7 @@ function mapSupabaseEventToEvent(event: any): CalendarEvent {
   
   return {
     id: event.id,
+    userId: event.user_id,
     title: event.title,
     description: event.description || "",
     startDate: start.date,
@@ -874,7 +887,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
-  const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">) => {
+  const addCategory = useCallback(async (category: Omit<LifeCategory, "id" | "createdAt">): Promise<LifeCategory | void> => {
     if (!user) return;
 
     const { data, error } = await supabase
@@ -896,6 +909,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const newCategory = mapSupabaseBubbleToCategory(data);
     setCategories((prev) => [...prev, newCategory]);
+    return newCategory;
   }, [user]);
 
   const updateCategory = useCallback(async (id: string, updates: Partial<LifeCategory>) => {
@@ -955,7 +969,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     for (const task of relatedTasks) {
-      await supabase.from("tasks").delete().eq("id", task.id).eq("user_id", user.id);
+      const taskUserId = task.userId ?? user.id;
+      let taskDeleteQuery = supabase.from("tasks").delete().eq("id", task.id);
+      taskDeleteQuery = applyEntryOwnerFilter(
+        taskDeleteQuery,
+        taskUserId,
+        id,
+        user.id,
+        categories,
+      );
+      await taskDeleteQuery;
     }
 
     setCategories((prev) => prev.filter((cat) => cat.id !== id));
@@ -1008,14 +1031,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const existingTask = tasks.find((t) => t.id === id);
+    if (!existingTask) return;
+
+    const entryUserId = existingTask.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, existingTask.categoryId || null, categories)) {
+      return;
+    }
+
     const supabaseUpdates = mapTaskToSupabase(updates, user.id);
     delete supabaseUpdates.user_id;
 
-    const { error } = await supabase
-      .from("tasks")
-      .update(supabaseUpdates)
-      .eq("id", id)
-      .eq("user_id", user.id);
+    let query = supabase.from("tasks").update(supabaseUpdates).eq("id", id);
+    query = applyEntryOwnerFilter(
+      query,
+      entryUserId,
+      existingTask.categoryId || null,
+      user.id,
+      categories,
+    );
+
+    const { error } = await query;
 
     if (error) {
       console.error("Error updating task:", error.message);
@@ -1059,6 +1094,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const taskToDelete = tasks.find((t) => t.id === id);
     if (!taskToDelete) return;
 
+    const entryUserId = taskToDelete.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, taskToDelete.categoryId || null, categories)) {
+      return;
+    }
+
     const getDescendants = (taskId: string): Task[] => {
       const children = tasks.filter((t) => t.parentId === taskId);
       return children.flatMap((child) => [child, ...getDescendants(child.id)]);
@@ -1080,11 +1120,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const idsToDelete = [id, ...descendants.map((t) => t.id)];
     for (const taskId of idsToDelete) {
-      await supabase.from("tasks").delete().eq("id", taskId).eq("user_id", user.id);
+      const row = taskId === id ? taskToDelete : tasks.find((t) => t.id === taskId);
+      const rowUserId = row?.userId ?? user.id;
+      const rowCategoryId = row?.categoryId || taskToDelete.categoryId || null;
+      let query = supabase.from("tasks").delete().eq("id", taskId);
+      query = applyEntryOwnerFilter(query, rowUserId, rowCategoryId, user.id, categories);
+      await query;
     }
 
     setTasks((prev) => prev.filter((task) => !idsToDelete.includes(task.id)));
-  }, [user, tasks]);
+  }, [user, tasks, categories]);
 
   const reorderTasks = useCallback(async (taskIds: string[], parentId: string | null) => {
     if (!user) return;
@@ -1092,11 +1137,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updates = taskIds.map((id, index) => ({ id, order_index: index }));
     
     for (const update of updates) {
-      await supabase
+      const row = tasks.find((t) => t.id === update.id);
+      if (!row) continue;
+      const entryUserId = row.userId ?? user.id;
+      if (!canModifyEntryInLifeArea(user.id, entryUserId, row.categoryId || null, categories)) {
+        continue;
+      }
+      let query = supabase
         .from("tasks")
         .update({ order_index: update.order_index })
-        .eq("id", update.id)
-        .eq("user_id", user.id);
+        .eq("id", update.id);
+      query = applyEntryOwnerFilter(
+        query,
+        entryUserId,
+        row.categoryId || null,
+        user.id,
+        categories,
+      );
+      await query;
     }
 
     setTasks((prev) =>
@@ -1108,7 +1166,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return task;
       })
     );
-  }, [user]);
+  }, [user, tasks, categories]);
 
   const moveTaskToParent = useCallback(async (taskId: string, newParentId: string | null, newCategoryId?: string) => {
     if (!user) return;
@@ -1124,18 +1182,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     const categoryId = newCategoryId || (newParentId ? tasks.find((t) => t.id === newParentId)?.categoryId : taskToMove.categoryId) || taskToMove.categoryId;
 
-    await supabase
+    const entryUserId = taskToMove.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, taskToMove.categoryId || null, categories)) {
+      return;
+    }
+    if (!hasFullControlAccess(user.id, categoryId, categories)) {
+      return;
+    }
+
+    let moveQuery = supabase
       .from("tasks")
       .update({ parent_id: newParentId, bubble_id: categoryId, order_index: Date.now() })
-      .eq("id", taskId)
-      .eq("user_id", user.id);
+      .eq("id", taskId);
+    moveQuery = applyEntryOwnerFilter(
+      moveQuery,
+      entryUserId,
+      taskToMove.categoryId || null,
+      user.id,
+      categories,
+    );
+    await moveQuery;
 
     for (const descendant of descendants) {
-      await supabase
+      const descUserId = descendant.userId ?? user.id;
+      let descQuery = supabase
         .from("tasks")
         .update({ bubble_id: categoryId })
-        .eq("id", descendant.id)
-        .eq("user_id", user.id);
+        .eq("id", descendant.id);
+      descQuery = applyEntryOwnerFilter(
+        descQuery,
+        descUserId,
+        taskToMove.categoryId || null,
+        user.id,
+        categories,
+      );
+      await descQuery;
     }
 
     setTasks((prev) =>
@@ -1149,7 +1230,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return task;
       })
     );
-  }, [user, tasks]);
+  }, [user, tasks, categories]);
 
   const addEvent = useCallback(async (event: Omit<CalendarEvent, "id" | "createdAt">) => {
     if (!user) return;
@@ -1302,6 +1383,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const existingEvent = events.find((e) => e.id === id);
     if (!existingEvent) return;
 
+    const entryUserId = existingEvent.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, existingEvent.categoryId, categories)) {
+      return;
+    }
+
     const getBubbleName = (categoryId: string | null) => {
       if (!categoryId) return "";
       const bubble = categories.find((c) => c.id === categoryId);
@@ -1347,11 +1433,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     supabaseUpdates.notification_id_advance = notificationIdAdvance;
     supabaseUpdates.notification_id_at_start = notificationIdAtStart;
 
-    const { error } = await supabase
-      .from("events")
-      .update(supabaseUpdates)
-      .eq("id", id)
-      .eq("user_id", user.id);
+    let updateQuery = supabase.from("events").update(supabaseUpdates).eq("id", id);
+    updateQuery = applyEntryOwnerFilter(
+      updateQuery,
+      entryUserId,
+      existingEvent.categoryId,
+      user.id,
+      categories,
+    );
+
+    const { error } = await updateQuery;
 
     if (error) {
       console.error("Error updating event:", error.message);
@@ -1370,18 +1461,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!user) return;
 
     const existingEvent = events.find((e) => e.id === id);
-    if (existingEvent) {
-      await cancelEventNotifications(
-        existingEvent.notificationIdAdvance,
-        existingEvent.notificationIdAtStart
-      );
+    if (!existingEvent) return;
+
+    const entryUserId = existingEvent.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, existingEvent.categoryId, categories)) {
+      return;
     }
 
-    const { error } = await supabase
-      .from("events")
-      .delete()
-      .eq("id", id)
-      .eq("user_id", user.id);
+    await cancelEventNotifications(
+      existingEvent.notificationIdAdvance,
+      existingEvent.notificationIdAtStart
+    );
+
+    let deleteQuery = supabase.from("events").delete().eq("id", id);
+    deleteQuery = applyEntryOwnerFilter(
+      deleteQuery,
+      entryUserId,
+      existingEvent.categoryId,
+      user.id,
+      categories,
+    );
+
+    const { error } = await deleteQuery;
 
     if (error) {
       console.error("Error deleting event:", error.message);
@@ -1389,7 +1490,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEvents((prev) => prev.filter((event) => event.id !== id));
-  }, [user, events, notificationContext]);
+  }, [user, events, categories, notificationContext]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>, editedEventId?: string): Promise<boolean> => {
     if (!user) return false;
@@ -1401,6 +1502,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (nonExceptionEvents.length === 0) return false;
 
     const anchorEvent = nonExceptionEvents.sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const anchorUserId = anchorEvent.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, anchorUserId, anchorEvent.categoryId, categories)) {
+      return false;
+    }
+    const seriesCategoryId = anchorEvent.categoryId;
     const originalRecurrence = anchorEvent.recurrence;
     const newRecurrence = updates.recurrence;
     const recurrenceChanged = newRecurrence !== undefined && newRecurrence !== originalRecurrence;
@@ -1419,11 +1525,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const idsToDelete = seriesEvents.filter((e) => e.id !== anchorEvent.id).map((e) => e.id);
           
           if (idsToDelete.length > 0) {
-            const { error: deleteError } = await supabase
-              .from("events")
-              .delete()
-              .eq("user_id", user.id)
-              .in("id", idsToDelete);
+            let deleteQuery = supabase.from("events").delete().in("id", idsToDelete);
+            deleteQuery = applyBulkLifeAreaOwnerFilter(
+              deleteQuery,
+              seriesCategoryId,
+              user.id,
+              categories,
+            );
+            const { error: deleteError } = await deleteQuery;
 
             if (deleteError) {
               console.error("Error deleting series instances:", deleteError.message);
@@ -1434,11 +1543,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           const supabaseUpdates = mapEventToSupabase({ ...updates, seriesId: null, recurrence: "none" }, user.id, anchorEvent);
           delete supabaseUpdates.user_id;
 
-          await supabase
+          let anchorUpdateQuery = supabase
             .from("events")
             .update(supabaseUpdates)
-            .eq("id", anchorEvent.id)
-            .eq("user_id", user.id);
+            .eq("id", anchorEvent.id);
+          anchorUpdateQuery = applyEntryOwnerFilter(
+            anchorUpdateQuery,
+            anchorUserId,
+            seriesCategoryId,
+            user.id,
+            categories,
+          );
+          await anchorUpdateQuery;
 
           setEvents((prev) => {
             const eventsNotInSeries = prev.filter((e) => !allSeriesIds.includes(e.id));
@@ -1454,11 +1570,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .map((e) => e.id);
 
         if (futureNonExceptionIds.length > 0) {
-          const { error: deleteError } = await supabase
-            .from("events")
-            .delete()
-            .eq("user_id", user.id)
-            .in("id", futureNonExceptionIds);
+          let futureDeleteQuery = supabase.from("events").delete().in("id", futureNonExceptionIds);
+          futureDeleteQuery = applyBulkLifeAreaOwnerFilter(
+            futureDeleteQuery,
+            seriesCategoryId,
+            user.id,
+            categories,
+          );
+          const { error: deleteError } = await futureDeleteQuery;
 
           if (deleteError) {
             console.error("Error deleting future series instances:", deleteError.message);
@@ -1469,11 +1588,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const supabaseAnchorUpdates = mapEventToSupabase(updates, user.id, anchorEvent);
         delete supabaseAnchorUpdates.user_id;
 
-        await supabase
+        let recurrenceAnchorQuery = supabase
           .from("events")
           .update(supabaseAnchorUpdates)
-          .eq("id", anchorEvent.id)
-          .eq("user_id", user.id);
+          .eq("id", anchorEvent.id);
+        recurrenceAnchorQuery = applyEntryOwnerFilter(
+          recurrenceAnchorQuery,
+          anchorUserId,
+          seriesCategoryId,
+          user.id,
+          categories,
+        );
+        await recurrenceAnchorQuery;
 
         const updatedAnchorData: Omit<CalendarEvent, "id" | "createdAt"> = {
           title: updates.title ?? anchorEvent.title,
@@ -1497,11 +1623,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const pastEventUpdates = buildPastEventUpdatePayload({ ...updates, recurrence: newRecurrence });
         if (Object.keys(pastEventUpdates).length > 0 && pastNonExceptions.length > 0) {
           const pastEventIds = pastNonExceptions.map((e) => e.id);
-          await supabase
-            .from("events")
-            .update(pastEventUpdates)
-            .eq("user_id", user.id)
-            .in("id", pastEventIds);
+          let pastUpdateQuery = supabase.from("events").update(pastEventUpdates).in("id", pastEventIds);
+          pastUpdateQuery = applyBulkLifeAreaOwnerFilter(
+            pastUpdateQuery,
+            seriesCategoryId,
+            user.id,
+            categories,
+          );
+          await pastUpdateQuery;
         }
 
         if (futureInstances.length > 0) {
@@ -1586,31 +1715,44 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         if (futureNonExceptionIds.length > 0) {
           futureNonExceptionIds.forEach((id) => regenStateRef.current.ignoreIds.add(id));
-          await supabase
-            .from("events")
-            .delete()
-            .eq("user_id", user.id)
-            .in("id", futureNonExceptionIds);
+          let dateChangeDeleteQuery = supabase.from("events").delete().in("id", futureNonExceptionIds);
+          dateChangeDeleteQuery = applyBulkLifeAreaOwnerFilter(
+            dateChangeDeleteQuery,
+            seriesCategoryId,
+            user.id,
+            categories,
+          );
+          await dateChangeDeleteQuery;
         }
 
         const supabaseAnchorUpdates = mapEventToSupabase(updates, user.id, anchorEvent);
         delete supabaseAnchorUpdates.user_id;
         
-        await supabase
+        let dateChangeAnchorQuery = supabase
           .from("events")
           .update(supabaseAnchorUpdates)
-          .eq("id", anchorEvent.id)
-          .eq("user_id", user.id);
+          .eq("id", anchorEvent.id);
+        dateChangeAnchorQuery = applyEntryOwnerFilter(
+          dateChangeAnchorQuery,
+          anchorUserId,
+          seriesCategoryId,
+          user.id,
+          categories,
+        );
+        await dateChangeAnchorQuery;
 
         const pastNonExceptions = nonExceptionEvents.filter((e) => e.startDate < todayString && e.id !== anchorEvent.id);
         const pastEventUpdates = buildPastEventUpdatePayload(updates);
         if (Object.keys(pastEventUpdates).length > 0 && pastNonExceptions.length > 0) {
           const pastEventIds = pastNonExceptions.map((e) => e.id);
-          await supabase
-            .from("events")
-            .update(pastEventUpdates)
-            .eq("user_id", user.id)
-            .in("id", pastEventIds);
+          let dateChangePastQuery = supabase.from("events").update(pastEventUpdates).in("id", pastEventIds);
+          dateChangePastQuery = applyBulkLifeAreaOwnerFilter(
+            dateChangePastQuery,
+            seriesCategoryId,
+            user.id,
+            categories,
+          );
+          await dateChangePastQuery;
         }
 
         const updatedAnchorData: Omit<CalendarEvent, "id" | "createdAt"> = {
@@ -1699,11 +1841,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const supabaseAnchorUpdates = mapEventToSupabase(anchorUpdates, user.id, anchorEvent);
     delete supabaseAnchorUpdates.user_id;
     
-    await supabase
+    let seriesAnchorQuery = supabase
       .from("events")
       .update(supabaseAnchorUpdates)
-      .eq("id", anchorEvent.id)
-      .eq("user_id", user.id);
+      .eq("id", anchorEvent.id);
+    seriesAnchorQuery = applyEntryOwnerFilter(
+      seriesAnchorQuery,
+      anchorUserId,
+      seriesCategoryId,
+      user.id,
+      categories,
+    );
+    await seriesAnchorQuery;
 
     const pastEvents = nonExceptionEvents.filter((e) => e.id !== anchorEvent.id && e.startDate < todayString);
     const futureEvents = nonExceptionEvents.filter((e) => e.id !== anchorEvent.id && e.startDate >= todayString);
@@ -1712,11 +1861,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const pastEventUpdates = buildPastEventUpdatePayload(updates);
       if (Object.keys(pastEventUpdates).length > 0) {
         const pastEventIds = pastEvents.map((e) => e.id);
-        await supabase
-          .from("events")
-          .update(pastEventUpdates)
-          .eq("user_id", user.id)
-          .in("id", pastEventIds);
+        let seriesPastQuery = supabase.from("events").update(pastEventUpdates).in("id", pastEventIds);
+        seriesPastQuery = applyBulkLifeAreaOwnerFilter(
+          seriesPastQuery,
+          seriesCategoryId,
+          user.id,
+          categories,
+        );
+        await seriesPastQuery;
       }
     }
 
@@ -1727,11 +1879,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     for (const event of futureEvents) {
       const supabaseUpdates = mapEventToSupabase(futureEventUpdates, user.id, event);
       delete supabaseUpdates.user_id;
-      await supabase
-        .from("events")
-        .update(supabaseUpdates)
-        .eq("id", event.id)
-        .eq("user_id", user.id);
+      const eventUserId = event.userId ?? user.id;
+      let futureQuery = supabase.from("events").update(supabaseUpdates).eq("id", event.id);
+      futureQuery = applyEntryOwnerFilter(
+        futureQuery,
+        eventUserId,
+        event.categoryId,
+        user.id,
+        categories,
+      );
+      await futureQuery;
     }
 
     const { startDate: _sd, endDate: _ed, ...safeUpdates } = updates;
@@ -1758,16 +1915,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
 
     return true;
-  }, [user, events]);
+  }, [user, events, categories]);
 
   const deleteEventSeries = useCallback(async (seriesId: string) => {
     if (!user) return;
 
-    const { error } = await supabase
-      .from("events")
-      .delete()
-      .eq("series_id", seriesId)
-      .eq("user_id", user.id);
+    const seriesEvents = events.filter((e) => e.seriesId === seriesId);
+    const anchorEvent = seriesEvents[0];
+    if (!anchorEvent) return;
+
+    const anchorUserId = anchorEvent.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, anchorUserId, anchorEvent.categoryId, categories)) {
+      return;
+    }
+
+    let seriesDeleteQuery = supabase.from("events").delete().eq("series_id", seriesId);
+    seriesDeleteQuery = applyBulkLifeAreaOwnerFilter(
+      seriesDeleteQuery,
+      anchorEvent.categoryId,
+      user.id,
+      categories,
+    );
+
+    const { error } = await seriesDeleteQuery;
 
     if (error) {
       console.error("Error deleting event series:", error.message);
@@ -1775,7 +1945,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEvents((prev) => prev.filter((event) => event.seriesId !== seriesId));
-  }, [user]);
+  }, [user, events, categories]);
 
   const updateEventInstance = useCallback(async (id: string, updates: Partial<CalendarEvent>) => {
     if (!user) return;
@@ -1783,15 +1953,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const existingEvent = events.find((e) => e.id === id);
     if (!existingEvent) return;
 
+    const entryUserId = existingEvent.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, existingEvent.categoryId, categories)) {
+      return;
+    }
+
     const isException = existingEvent.seriesId ? true : undefined;
     const supabaseUpdates = mapEventToSupabase({ ...updates, isException }, user.id, existingEvent);
     delete supabaseUpdates.user_id;
 
-    const { error } = await supabase
-      .from("events")
-      .update(supabaseUpdates)
-      .eq("id", id)
-      .eq("user_id", user.id);
+    let instanceQuery = supabase.from("events").update(supabaseUpdates).eq("id", id);
+    instanceQuery = applyEntryOwnerFilter(
+      instanceQuery,
+      entryUserId,
+      existingEvent.categoryId,
+      user.id,
+      categories,
+    );
+
+    const { error } = await instanceQuery;
 
     if (error) {
       console.error("Error updating event instance:", error.message);
@@ -1801,7 +1981,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const updatedEvent = { ...existingEvent, ...updates };
     if (existingEvent.seriesId) updatedEvent.isException = true;
     setEvents((prev) => prev.map((event) => (event.id === id ? updatedEvent : event)));
-  }, [user, events]);
+  }, [user, events, categories]);
 
   const getEventsByDate = useCallback(
     (date: string) => events.filter((event) => event.startDate === date),
@@ -2157,11 +2337,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const pinTask = useCallback(async (taskId: string) => {
     if (!user) return;
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const entryUserId = task.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, task.categoryId || null, categories)) {
+      return;
+    }
     const maxOrder = Math.max(0, ...tasks.filter(t => t.isPinned).map(t => t.pinnedOrder || 0));
-    const { error } = await supabase
+    let pinQuery = supabase
       .from("tasks")
       .update({ is_pinned: true, pinned_order: maxOrder + 1 })
       .eq("id", taskId);
+    pinQuery = applyEntryOwnerFilter(
+      pinQuery,
+      entryUserId,
+      task.categoryId || null,
+      user.id,
+      categories,
+    );
+    const { error } = await pinQuery;
     if (error) {
       console.error("Error pinning task:", error.message);
       return;
@@ -2171,14 +2365,28 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         t.id === taskId ? { ...t, isPinned: true, pinnedOrder: maxOrder + 1 } : t
       )
     );
-  }, [user, tasks]);
+  }, [user, tasks, categories]);
 
   const unpinTask = useCallback(async (taskId: string) => {
     if (!user) return;
-    const { error } = await supabase
+    const task = tasks.find((t) => t.id === taskId);
+    if (!task) return;
+    const entryUserId = task.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, task.categoryId || null, categories)) {
+      return;
+    }
+    let unpinQuery = supabase
       .from("tasks")
       .update({ is_pinned: false, pinned_order: 0 })
       .eq("id", taskId);
+    unpinQuery = applyEntryOwnerFilter(
+      unpinQuery,
+      entryUserId,
+      task.categoryId || null,
+      user.id,
+      categories,
+    );
+    const { error } = await unpinQuery;
     if (error) {
       console.error("Error unpinning task:", error.message);
       return;
@@ -2188,27 +2396,65 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         t.id === taskId ? { ...t, isPinned: false, pinnedOrder: 0 } : t
       )
     );
-  }, [user]);
+  }, [user, tasks, categories]);
 
-  const reorderPinnedTasks = useCallback(async (taskIds: string[]) => {
-    if (!user) return;
-    const updates = taskIds.map((id, index) => ({
-      id,
-      pinned_order: index + 1,
-    }));
-    for (const update of updates) {
-      await supabase.from("tasks").update({ pinned_order: update.pinned_order }).eq("id", update.id);
-    }
-    setTasks((prev) =>
-      prev.map((t) => {
-        const idx = taskIds.indexOf(t.id);
-        if (idx !== -1) {
-          return { ...t, pinnedOrder: idx + 1 };
+  const updatePinnedTasksBatch = useCallback(async (
+    updates: Array<{ id: string; pinnedOrder: number; deadline?: string | null }>,
+  ): Promise<boolean> => {
+    if (!user || updates.length === 0) return false;
+
+    let previousSnapshot: Task[] = [];
+    setTasks((prev) => {
+      previousSnapshot = prev;
+      return prev.map((t) => {
+        const upd = updates.find((u) => u.id === t.id);
+        if (!upd) return t;
+        return {
+          ...t,
+          pinnedOrder: upd.pinnedOrder,
+          ...(upd.deadline !== undefined
+            ? { deadline: upd.deadline || undefined }
+            : {}),
+        };
+      });
+    });
+
+    try {
+      for (const upd of updates) {
+        const row = tasks.find((t) => t.id === upd.id);
+        if (!row) continue;
+        const entryUserId = row.userId ?? user.id;
+        if (!canModifyEntryInLifeArea(user.id, entryUserId, row.categoryId || null, categories)) {
+          continue;
         }
-        return t;
-      })
+        const payload: Record<string, unknown> = { pinned_order: upd.pinnedOrder };
+        if (upd.deadline !== undefined) {
+          payload.deadline = upd.deadline;
+        }
+        let batchQuery = supabase.from("tasks").update(payload).eq("id", upd.id);
+        batchQuery = applyEntryOwnerFilter(
+          batchQuery,
+          entryUserId,
+          row.categoryId || null,
+          user.id,
+          categories,
+        );
+        const { error } = await batchQuery;
+        if (error) throw error;
+      }
+      return true;
+    } catch (error) {
+      console.error("Error updating pinned tasks:", error);
+      setTasks(previousSnapshot);
+      return false;
+    }
+  }, [user, tasks, categories]);
+
+  const reorderPinnedTasks = useCallback(async (taskIds: string[]): Promise<boolean> => {
+    return updatePinnedTasksBatch(
+      taskIds.map((id, index) => ({ id, pinnedOrder: index + 1 })),
     );
-  }, [user]);
+  }, [updatePinnedTasksBatch]);
 
   const clearAllData = useCallback(async () => {
     if (!user) return;
@@ -2254,6 +2500,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         pinTask,
         unpinTask,
         reorderPinnedTasks,
+        updatePinnedTasksBatch,
         addEvent,
         updateEvent,
         deleteEvent,

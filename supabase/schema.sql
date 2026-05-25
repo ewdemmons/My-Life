@@ -39,6 +39,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   assignee_ids UUID[],
   completion_type TEXT, -- 'as_of', 'until', or null for standard completion
   completion_date TEXT, -- YYYY-MM-DD for time-bound completions
+  deadline TEXT, -- YYYY-MM-DD target date for Master List grouping
   is_recurring BOOLEAN DEFAULT FALSE,
   is_pinned BOOLEAN DEFAULT FALSE, -- Master To Do List pinning
   pinned_order INTEGER DEFAULT 0, -- Sort order for pinned tasks
@@ -209,6 +210,15 @@ CREATE POLICY "Users with edit permission can update tasks in shared bubbles" ON
 CREATE POLICY "Users can delete own tasks" ON tasks
   FOR DELETE USING (auth.uid() = user_id);
 
+CREATE POLICY "Users with edit permission can delete tasks in shared bubbles" ON tasks
+  FOR DELETE USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares
+      WHERE shared_with_id = auth.uid()
+        AND permission IN ('edit', 'co-owner')
+    )
+  );
+
 -- EVENTS policies
 CREATE POLICY "Users can view own events" ON events
   FOR SELECT USING (auth.uid() = user_id);
@@ -237,6 +247,15 @@ CREATE POLICY "Users with edit permission can update events in shared bubbles" O
 
 CREATE POLICY "Users can delete own events" ON events
   FOR DELETE USING (auth.uid() = user_id);
+
+CREATE POLICY "Users with edit permission can delete events in shared bubbles" ON events
+  FOR DELETE USING (
+    bubble_id IN (
+      SELECT bubble_id FROM bubble_shares
+      WHERE shared_with_id = auth.uid()
+        AND permission IN ('edit', 'co-owner')
+    )
+  );
 
 -- PEOPLE policies
 CREATE POLICY "Users can view own people" ON people

@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, FlatList, Alert, SectionList } from "react-native";
+import { View, StyleSheet, Pressable, FlatList, Alert, SectionList, Modal, Platform } from "react-native";
+import DateTimePicker from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
@@ -27,7 +28,15 @@ export default function HabitsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const { habits, categories, addOccurrence, getOccurrencesForItem, deleteOccurrence } = useApp();
+  const { habits, categories, addOccurrence, getOccurrencesForItem, deleteOccurrence, updateOccurrence } = useApp();
+
+  const getTodayDateString = () => {
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = String(now.getMonth() + 1).padStart(2, "0");
+    const day = String(now.getDate()).padStart(2, "0");
+    return `${year}-${month}-${day}`;
+  };
 
   const [showAddHabitModal, setShowAddHabitModal] = useState(false);
   const [editingHabit, setEditingHabit] = useState<Habit | null>(null);
@@ -39,18 +48,20 @@ export default function HabitsScreen() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [logModalHabit, setLogModalHabit] = useState<Habit | null>(null);
   const [logModalDate, setLogModalDate] = useState<string | undefined>(undefined);
+  const [logDate, setLogDate] = useState<string>(() => getTodayDateString());
+  const [showDatePickerModal, setShowDatePickerModal] = useState(false);
 
   const activeHabits = useMemo(
     () => habits.filter((h) => h.isActive),
     [habits]
   );
 
-  const getTodayDateString = () => {
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = String(now.getMonth() + 1).padStart(2, "0");
-    const day = String(now.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
+  const formatLogDateLabel = (dateStr: string) => {
+    const today = getTodayDateString();
+    if (dateStr === today) return "Today";
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const date = new Date(y, m - 1, d);
+    return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
   };
 
   const getHabitTypeInfo = (type: string) => {
@@ -156,11 +167,12 @@ export default function HabitsScreen() {
   const handleQuickLog = async (habit: Habit) => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+      const baseTime = new Date(logDate + "T12:00:00").getTime();
       await addOccurrence({
         itemId: habit.id,
         itemType: "habit",
-        occurredAt: Date.now(),
-        occurredDate: getTodayDateString(),
+        occurredAt: baseTime,
+        occurredDate: logDate,
       });
     } catch (error) {
       Alert.alert("Error", "Failed to log occurrence. Please try again.");
@@ -253,6 +265,15 @@ export default function HabitsScreen() {
               </View>
             </View>
             <View style={styles.habitActions}>
+              <Pressable
+                style={[styles.logDateLabel, { backgroundColor: theme.border }]}
+                onPress={() => setShowDatePickerModal(true)}
+              >
+                <ThemedText style={[styles.logDateLabelText, { color: theme.textSecondary }]} numberOfLines={1}>
+                  {formatLogDateLabel(logDate)}
+                </ThemedText>
+                <Feather name="calendar" size={12} color={theme.textSecondary} />
+              </Pressable>
               <Pressable
                 style={[
                   styles.logButton,
@@ -493,7 +514,40 @@ export default function HabitsScreen() {
           habit={logModalHabit}
           occurrences={getOccurrencesForItem(logModalHabit.id, "habit")}
           onDeleteOccurrence={deleteOccurrence}
+          onUpdateOccurrence={updateOccurrence}
+          onAddOccurrence={addOccurrence}
+          filterDate={logModalDate}
         />
+      ) : null}
+
+      {showDatePickerModal ? (
+        <Modal visible transparent animationType="fade">
+          <Pressable style={styles.datePickerBackdrop} onPress={() => setShowDatePickerModal(false)}>
+            <View style={[styles.datePickerContainer, { backgroundColor: theme.backgroundRoot }]}>
+              <ThemedText style={[styles.datePickerTitle, { color: theme.text }]}>Log for date</ThemedText>
+              <DateTimePicker
+                value={new Date(logDate + "T12:00:00")}
+                mode="date"
+                maximumDate={new Date()}
+                onChange={(_, selectedDate) => {
+                  if (Platform.OS === "android") setShowDatePickerModal(false);
+                  if (selectedDate) {
+                    const y = selectedDate.getFullYear();
+                    const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
+                    const d = String(selectedDate.getDate()).padStart(2, "0");
+                    setLogDate(`${y}-${m}-${d}`);
+                  }
+                }}
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+              />
+              {Platform.OS === "ios" ? (
+                <Pressable style={[styles.datePickerDone, { backgroundColor: theme.primary }]} onPress={() => setShowDatePickerModal(false)}>
+                  <ThemedText style={styles.datePickerDoneText}>Done</ThemedText>
+                </Pressable>
+              ) : null}
+            </View>
+          </Pressable>
+        </Modal>
       ) : null}
     </View>
   );
@@ -599,7 +653,20 @@ const styles = StyleSheet.create({
   },
   habitActions: {
     flexDirection: "row",
+    alignItems: "center",
     gap: Spacing.sm,
+  },
+  logDateLabel: {
+    minWidth: 44,
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 6,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: BorderRadius.sm,
+  },
+  logDateLabelText: {
+    fontSize: 10,
+    fontWeight: "600",
   },
   logButton: {
     width: 36,
@@ -607,6 +674,35 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
+  },
+  datePickerBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: Spacing.lg,
+  },
+  datePickerContainer: {
+    borderRadius: BorderRadius.lg,
+    padding: Spacing.lg,
+    minWidth: 280,
+  },
+  datePickerTitle: {
+    fontSize: 16,
+    fontWeight: "600",
+    marginBottom: Spacing.sm,
+    textAlign: "center",
+  },
+  datePickerDone: {
+    marginTop: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+  },
+  datePickerDoneText: {
+    color: "#FFFFFF",
+    fontSize: 15,
+    fontWeight: "600",
   },
   countRow: {
     flexDirection: "row",

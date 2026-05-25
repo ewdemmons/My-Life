@@ -14,6 +14,8 @@ import { LifeWheel } from "@/components/LifeWheel";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { LifeCategory, Task, getTaskTypeInfo } from "@/types";
+import { useAuth } from "@/context/AuthContext";
+import { hasFullControlAccess } from "@/lib/permissions";
 
 const appIcon = require("../../assets/images/icon.png");
 
@@ -22,6 +24,7 @@ export default function HomeScreen() {
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { user } = useAuth();
   const { categories, tasks, deleteCategory, isLoading, pinnedTasks, unpinTask, updateTask } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
 
@@ -66,9 +69,8 @@ export default function HomeScreen() {
   };
 
   const canEditCategory = (category: LifeCategory | null) => {
-    if (!category) return false;
-    if (!category.isShared) return true;
-    return category.sharePermission === "edit" || category.sharePermission === "co-owner";
+    if (!category || !user) return false;
+    return hasFullControlAccess(user.id, category.id, categories);
   };
 
   const canDeleteCategory = (category: LifeCategory | null) => {
@@ -146,7 +148,7 @@ export default function HomeScreen() {
             bottom: insets.bottom + Spacing.lg + 50, // Match FAB.tsx TAB_BAR_HEIGHT offset logic
           },
         ]}
-        onPress={() => navigation.navigate("AssistantChat")}
+        onPress={() => (navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined)?.navigate("AssistantChat", {})}
       >
         <Feather name="zap" size={28} color="#FFFFFF" />
       </Pressable>
