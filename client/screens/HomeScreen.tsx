@@ -1,6 +1,6 @@
-import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Modal, Alert, Image, ScrollView } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
+import React, { useMemo, useRef, useState, useEffect } from "react";
+import { View, StyleSheet, Pressable, Modal, Alert, Animated, Easing, Image } from "react-native";
+import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -13,20 +13,137 @@ import { ThemedText } from "@/components/ThemedText";
 import { LifeWheel } from "@/components/LifeWheel";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { LifeCategory, Task, getTaskTypeInfo } from "@/types";
+import { LifeCategory } from "@/types";
 import { useAuth } from "@/context/AuthContext";
 import { hasFullControlAccess } from "@/lib/permissions";
+import { supabase } from "@/lib/supabase";
 
+const ZONE_1_HEIGHT = 160;
+const TIP_ROW_HEIGHT = 50;
+const FAB_ZONE_HEIGHT = 90;
+const FAB_SIZE = 64;
 const appIcon = require("../../assets/images/icon.png");
+const TIP_MESSAGES = [
+  "Customize your Life Wheel based on what matters most",
+  "Tap the center icon to see your Master List",
+  "Ask your Life Coach for help with anything",
+  "Pin your most important entries to the Master List",
+];
 
-export default function HomeScreen() {
+interface HomeScreenProps {
+  onOpenCapture?: () => void;
+}
+
+export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
   const insets = useSafeAreaInsets();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user } = useAuth();
-  const { categories, tasks, deleteCategory, isLoading, pinnedTasks, unpinTask, updateTask } = useApp();
+  const { categories, tasks, deleteCategory, isLoading } = useApp();
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
+  const [displayName, setDisplayName] = useState<string | null>(null);
+  const [tipIndex, setTipIndex] = useState(0);
+  const tipOpacity = useRef(new Animated.Value(1)).current;
+  const tipTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    const loadDisplayName = async () => {
+      if (!user?.id) {
+        setDisplayName(null);
+        return;
+      }
+      const { data } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+      setDisplayName(data?.display_name?.trim() || null);
+    };
+    loadDisplayName();
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    const channel = supabase
+      .channel(`profile-display-name-${user.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "profiles",
+          filter: `id=eq.${user.id}`,
+        },
+        (payload) => {
+          const row = payload.new as { display_name?: string | null };
+          setDisplayName(row.display_name?.trim() || null);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    const scheduleTipCycle = () => {
+      tipTimer.current = setTimeout(() => {
+        Animated.timing(tipOpacity, {
+          toValue: 0,
+          duration: 600,
+          easing: Easing.inOut(Easing.ease),
+          useNativeDriver: true,
+        }).start(({ finished }) => {
+          if (!finished || isCancelled) return;
+          setTipIndex((prev) => (prev + 1) % TIP_MESSAGES.length);
+          Animated.timing(tipOpacity, {
+            toValue: 1,
+            duration: 600,
+            easing: Easing.inOut(Easing.ease),
+            useNativeDriver: true,
+          }).start(({ finished: didFadeIn }) => {
+            if (didFadeIn && !isCancelled) {
+              scheduleTipCycle();
+            }
+          });
+        });
+      }, 5000);
+    };
+
+    scheduleTipCycle();
+    return () => {
+      isCancelled = true;
+      if (tipTimer.current) {
+        clearTimeout(tipTimer.current);
+      }
+      tipOpacity.stopAnimation();
+    };
+  }, [tipOpacity]);
+
+  const greetingText = useMemo(() => {
+    if (!displayName) {
+      return "Welcome back 👋";
+    }
+    const hour = new Date().getHours();
+    if (hour >= 5 && hour < 12) return `Good morning, ${displayName} 👋`;
+    if (hour >= 12 && hour < 17) return `Good afternoon, ${displayName} 👋`;
+    if (hour >= 17 && hour < 21) return `Good evening, ${displayName} 👋`;
+    return `Hey ${displayName} 👋`;
+  }, [displayName]);
+
+  const handleTipPress = () => {
+    if (tipIndex === 1 || tipIndex === 3) {
+      (navigation as any).navigate("TasksTab");
+      return;
+    }
+    if (tipIndex === 2) {
+      (navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined)?.navigate("AssistantChat", {});
+    }
+  };
 
   const handleCategoryPress = (category: LifeCategory) => {
     navigation.navigate("CategoryDetail", { category });
@@ -87,71 +204,100 @@ export default function HomeScreen() {
   }
 
   return (
-    <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-      <View style={[styles.header, { paddingTop: insets.top + Spacing.md }]}>
-        <View style={styles.headerRow}>
-          <View style={styles.titleRow}>
-            <Image source={appIcon} style={styles.appIcon} />
-            <ThemedText style={styles.appTitle}>My Life</ThemedText>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.backgroundRoot }]} edges={["top", "left", "right"]}>
+      <View style={styles.zone1}>
+        <View style={styles.zone1HeaderRow}>
+          <View style={styles.headerRow}>
+            <View style={styles.titleRow}>
+              <Image source={appIcon} style={styles.appIcon} />
+              <ThemedText style={styles.appTitle}>My Life</ThemedText>
+            </View>
+            <View style={styles.headerButtons}>
+              <Pressable
+                style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
+                onPress={() => navigation.navigate("Notifications")}
+              >
+                <Feather name="bell" size={20} color={theme.text} />
+              </Pressable>
+              <Pressable
+                style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
+                onPress={() => navigation.navigate("Profile")}
+              >
+                <Feather name="user" size={20} color={theme.text} />
+              </Pressable>
+            </View>
           </View>
-          <View style={styles.headerButtons}>
-            <Pressable
-              style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
-              onPress={() => navigation.navigate("Notifications")}
+        </View>
+        <View style={styles.zone1GreetingRow}>
+          <ThemedText style={styles.headline} numberOfLines={1}>
+            {greetingText}
+          </ThemedText>
+        </View>
+        <View style={styles.zone1TipRow}>
+          <Pressable style={styles.tipPressable} onPress={handleTipPress}>
+            <Animated.Text
+              style={[
+                styles.subheadline,
+                { color: theme.textSecondary, opacity: tipOpacity },
+              ]}
+              numberOfLines={2}
             >
-              <Feather name="bell" size={20} color={theme.text} />
-            </Pressable>
-            <Pressable
-              style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
-              onPress={() => navigation.navigate("Profile")}
-            >
-              <Feather name="user" size={20} color={theme.text} />
-            </Pressable>
+              {TIP_MESSAGES[tipIndex]}
+            </Animated.Text>
+          </Pressable>
+        </View>
+      </View>
+
+      <View style={styles.mainContent}>
+        <View style={styles.wheelZone}>
+          {categories.length > 0 ? (
+            <LifeWheel
+              categories={categories}
+              onCategoryPress={handleCategoryPress}
+              onCategoryLongPress={handleCategoryLongPress}
+              onCenterPress={() => navigation.navigate("CentralDashboard")}
+            />
+          ) : (
+            <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
+              <Feather name="plus-circle" size={48} color={theme.primary} />
+              <ThemedText style={styles.emptyTitle}>Get Started</ThemedText>
+              <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
+                Add your first Life Area to begin organizing your life
+              </ThemedText>
+            </View>
+          )}
+        </View>
+
+        <View style={styles.fabZone}>
+          <View style={styles.fabRow}>
+            <View style={styles.fabColumn}>
+              <Pressable
+                style={[styles.actionFab, { backgroundColor: "#F59E0B" }]}
+                onPress={() => (navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined)?.navigate("AssistantChat", {})}
+              >
+                <Feather name="zap" size={28} color="#FFFFFF" />
+              </Pressable>
+              <ThemedText style={[styles.fabLabel, { color: theme.buttonText, opacity: 0.78 }]}>
+                Life Coach
+              </ThemedText>
+            </View>
+            <View style={styles.fabColumn}>
+              <Pressable
+                style={[styles.actionFab, styles.captureFab, { backgroundColor: theme.primary }]}
+                onPress={onOpenCapture}
+                accessibilityLabel="Capture"
+              >
+                <Feather name="plus" size={28} color="#FFFFFF" />
+              </Pressable>
+              <ThemedText style={[styles.fabLabel, { color: theme.buttonText, opacity: 0.78 }]}>
+                Capture
+              </ThemedText>
+            </View>
           </View>
         </View>
       </View>
 
-      <View style={styles.heroSection}>
-        <ThemedText style={styles.headline}>Balance Your World</ThemedText>
-        <ThemedText style={[styles.subheadline, { color: theme.textSecondary }]}>
-          Everything that matters to you, organized in one place.
-        </ThemedText>
-      </View>
-
-      <View style={styles.wheelContainer}>
-        {categories.length > 0 ? (
-          <LifeWheel
-            categories={categories}
-            onCategoryPress={handleCategoryPress}
-            onCategoryLongPress={handleCategoryLongPress}
-            onCenterPress={() => navigation.navigate("CentralDashboard")}
-            enlarged
-          />
-        ) : (
-          <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
-            <Feather name="plus-circle" size={48} color={theme.primary} />
-            <ThemedText style={styles.emptyTitle}>Get Started</ThemedText>
-            <ThemedText style={[styles.emptySubtitle, { color: theme.textSecondary }]}>
-              Add your first Life Area to begin organizing your life
-            </ThemedText>
-          </View>
-        )}
-      </View>
-
-      <View style={{ height: tabBarHeight }} />
-
-      <Pressable
-        style={[
-          styles.assistantFab,
-          { 
-            backgroundColor: "#F59E0B",
-            bottom: insets.bottom + Spacing.lg + 50, // Match FAB.tsx TAB_BAR_HEIGHT offset logic
-          },
-        ]}
-        onPress={() => (navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined)?.navigate("AssistantChat", {})}
-      >
-        <Feather name="zap" size={28} color="#FFFFFF" />
-      </Pressable>
+      <View style={{ height: tabBarHeight + insets.bottom }} />
 
       <Modal
         visible={selectedCategory !== null}
@@ -215,7 +361,7 @@ export default function HomeScreen() {
           </View>
         </Pressable>
       </Modal>
-    </View>
+    </SafeAreaView>
   );
 }
 
@@ -228,8 +374,25 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  header: {
+  mainContent: {
+    flex: 1,
+  },
+  zone1: {
+    height: ZONE_1_HEIGHT,
     paddingHorizontal: Spacing.lg,
+  },
+  zone1HeaderRow: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  zone1GreetingRow: {
+    flex: 1,
+    justifyContent: "center",
+  },
+  zone1TipRow: {
+    height: TIP_ROW_HEIGHT,
+    justifyContent: "center",
+    paddingVertical: 6,
   },
   headerRow: {
     flexDirection: "row",
@@ -240,6 +403,16 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: Spacing.sm,
+  },
+  appIcon: {
+    width: 36,
+    height: 36,
+    borderRadius: 8,
+  },
+  appTitle: {
+    fontSize: 22,
+    fontWeight: "700",
+    color: "#FFFFFF",
   },
   headerButtons: {
     flexDirection: "row",
@@ -253,48 +426,58 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  assistantFab: {
-    position: "absolute",
-    left: Spacing.lg,
-    width: 56,
-    height: 56,
-    borderRadius: 12,
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 100,
-  },
-  appIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 8,
-  },
-  appTitle: {
-    fontSize: 22,
-    fontWeight: "700",
-    color: "#FFFFFF",
-  },
-  heroSection: {
-    paddingTop: Spacing.xxl,
-    paddingBottom: Spacing.md,
-    alignItems: "center",
-  },
   headline: {
-    fontSize: 32,
+    fontSize: 18,
     fontWeight: "700",
     color: "#FFFFFF",
     textAlign: "center",
-    marginBottom: Spacing.sm,
+    paddingHorizontal: 16,
   },
-  subheadline: {
-    fontSize: 16,
-    textAlign: "center",
-    paddingHorizontal: Spacing.xl,
-  },
-  wheelContainer: {
+  tipPressable: {
+    width: "100%",
     flex: 1,
     justifyContent: "center",
+  },
+  subheadline: {
+    fontSize: 15,
+    fontWeight: "400",
+    textAlign: "center",
+    paddingHorizontal: 24,
+  },
+  wheelZone: {
+    flex: 1,
+    alignSelf: "stretch",
+  },
+  fabZone: {
+    height: FAB_ZONE_HEIGHT,
+    justifyContent: "center",
+    paddingHorizontal: Spacing.lg,
+  },
+  fabRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-end",
+  },
+  fabColumn: {
+    width: FAB_SIZE,
     alignItems: "center",
-    position: "relative",
+  },
+  actionFab: {
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  captureFab: {
+    overflow: "hidden",
+  },
+  fabLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
+    width: FAB_SIZE,
   },
   emptyState: {
     alignItems: "center",

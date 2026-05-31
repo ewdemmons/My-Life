@@ -3,6 +3,8 @@ import { View, StyleSheet, Pressable, FlatList, Alert, SectionList, Modal, Platf
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "@/hooks/useTheme";
@@ -13,6 +15,8 @@ import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, LifeCategory } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { HabitProgressChart } from "@/components/HabitProgressChart";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
+import { HabitCardActions } from "@/components/HabitCardActions";
+import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 
 type SortMode = "bubble" | "streak" | "completion";
 type ViewMode = "week" | "month" | "year";
@@ -28,6 +32,7 @@ export default function HabitsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { habits, categories, addOccurrence, getOccurrencesForItem, deleteOccurrence, updateOccurrence } = useApp();
 
   const getTodayDateString = () => {
@@ -193,6 +198,26 @@ export default function HabitsScreen() {
     setShowAddHabitModal(true);
   };
 
+  const handleViewAllLogs = (habit: Habit) => {
+    setLogModalHabit(habit);
+    setLogModalDate(undefined);
+    setShowLogModal(true);
+  };
+
+  const handleAssist = (habit: Habit) => {
+    const category = categories.find((c) => c.id === habit.categoryId);
+    const entryContext: EntryContext = {
+      id: habit.id,
+      title: habit.name,
+      type: "habit",
+      entryType: habit.habitType,
+      bubbleName: category?.name,
+      bubbleId: habit.categoryId || undefined,
+      description: habit.linkedTaskId ? "Linked to a task" : undefined,
+    };
+    navigation.navigate("AssistantChat", { entryContext });
+  };
+
   const handleAddHabit = (categoryId?: string) => {
     setEditingHabit(null);
     setSelectedCategoryId(categoryId || (categories.length > 0 ? categories[0].id : null));
@@ -237,6 +262,7 @@ export default function HabitsScreen() {
 
   const renderHabitCard = ({ item: habit }: { item: Habit }) => {
     const typeInfo = getHabitTypeInfo(habit.habitType);
+    const category = categories.find((c) => c.id === habit.categoryId);
     const isExpanded = expandedHabitId === habit.id;
     const periodCount = getPeriodCount(habit);
     const progress = Math.min(1, periodCount / habit.goalCount);
@@ -366,32 +392,18 @@ export default function HabitsScreen() {
                 }}
               />
             </View>
-            <View style={styles.expandedActions}>
-              <Pressable
-                style={[styles.expandedBtn, { backgroundColor: theme.primary + "20" }]}
-                onPress={() => handleEditHabit(habit)}
-              >
-                <Feather name="edit-2" size={14} color={theme.primary} />
-                <ThemedText style={[styles.expandedBtnText, { color: theme.primary }]}>
-                  Edit
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.expandedBtn, { backgroundColor: theme.success + "20" }]}
-                onPress={() => {
-                  setLogModalHabit(habit);
-                  setLogModalDate(undefined);
-                  setShowLogModal(true);
-                }}
-              >
-                <Feather name="plus-circle" size={14} color={theme.success} />
-                <ThemedText style={[styles.expandedBtnText, { color: theme.success }]}>
-                  Log
-                </ThemedText>
-              </Pressable>
-            </View>
           </View>
         ) : null}
+
+        <View style={[styles.cardActionsRow, { borderTopColor: theme.border }]}>
+          <HabitCardActions
+            habit={habit}
+            categoryColor={category?.color}
+            onEdit={handleEditHabit}
+            onLogs={handleViewAllLogs}
+            onAssist={handleAssist}
+          />
+        </View>
       </View>
     );
   };
@@ -767,21 +779,10 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "500",
   },
-  expandedActions: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-  },
-  expandedBtn: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: Spacing.xs,
-    paddingVertical: Spacing.sm,
+  cardActionsRow: {
+    borderTopWidth: 1,
     paddingHorizontal: Spacing.md,
-    borderRadius: BorderRadius.full,
-  },
-  expandedBtnText: {
-    fontSize: 13,
-    fontWeight: "500",
+    paddingVertical: Spacing.sm,
   },
   emptyState: {
     flex: 1,

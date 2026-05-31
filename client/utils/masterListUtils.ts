@@ -1,4 +1,4 @@
-import { LifeCategory, Task } from "@/types";
+import { Habit, LifeCategory, Task } from "@/types";
 
 export type MasterListSortOption =
   | "manual"
@@ -40,6 +40,7 @@ export const FILTER_ENTRY_TYPES: { value: string; label: string }[] = [
   { value: "idea", label: "Idea" },
   { value: "list", label: "List" },
   { value: "resource", label: "Resource" },
+  { value: "habit", label: "Habit" },
 ];
 
 const PRIORITY_RANK: Record<Task["priority"], number> = {
@@ -55,6 +56,30 @@ export function countActiveFilters(filters: MasterListFilters): number {
   if (filters.status !== "all") count += 1;
   if (filters.entryTypes.length > 0) count += 1;
   return count;
+}
+
+export function shouldShowPinnedEntries(filters: MasterListFilters): boolean {
+  return !(filters.entryTypes.length === 1 && filters.entryTypes[0] === "habit");
+}
+
+export function shouldShowPinnedHabits(filters: MasterListFilters): boolean {
+  if (filters.entryTypes.length === 0) return true;
+  return filters.entryTypes.length === 1 && filters.entryTypes[0] === "habit";
+}
+
+export function applyMasterListHabitFilters(
+  habits: Habit[],
+  filters: MasterListFilters,
+): Habit[] {
+  return habits.filter((habit) => {
+    if (
+      filters.lifeAreaIds.length > 0 &&
+      (!habit.categoryId || !filters.lifeAreaIds.includes(habit.categoryId))
+    ) {
+      return false;
+    }
+    return true;
+  });
 }
 
 export function applyMasterListFilters(
@@ -90,7 +115,7 @@ export function applyMasterListFilters(
   });
 }
 
-export type MasterListSectionKey = "today" | "thisWeek" | "later" | "pinned";
+export type MasterListSectionKey = "today" | "thisWeek" | "later" | "pinned" | "habits";
 
 export type MasterListItem =
   | { kind: "header"; id: string; sectionKey: MasterListSectionKey; label: string }
@@ -192,6 +217,7 @@ const SECTION_TOAST_LABEL: Record<MasterListSectionKey, string | null> = {
   thisWeek: "Moved to This Week",
   later: "Moved to Later",
   pinned: null,
+  habits: null,
 };
 
 export function processMasterListDragEnd(

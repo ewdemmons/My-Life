@@ -58,7 +58,7 @@ export default function CategoryDetailScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem } = useApp();
+  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem, lifeAreaSchedules } = useApp();
 
   const categoryId = route.params.category?.id ?? route.params.categoryId;
   const categoryFromState = categories.find(c => c.id === categoryId);
@@ -95,6 +95,7 @@ export default function CategoryDetailScreen() {
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(initialTaskId || null);
   const categoryTasks = getTasksByCategory(category.id);
   const canModifyEntries = canModifyEntriesInCategory(category);
+  const preferredTimesCount = lifeAreaSchedules.filter((s) => s.categoryId === category.id).length;
 
   const handleUpdateSharing = async (shares: ShareRecord[]) => {
     await updateCategory(category.id, { sharedWith: shares });
@@ -868,11 +869,44 @@ export default function CategoryDetailScreen() {
         ))}
       </View>
 
-      {activeTab === "entries" ? renderEntriesTab() : null}
-      {activeTab === "calendar" ? renderCalendarTab() : null}
-      {activeTab === "dashboard" ? renderDashboardTab() : null}
-      {activeTab === "people" ? renderPeopleTab() : null}
-      {activeTab === "habits" ? <HabitsList categoryId={category.id} /> : null}
+      <View style={{ flex: 1 }}>
+        {activeTab === "entries" ? renderEntriesTab() : null}
+        {activeTab === "calendar" ? renderCalendarTab() : null}
+        {activeTab === "dashboard" ? renderDashboardTab() : null}
+        {activeTab === "people" ? renderPeopleTab() : null}
+        {activeTab === "habits" ? <HabitsList categoryId={category.id} /> : null}
+      </View>
+
+      {canModifyEntries ? (
+        <Pressable
+          style={[
+            styles.preferredTimesRow,
+            {
+              borderTopColor: theme.border,
+              backgroundColor: theme.backgroundDefault,
+              paddingBottom: insets.bottom + Spacing.sm,
+            },
+          ]}
+          onPress={() =>
+            navigation.navigate("AddCategory", {
+              category,
+              scrollToPreferredTimes: true,
+            })
+          }
+        >
+          <View style={styles.preferredTimesRowContent}>
+            <ThemedText style={[styles.preferredTimesLabel, { color: category.color }]}>
+              Set preferred times →
+            </ThemedText>
+            {preferredTimesCount > 0 ? (
+              <ThemedText style={[styles.preferredTimesSubtext, { color: theme.textSecondary }]}>
+                {preferredTimesCount} time block{preferredTimesCount === 1 ? "" : "s"} set
+              </ThemedText>
+            ) : null}
+          </View>
+          <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+        </Pressable>
+      ) : null}
 
       <SchedulingModal
         visible={showSchedulingModal}
@@ -1457,6 +1491,25 @@ const styles = StyleSheet.create({
   loadingText: {
     marginTop: Spacing.md,
     fontSize: 14,
+  },
+  preferredTimesRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.lg,
+    paddingTop: Spacing.md,
+    borderTopWidth: 1,
+  },
+  preferredTimesRowContent: {
+    flex: 1,
+  },
+  preferredTimesLabel: {
+    fontSize: 15,
+    fontWeight: "600",
+  },
+  preferredTimesSubtext: {
+    fontSize: 12,
+    marginTop: 2,
   },
   calViewToggleContainer: {
     paddingVertical: Spacing.md,

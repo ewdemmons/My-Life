@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Alert, ScrollView, Switch, Platform } from "react-native";
+import { View, StyleSheet, Pressable, Alert, ScrollView, Switch, Platform, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -13,6 +13,7 @@ import { useNotifications } from "@/context/NotificationContext";
 import { DeletedItem, Task, LifeCategory, getTaskTypeInfo } from "@/types";
 import InviteCodeModal from "@/components/InviteCodeModal";
 import { requestNotificationPermissions } from "@/utils/notifications";
+import { supabase } from "@/lib/supabase";
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
@@ -25,6 +26,21 @@ export default function ProfileScreen() {
   const { user, signOut } = useAuth();
   const { preferences, updatePreferences } = useNotifications();
   const [showInviteCodeModal, setShowInviteCodeModal] = useState(false);
+  const [displayName, setDisplayName] = useState("");
+  const [isSavingName, setIsSavingName] = useState(false);
+
+  React.useEffect(() => {
+    const loadProfileName = async () => {
+      if (!user?.id) return;
+      const { data } = await supabase
+        .from("profiles")
+        .select("display_name")
+        .eq("id", user.id)
+        .single();
+      setDisplayName(data?.display_name || "");
+    };
+    loadProfileName();
+  }, [user?.id]);
 
   const handleToggleNotifications = async (enabled: boolean) => {
     if (enabled && Platform.OS !== "web") {
@@ -84,6 +100,22 @@ export default function ProfileScreen() {
         },
       ]
     );
+  };
+
+  const handleSaveDisplayName = async () => {
+    if (!user?.id || isSavingName) return;
+    setIsSavingName(true);
+    const { error } = await supabase
+      .from("profiles")
+      .update({ display_name: displayName.trim() || null })
+      .eq("id", user.id);
+    setIsSavingName(false);
+
+    if (error) {
+      Alert.alert("Unable to save name", error.message);
+      return;
+    }
+    Alert.alert("Saved", "Your name has been updated.");
   };
 
   const handleRestore = (item: DeletedItem) => {
@@ -226,6 +258,52 @@ export default function ProfileScreen() {
           <ThemedText style={[styles.statLabel, { color: theme.textSecondary }]}>
             Completion
           </ThemedText>
+        </View>
+      </View>
+
+      <View style={styles.section}>
+        <ThemedText style={styles.sectionTitle}>Profile</ThemedText>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
+          <View style={styles.nameSection}>
+            <ThemedText style={[styles.nameLabel, { color: theme.textSecondary }]}>Your name</ThemedText>
+            <TextInput
+              style={[
+                styles.nameInput,
+                {
+                  backgroundColor: theme.backgroundRoot,
+                  color: theme.text,
+                  borderColor: theme.border,
+                },
+              ]}
+              placeholder="How should we call you?"
+              placeholderTextColor={theme.textSecondary}
+              value={displayName}
+              onChangeText={setDisplayName}
+              autoCapitalize="words"
+              autoCorrect={false}
+              returnKeyType="done"
+            />
+            <Pressable
+              style={[
+                styles.saveNameButton,
+                { backgroundColor: theme.primary },
+                isSavingName && { opacity: 0.7 },
+              ]}
+              disabled={isSavingName}
+              onPress={handleSaveDisplayName}
+            >
+              <ThemedText style={[styles.saveNameButtonText, { color: theme.buttonText }]}>
+                {isSavingName ? "Saving..." : "Save name"}
+              </ThemedText>
+            </Pressable>
+          </View>
+          <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
+          <View style={styles.aboutRow}>
+            <ThemedText style={styles.aboutLabel}>Email</ThemedText>
+            <ThemedText style={[styles.aboutValue, { color: theme.textSecondary }]} numberOfLines={1}>
+              {user?.email || "Not signed in"}
+            </ThemedText>
+          </View>
         </View>
       </View>
 
@@ -408,13 +486,6 @@ export default function ProfileScreen() {
       <View style={styles.section}>
         <ThemedText style={styles.sectionTitle}>Account</ThemedText>
         <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault }]}>
-          <View style={styles.aboutRow}>
-            <ThemedText style={styles.aboutLabel}>Email</ThemedText>
-            <ThemedText style={[styles.aboutValue, { color: theme.textSecondary }]} numberOfLines={1}>
-              {user?.email || "Not signed in"}
-            </ThemedText>
-          </View>
-          <View style={[styles.settingDivider, { backgroundColor: theme.border }]} />
           <Pressable
             style={({ pressed }) => [styles.settingRow, pressed && { opacity: 0.7 }]}
             onPress={() => setShowInviteCodeModal(true)}
@@ -519,6 +590,31 @@ const styles = StyleSheet.create({
   settingsCard: {
     borderRadius: BorderRadius.sm,
     overflow: "hidden",
+  },
+  nameSection: {
+    padding: Spacing.md,
+    gap: Spacing.sm,
+  },
+  nameLabel: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  nameInput: {
+    height: 44,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    paddingHorizontal: Spacing.md,
+    fontSize: 15,
+  },
+  saveNameButton: {
+    height: 40,
+    borderRadius: BorderRadius.xs,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  saveNameButtonText: {
+    fontSize: 14,
+    fontWeight: "600",
   },
   settingRow: {
     flexDirection: "row",

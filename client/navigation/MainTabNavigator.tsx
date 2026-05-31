@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -10,7 +10,7 @@ import TasksScreen from "@/screens/TasksScreen";
 import CalendarScreen from "@/screens/CalendarScreen";
 import PeopleScreen from "@/screens/PeopleScreen";
 import HabitsScreen from "@/screens/HabitsScreen";
-import { FAB } from "@/components/FAB";
+import { FAB, FABHandle } from "@/components/FAB";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { AddPersonModal } from "@/components/AddPersonModal";
 import { AddHabitModal } from "@/components/AddHabitModal";
@@ -37,6 +37,8 @@ export default function MainTabNavigator() {
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showAddPersonModal, setShowAddPersonModal] = useState(false);
   const [showAddHabitModal, setShowAddHabitModal] = useState(false);
+  const fabRef = useRef<FABHandle>(null);
+  const [isHomeTab, setIsHomeTab] = useState(true);
 
   const handleAddCategory = () => {
     navigation.navigate("AddCategory", {});
@@ -62,6 +64,13 @@ export default function MainTabNavigator() {
     <View style={{ flex: 1 }}>
       <Tab.Navigator
         initialRouteName="HomeTab"
+        screenListeners={{
+          state: (e) => {
+            const state = e.data.state;
+            const route = state.routes[state.index];
+            setIsHomeTab(route.name === "HomeTab");
+          },
+        }}
         screenOptions={{
           headerTitleAlign: "center",
           headerTransparent: true,
@@ -97,7 +106,6 @@ export default function MainTabNavigator() {
       >
         <Tab.Screen
           name="HomeTab"
-          component={HomeScreen}
           options={{
             title: "Home",
             headerShown: false,
@@ -105,7 +113,11 @@ export default function MainTabNavigator() {
               <Feather name="home" size={size} color={color} />
             ),
           }}
-        />
+        >
+          {() => (
+            <HomeScreen onOpenCapture={() => fabRef.current?.openMenu()} />
+          )}
+        </Tab.Screen>
         <Tab.Screen
           name="TasksTab"
           component={TasksScreen}
@@ -151,9 +163,11 @@ export default function MainTabNavigator() {
           }}
         />
       </Tab.Navigator>
-      <FAB 
-        onAddCategory={handleAddCategory} 
-        onAddTask={handleAddTask} 
+      <FAB
+        ref={fabRef}
+        hideFloatingButton={isHomeTab}
+        onAddCategory={handleAddCategory}
+        onAddTask={handleAddTask}
         onAddEvent={handleAddEvent}
         onAddPerson={handleAddPerson}
         onAddHabit={handleAddHabit}

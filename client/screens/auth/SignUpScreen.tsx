@@ -23,6 +23,7 @@ export default function SignUpScreen() {
   const navigation = useNavigation<NavigationProp>();
   const { signUp } = useAuth();
 
+  const [displayName, setDisplayName] = useState("");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -53,7 +54,7 @@ export default function SignUpScreen() {
 
     setIsLoading(true);
     await AsyncStorage.setItem(PENDING_ONBOARDING_KEY, "true");
-    const { error } = await signUp(email.trim(), password);
+    const { error } = await signUp(email.trim(), password, displayName.trim());
     setIsLoading(false);
 
     if (error) {
@@ -78,6 +79,27 @@ export default function SignUpScreen() {
         </View>
 
         <View style={styles.formSection}>
+          <View style={styles.inputContainer}>
+            <ThemedText style={[styles.label, { color: theme.textSecondary }]}>Your name</ThemedText>
+            <TextInput
+              style={[
+                styles.input,
+                {
+                  backgroundColor: theme.backgroundDefault,
+                  color: theme.text,
+                  borderColor: theme.border,
+                },
+              ]}
+              value={displayName}
+              onChangeText={setDisplayName}
+              placeholder="What should we call you?"
+              placeholderTextColor={theme.textSecondary}
+              autoCapitalize="words"
+              textContentType="name"
+              autoComplete="name"
+            />
+          </View>
+
           <View style={styles.inputContainer}>
             <ThemedText style={[styles.label, { color: theme.textSecondary }]}>Email</ThemedText>
             <TextInput

@@ -221,6 +221,8 @@ export interface Habit {
   categoryId: string | null;
   linkedTaskId: string | null;
   isActive: boolean;
+  isPinned?: boolean;
+  pinnedOrder?: number;
   createdAt: number;
 }
 
@@ -291,3 +293,52 @@ export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   eventReminders: true,
   reminderMinutesBefore: 60,
 };
+
+export interface LifeAreaSchedule {
+  id: string;
+  userId: string;
+  categoryId: string;
+  label?: string;
+  daysOfWeek: number[];
+  startTime: string; // HH:MM format
+  endTime: string;   // HH:MM format
+  isActive: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LifeAreaScheduleInput {
+  categoryId: string;
+  label?: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+  isActive?: boolean;
+}
+
+export interface LifeAreaScheduleWithCategory extends LifeAreaSchedule {
+  categoryName: string;
+  categoryColor: string;
+}
+
+export interface PendingScheduleBlock {
+  clientKey: string;
+  id?: string;
+  label?: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+}
+
+export interface SchedulePreferenceBlock {
+  label?: string;
+  daysOfWeek: number[];
+  startTime: string;
+  endTime: string;
+}
+
+export interface SchedulePreference {
+  categoryName: string;
+  categoryColor: string;
+  blocks: SchedulePreferenceBlock[];
+}

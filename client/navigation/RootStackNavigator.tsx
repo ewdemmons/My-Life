@@ -35,7 +35,7 @@ export type EntryContext = {
 export type RootStackParamList = {
   Main: undefined;
   CategoryDetail: { category?: LifeCategory; categoryId?: string; initialTaskId?: string; initialEventId?: string };
-  AddCategory: { category?: LifeCategory };
+  AddCategory: { category?: LifeCategory; scrollToPreferredTimes?: boolean };
   AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
   Notifications: undefined;
   CentralDashboard: undefined;

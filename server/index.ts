@@ -1,3 +1,4 @@
+import 'dotenv/config';
 import express from "express";
 import type { Request, Response, NextFunction } from "express";
 import { registerRoutes } from "./routes";
@@ -27,9 +28,20 @@ function setupCors(app: express.Application) {
       });
     }
 
+    origins.add("http://localhost:8081");
+    origins.add("http://localhost:5000");
+    origins.add("http://127.0.0.1:8081");
+
     const origin = req.header("origin");
 
-    if (origin && origins.has(origin)) {
+    if (
+      origin &&
+      (origins.has(origin) ||
+        /^http:\/\/192\.168\./.test(origin) ||
+        /^http:\/\/10\./.test(origin) ||
+        /^exp:\/\//.test(origin) ||
+        origin.startsWith("http://localhost"))
+    ) {
       res.header("Access-Control-Allow-Origin", origin);
       res.header(
         "Access-Control-Allow-Methods",

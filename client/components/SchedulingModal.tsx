@@ -22,6 +22,7 @@ import {
   EVENT_TYPES,
   RECURRENCE_OPTIONS,
   Task,
+  Habit,
 } from "@/types";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { getRecurrenceDescription } from "@/utils/recurrence";
@@ -31,7 +32,10 @@ interface SchedulingModalProps {
   visible: boolean;
   onClose: () => void;
   initialDate?: string;
+  initialStartTime?: string;
+  initialEndTime?: string;
   linkedTask?: Task | null;
+  linkedHabit?: Habit | null;
   editingEvent?: CalendarEvent | null;
   preselectedCategoryId?: string;
   lockedCategoryId?: string;
@@ -44,7 +48,10 @@ export function SchedulingModal({
   visible,
   onClose,
   initialDate,
+  initialStartTime,
+  initialEndTime,
   linkedTask,
+  linkedHabit,
   editingEvent,
   preselectedCategoryId,
   lockedCategoryId,
@@ -58,18 +65,19 @@ export function SchedulingModal({
 
   const getInitialStartDate = () => {
     if (editingEvent) return new Date(editingEvent.startDate + "T" + editingEvent.startTime);
-    if (initialDate) return new Date(initialDate + "T09:00:00");
+    if (initialDate) return new Date(initialDate + "T" + (initialStartTime || "09:00") + ":00");
     return new Date();
   };
 
   const getInitialEndDate = () => {
     if (editingEvent) return new Date(editingEvent.endDate + "T" + editingEvent.endTime);
+    if (initialDate && initialEndTime) return new Date(initialDate + "T" + initialEndTime + ":00");
     const start = getInitialStartDate();
     return new Date(start.getTime() + 60 * 60 * 1000);
   };
 
-  const [title, setTitle] = useState(editingEvent?.title || linkedTask?.title || "");
-  const [description, setDescription] = useState(editingEvent?.description || "");
+  const [title, setTitle] = useState(editingEvent?.title || linkedTask?.title || linkedHabit?.name || "");
+  const [description, setDescription] = useState(editingEvent?.description || linkedTask?.description || linkedHabit?.description || "");
   const [startDate, setStartDate] = useState(getInitialStartDate());
   const [endDate, setEndDate] = useState(getInitialEndDate());
   const [eventType, setEventType] = useState<EventType>(editingEvent?.eventType || "appointment");
@@ -78,7 +86,7 @@ export function SchedulingModal({
     editingEvent?.linkedTaskId || linkedTask?.id || null
   );
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(
-    lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || null
+    lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || linkedHabit?.categoryId || preselectedCategoryId || null
   );
   const [attendeeIds, setAttendeeIds] = useState<string[]>(editingEvent?.attendeeIds || []);
   const [isSaving, setIsSaving] = useState(false);
@@ -104,18 +112,35 @@ export function SchedulingModal({
 
   useEffect(() => {
     if (visible) {
-      setTitle(editingEvent?.title || linkedTask?.title || "");
-      setDescription(editingEvent?.description || linkedTask?.description || "");
+      setTitle(editingEvent?.title || linkedTask?.title || linkedHabit?.name || "");
+      setDescription(editingEvent?.description || linkedTask?.description || linkedHabit?.description || "");
       setStartDate(getInitialStartDate());
       setEndDate(getInitialEndDate());
       setEventType(editingEvent?.eventType || (linkedTask ? "reminder" : "appointment"));
       setRecurrence(editingEvent?.recurrence || "none");
       setSelectedTaskId(editingEvent?.linkedTaskId || linkedTask?.id || null);
-      const initialCategory = lockedCategoryId || editingEvent?.categoryId || linkedTask?.categoryId || preselectedCategoryId || (categories.length > 0 ? categories[0].id : null);
+      const initialCategory =
+        lockedCategoryId ||
+        editingEvent?.categoryId ||
+        linkedTask?.categoryId ||
+        linkedHabit?.categoryId ||
+        preselectedCategoryId ||
+        (linkedHabit ? null : categories.length > 0 ? categories[0].id : null);
       setSelectedCategoryId(initialCategory);
       setAttendeeIds(editingEvent?.attendeeIds || []);
     }
-  }, [visible, editingEvent, linkedTask, initialDate, preselectedCategoryId, lockedCategoryId, categories]);
+  }, [
+    visible,
+    editingEvent,
+    linkedTask,
+    linkedHabit,
+    initialDate,
+    initialStartTime,
+    initialEndTime,
+    preselectedCategoryId,
+    lockedCategoryId,
+    categories,
+  ]);
 
   const formatDate = (date: Date) => {
     return date.toLocaleDateString("en-US", {

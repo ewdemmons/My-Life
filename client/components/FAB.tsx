@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { forwardRef, useImperativeHandle, useState } from "react";
 import { View, Pressable, StyleSheet, Modal, Platform } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -20,17 +20,29 @@ interface FABProps {
   onAddEvent?: () => void;
   onAddPerson?: () => void;
   onAddHabit?: () => void;
+  hideFloatingButton?: boolean;
 }
+
+export type FABHandle = {
+  openMenu: () => void;
+};
 
 const TAB_BAR_HEIGHT = Platform.select({ ios: 49, android: 56, default: 50 });
 
-export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson, onAddHabit }: FABProps) {
+export const FAB = forwardRef<FABHandle, FABProps>(function FAB(
+  { onAddCategory, onAddTask, onAddEvent, onAddPerson, onAddHabit, hideFloatingButton },
+  ref,
+) {
   const { theme, isDark } = useTheme();
   const insets = useSafeAreaInsets();
   const [isOpen, setIsOpen] = useState(false);
   const scale = useSharedValue(1);
 
-  const bottomOffset = insets.bottom + TAB_BAR_HEIGHT + Spacing.lg;
+  useImperativeHandle(ref, () => ({
+    openMenu: () => setIsOpen(true),
+  }));
+
+  const bottomOffset = insets.bottom + TAB_BAR_HEIGHT + 6;
 
   const animatedStyle = useAnimatedStyle(() => ({
     transform: [{ scale: scale.value }],
@@ -81,21 +93,27 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson, onAddHa
 
   return (
     <>
-      <AnimatedPressable
-        style={[
-          styles.fab,
-          animatedStyle,
-          {
-            backgroundColor: theme.primary,
-            bottom: bottomOffset,
-          },
-        ]}
-        onPressIn={handlePressIn}
-        onPressOut={handlePressOut}
-        onPress={handlePress}
-      >
-        <Feather name="plus" size={28} color="#FFFFFF" />
-      </AnimatedPressable>
+      {!hideFloatingButton ? (
+        <View style={[styles.fabContainer, { bottom: bottomOffset }]}>
+          <AnimatedPressable
+            style={[
+              styles.fab,
+              animatedStyle,
+              {
+                backgroundColor: theme.primary,
+              },
+            ]}
+            onPressIn={handlePressIn}
+            onPressOut={handlePressOut}
+            onPress={handlePress}
+          >
+            <Feather name="plus" size={28} color="#FFFFFF" />
+          </AnimatedPressable>
+          <ThemedText style={[styles.fabLabel, { color: theme.buttonText, opacity: 0.78 }]}>
+            Capture
+          </ThemedText>
+        </View>
+      ) : null}
 
       <Modal
         visible={isOpen}
@@ -223,21 +241,31 @@ export function FAB({ onAddCategory, onAddTask, onAddEvent, onAddPerson, onAddHa
       </Modal>
     </>
   );
-}
+});
 
-const FAB_SIZE = 56;
+const FAB_SIZE = 64;
 
 const styles = StyleSheet.create({
-  fab: {
+  fabContainer: {
     position: "absolute",
     right: Spacing.lg,
+    alignItems: "center",
+    zIndex: 100,
+  },
+  fab: {
     width: FAB_SIZE,
     height: FAB_SIZE,
-    borderRadius: 12,
+    borderRadius: 16,
     alignItems: "center",
     justifyContent: "center",
     zIndex: 100,
     overflow: "hidden",
+  },
+  fabLabel: {
+    marginTop: 4,
+    fontSize: 11,
+    fontWeight: "500",
+    textAlign: "center",
   },
   overlay: {
     flex: 1,

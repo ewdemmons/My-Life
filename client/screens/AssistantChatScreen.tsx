@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from "react";
+import React, { useState, useRef, useEffect, useMemo } from "react";
 import {
   View,
   StyleSheet,
@@ -27,7 +27,16 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
+import { buildSchedulePreferences } from "@/utils/schedulePreferences";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
+import { sendToAI, isPlanningRequest, isRefinementBranchRequest } from "@/lib/aiService";
+import {
+  getRegularSystemPrompt,
+  getPlanningSystemPrompt,
+  getHabitsPrompt,
+  getSchedulingPrompt,
+  getAssignmentsPrompt,
+} from "@/lib/systemPrompts";
 import { Plan, parsePlanFromMessage, extractTextFromMessage } from "@/components/PlanPreview";
 import { PlanPreviewModal, PlanPreviewButton } from "@/components/PlanPreviewModal";
 import { Task, TaskType, Habit, CalendarEvent } from "@/types";
@@ -112,13 +121,20 @@ export default function AssistantChatScreen() {
     tasks, 
     events, 
     habits, 
-    people, 
+    people,
+    occurrences,
     addTask, 
     addCategory,
     updateTask,
     addEvent,
     addHabit,
+    lifeAreaSchedules,
   } = useApp();
+
+  const schedulePreferences = useMemo(
+    () => buildSchedulePreferences(lifeAreaSchedules, categories),
+    [lifeAreaSchedules, categories],
+  );
   
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState("");
@@ -495,24 +511,194 @@ export default function AssistantChatScreen() {
   };
 
   const getAppContext = () => {
-    const bubbleInfo = categories.map(c => `${c.name} (${c.color})`).join(", ");
-    const tasksByBubble: Record<string, number> = {};
-    const goalCount = tasks.filter(t => t.type === "goal").length;
-    const projectCount = tasks.filter(t => t.type === "project").length;
-    const pendingTasks = tasks.filter(t => t.status === "pending").length;
-    const completedTasks = tasks.filter(t => t.status === "completed").length;
-    
-    categories.forEach(c => {
-      tasksByBubble[c.name] = tasks.filter(t => t.categoryId === c.id).length;
-    });
+    const now = new Date();
+    const currentDateTime = `Current date: ${now.toLocaleDateString('en-US', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric'
+    })}
+Current time: ${now.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })}`;
 
-    const habitInfo = habits.length > 0 
-      ? `Active habits: ${habits.map(h => h.name).join(", ")}`
-      : "No habits tracked yet";
+    const today = new Date().toISOString().split("T")[0];
+    const weekLater = new Date();
+    weekLater.setDate(weekLater.getDate() + 7);
+    const weekLaterStr = weekLater.toISOString().split("T")[0];
 
-    const peopleInfo = people.length > 0
-      ? `People: ${people.map(p => `${p.name} (${p.relationship || 'contact'})`).join(", ")}`
-      : "No contacts yet";
+    const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    const formatScheduleTime12 = (hhmm: string): string => {
+      const [hoursStr, minutesStr] = hhmm.split(":");
+      const hours = parseInt(hoursStr, 10);
+      const minutes = minutesStr || "00";
+      const ampm = hours >= 12 ? "PM" : "AM";
+      const hour12 = hours % 12 || 12;
+      return `${hour12}:${minutes} ${ampm}`;
+    };
+
+    const formatDaysOfWeek = (days: number[]): string => {
+      const sorted = [...days].sort((a, b) => a - b);
+      if (sorted.length === 0) return "";
+      if (sorted.length === 7) return "Every day";
+      if (sorted.length === 5 && sorted.every((d, i) => d === i + 1)) {
+        return "Mon–Fri";
+      }
+      if (sorted.length === 2 && sorted[0] === 0 && sorted[1] === 6) {
+        return "Sat–Sun";
+      }
+      const ranges: string[] = [];
+      let rangeStart = sorted[0];
+      let rangeEnd = sorted[0];
+      for (let i = 1; i <= sorted.length; i++) {
+        if (i < sorted.length && sorted[i] === rangeEnd + 1) {
+          rangeEnd = sorted[i];
+          continue;
+        }
+        if (rangeStart === rangeEnd) {
+          ranges.push(DAY_NAMES[rangeStart]);
+        } else if (rangeEnd === rangeStart + 1) {
+          ranges.push(`${DAY_NAMES[rangeStart]}, ${DAY_NAMES[rangeEnd]}`);
+        } else {
+          ranges.push(`${DAY_NAMES[rangeStart]}–${DAY_NAMES[rangeEnd]}`);
+        }
+        if (i < sorted.length) {
+          rangeStart = sorted[i];
+          rangeEnd = sorted[i];
+        }
+      }
+      return ranges.join(", ");
+    };
+
+    const getLifeAreaName = (categoryId: string | null | undefined): string => {
+      if (!categoryId) return "Unassigned";
+      return categories.find((c) => c.id === categoryId)?.name ?? "Unassigned";
+    };
+
+    const formatEntryType = (type: string): string => {
+      if (type === "subtask") return "Step";
+      return type.charAt(0).toUpperCase() + type.slice(1);
+    };
+
+    const formatHabitType = (habitType: string): string =>
+      habitType === "negative" ? "Break" : "Build";
+
+    const formatFrequencyLabel = (freq: string): string =>
+      freq.charAt(0).toUpperCase() + freq.slice(1);
+
+    const formatDeadline = (deadline: string | undefined): string => {
+      if (!deadline) return "no deadline";
+      const [y, m, d] = deadline.split("-").map(Number);
+      const date = new Date(y, m - 1, d);
+      const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+      return `due ${months[date.getMonth()]} ${date.getDate()}`;
+    };
+
+    const getHabitTodayCount = (habitId: string): number =>
+      occurrences.filter(
+        (o) => o.itemType === "habit" && o.itemId === habitId && o.occurredDate === today,
+      ).length;
+
+    const normalizeColor = (color: string): string =>
+      color.startsWith("#") ? color : `#${color}`;
+
+    const lifeAreasSection =
+      categories.length > 0
+        ? categories
+            .map((c) => {
+              const count = tasks.filter((t) => t.categoryId === c.id).length;
+              return `${c.name} (${normalizeColor(c.color)}, ${count} entries)`;
+            })
+            .join(", ")
+        : "None created yet";
+
+    const pinnedEntries = tasks.filter((t) => t.isPinned);
+    const masterListSection =
+      pinnedEntries.length > 0
+        ? pinnedEntries
+            .map((t) => {
+              const area = getLifeAreaName(t.categoryId);
+              const deadline = formatDeadline(t.deadline);
+              return `- ${t.title} (${formatEntryType(t.type)}, ${t.priority} priority, ${area}, ${deadline})`;
+            })
+            .join("\n")
+        : "None";
+
+    const pinnedHabits = habits.filter((h) => h.isPinned && h.isActive);
+    const pinnedHabitsSection =
+      pinnedHabits.length > 0
+        ? pinnedHabits
+            .map((h) => {
+              const todayCount = getHabitTodayCount(h.id);
+              return `- ${h.name} (${formatHabitType(h.habitType)}, ${formatFrequencyLabel(h.goalFrequency)}, goal: ${h.goalCount}x, today: ${todayCount})`;
+            })
+            .join("\n")
+        : "None";
+
+    const activeHabits = habits.filter((h) => h.isActive);
+    const allHabitsSection =
+      activeHabits.length > 0
+        ? activeHabits
+            .map(
+              (h) =>
+                `- ${h.name} (${formatHabitType(h.habitType)}, ${formatFrequencyLabel(h.goalFrequency)}, goal: ${h.goalCount}x)`,
+            )
+            .join("\n")
+        : "None";
+
+    const todayEvents = events.filter((e) => e.startDate === today);
+    const todayEventsSection =
+      todayEvents.length > 0
+        ? todayEvents
+            .map((e) => {
+              const area = getLifeAreaName(e.categoryId);
+              return `- ${e.title} (${e.startTime}–${e.endTime}, ${e.eventType}, ${area})`;
+            })
+            .join("\n")
+        : "None";
+
+    const upcomingEvents = events
+      .filter((e) => e.startDate > today && e.startDate <= weekLaterStr)
+      .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.startTime.localeCompare(b.startTime))
+      .slice(0, 10);
+    const upcomingEventsSection =
+      upcomingEvents.length > 0
+        ? upcomingEvents
+            .map((e) => {
+              const area = getLifeAreaName(e.categoryId);
+              return `- ${e.title} (${e.startDate}, ${e.startTime}, ${area})`;
+            })
+            .join("\n")
+        : "None";
+
+    const pendingCount = tasks.filter((t) => t.status === "pending").length;
+    const completedCount = tasks.filter((t) => t.status === "completed").length;
+    const goalCount = tasks.filter((t) => t.type === "goal").length;
+    const projectCount = tasks.filter((t) => t.type === "project").length;
+    const taskSummarySection = `${pendingCount} pending tasks, ${completedCount} completed, ${goalCount} goals, ${projectCount} projects`;
+
+    const peopleSection =
+      people.length > 0
+        ? people.map((p) => `- ${p.name} (${p.relationship || "contact"})`).join("\n")
+        : "None";
+
+    let scheduleSection = "";
+    if (schedulePreferences.length > 0) {
+      const scheduleLines: string[] = [];
+      for (const pref of schedulePreferences) {
+        for (const block of pref.blocks) {
+          const days = formatDaysOfWeek(block.daysOfWeek);
+          const timeRange = `${formatScheduleTime12(block.startTime)} – ${formatScheduleTime12(block.endTime)}`;
+          const labelSuffix = block.label ? ` (${block.label})` : "";
+          scheduleLines.push(`${pref.categoryName}: ${days} ${timeRange}${labelSuffix}`);
+        }
+      }
+      if (scheduleLines.length > 0) {
+        scheduleSection = `\n\nSCHEDULE PREFERENCES:\n${scheduleLines.join("\n")}`;
+      }
+    }
 
     let refinementContext = "";
     if (refinementState.isActive && refinementState.implementedPlan) {
@@ -559,11 +745,31 @@ When creating sub-entries or plans for this entry, create them as children under
     }
 
     return `
-Life Areas: ${bubbleInfo || "None created yet"}
-Tasks by bubble: ${Object.entries(tasksByBubble).map(([name, count]) => `${name}: ${count}`).join(", ") || "None"}
-Summary: ${goalCount} goals, ${projectCount} projects, ${pendingTasks} pending tasks, ${completedTasks} completed
-${habitInfo}
-${peopleInfo}
+${currentDateTime}
+
+LIFE AREAS:
+${lifeAreasSection}
+
+MASTER LIST (Pinned Entries):
+${masterListSection}
+
+PINNED HABITS:
+${pinnedHabitsSection}
+
+ALL HABITS:
+${allHabitsSection}
+
+TODAY'S EVENTS:
+${todayEventsSection}
+
+UPCOMING EVENTS:
+${upcomingEventsSection}
+
+TASK SUMMARY:
+${taskSummarySection}
+
+PEOPLE:
+${peopleSection}${scheduleSection}
 ${refinementContext}
 ${entryContextInfo}
     `.trim();
@@ -821,16 +1027,61 @@ ${entryContextInfo}
 
     try {
       const refinementContext = getRefinementContext();
-      
-      const response = await apiRequest("POST", "/api/assistant/chat", {
+      const appContext = getAppContext();
+      let endRefinement = false;
+      let selectedSystemPrompt: string;
+
+      if (refinementState.isActive && refinementContext) {
+        const branch = isRefinementBranchRequest(messageText);
+
+        if (branch === "done") {
+          endRefinement = true;
+          selectedSystemPrompt = getRegularSystemPrompt(appContext);
+        } else if (branch === "scheduling") {
+          selectedSystemPrompt = getSchedulingPrompt(appContext, refinementContext);
+        } else if (branch === "habits") {
+          selectedSystemPrompt = getHabitsPrompt(appContext, refinementContext);
+        } else if (branch === "assignments") {
+          selectedSystemPrompt = getAssignmentsPrompt(appContext, refinementContext);
+        } else {
+          selectedSystemPrompt = `You are helping the user refine their recently created plan: "${refinementContext?.plan?.goal || 'their goal'}".
+          
+The user said: "${messageText}"
+
+If they're asking about scheduling, due dates, or timelines, help them set up a schedule.
+If they're asking about habits or recurring tasks, help identify potential habits.
+If they're asking about assignments or delegation, help assign tasks to people.
+If they seem done or want to finish, acknowledge completion and wish them luck.
+
+Available options to remind them of:
+- Scheduling (due dates, reminders, milestones)
+- Habits (convert recurring tasks into Build or Break habits)
+- Assignments (delegate tasks to contacts)
+
+Be conversational and helpful.`;
+        }
+      } else if (isPlanningRequest(messageText)) {
+        selectedSystemPrompt = getPlanningSystemPrompt(appContext);
+      } else {
+        selectedSystemPrompt = getRegularSystemPrompt(appContext);
+      }
+
+      const aiResponse = await sendToAI({
         message: messageText,
-        context: getAppContext(),
-        history: messages.slice(-10).map(m => ({ role: m.role, content: m.content })),
-        refinementMode: refinementState.isActive,
-        refinementContext: refinementContext,
+        context: appContext,
+        history: messages.slice(-10).map(m => ({
+          role: m.role,
+          content: m.content,
+        })),
+        systemPrompt: selectedSystemPrompt,
       });
 
-      const data = await response.json();
+      const data = {
+        message: aiResponse,
+        isPlanningResponse: isPlanningRequest(messageText),
+        endRefinement,
+        quickReplies: [] as string[],
+      };
       const messageContent = data.message || "I apologize, but I couldn't process your request.";
       
       const plan = parsePlanFromMessage(messageContent);

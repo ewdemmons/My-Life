@@ -465,6 +465,8 @@ CREATE TABLE IF NOT EXISTS habits (
   goal_count INTEGER DEFAULT 1, -- Number of times per frequency period
   linked_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL, -- For task-to-habit promotion
   is_active BOOLEAN DEFAULT TRUE,
+  is_pinned BOOLEAN DEFAULT FALSE, -- Master List pinning
+  pinned_order INTEGER DEFAULT 0,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -555,6 +557,7 @@ CREATE POLICY "Users can delete own occurrences" ON occurrences
 CREATE INDEX IF NOT EXISTS idx_habits_user_id ON habits(user_id);
 CREATE INDEX IF NOT EXISTS idx_habits_bubble_id ON habits(bubble_id);
 CREATE INDEX IF NOT EXISTS idx_habits_linked_task_id ON habits(linked_task_id);
+CREATE INDEX IF NOT EXISTS idx_habits_is_pinned ON habits(is_pinned) WHERE is_pinned = TRUE;
 CREATE INDEX IF NOT EXISTS idx_occurrences_user_id ON occurrences(user_id);
 CREATE INDEX IF NOT EXISTS idx_occurrences_item_id ON occurrences(item_id);
 CREATE INDEX IF NOT EXISTS idx_occurrences_item_type ON occurrences(item_type);
@@ -689,3 +692,38 @@ $$;
 
 -- Grant execute permission to authenticated users
 GRANT EXECUTE ON FUNCTION respond_to_connection(UUID, UUID, TEXT) TO authenticated;
+
+-- ============================================
+-- LIFE AREA SCHEDULES (recurring time blocks)
+-- ============================================
+-- days_of_week: 0=Sunday, 1=Monday, ..., 6=Saturday
+-- Overlapping time blocks across Life Areas are intentional (no overlap constraint).
+
+CREATE TABLE IF NOT EXISTS life_area_schedules (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id UUID REFERENCES auth.users(id)
+    ON DELETE CASCADE NOT NULL,
+  category_id UUID REFERENCES life_bubbles(id)
+    ON DELETE CASCADE NOT NULL,
+  label TEXT,
+  days_of_week INTEGER[] NOT NULL,
+  start_time TIME NOT NULL,
+  end_time TIME NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT now(),
+  updated_at TIMESTAMPTZ DEFAULT now()
+);
+
+ALTER TABLE life_area_schedules ENABLE ROW LEVEL SECURITY;
+
+CREATE POLICY "Users can manage own schedules"
+ON life_area_schedules FOR ALL
+USING (auth.uid() = user_id)
+WITH CHECK (auth.uid() = user_id);
+
+CREATE INDEX IF NOT EXISTS idx_life_area_schedules_user_id ON life_area_schedules(user_id);
+CREATE INDEX IF NOT EXISTS idx_life_area_schedules_category_id ON life_area_schedules(category_id);
+
+CREATE TRIGGER update_life_area_schedules_updated_at
+  BEFORE UPDATE ON life_area_schedules
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();

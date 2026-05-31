@@ -1,12 +1,22 @@
-import React, { useState, useMemo, useCallback } from "react";
-import { View, StyleSheet, FlatList, Pressable, Dimensions } from "react-native";
+import React, { useState, useMemo, useCallback, useEffect, useRef } from "react";
+import {
+  View,
+  StyleSheet,
+  FlatList,
+  Pressable,
+  ScrollView,
+  Animated,
+  Dimensions,
+  PanResponder,
+  Modal,
+  Platform,
+} from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { Calendar, DateData } from "react-native-calendars";
 import { Feather } from "@expo/vector-icons";
-import { GestureDetector, Gesture } from "react-native-gesture-handler";
-import Animated, { useSharedValue, useAnimatedStyle, withSpring, runOnJS } from "react-native-reanimated";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -15,29 +25,166 @@ import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
-import { CalendarEvent, getEventTypeInfo, LifeCategory } from "@/types";
+import { CalendarEvent, getEventTypeInfo, LifeCategory, EVENT_TYPES, EventType, LifeAreaScheduleWithCategory } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
+import { timeToMinutes } from "@/utils/scheduleTimeUtils";
 import { useAuth } from "@/context/AuthContext";
 import { canModifyEntriesInCategory, canModifyEntryInLifeArea } from "@/lib/permissions";
 
-type ViewMode = "upcoming" | "day" | "week" | "month";
+type ViewMode = "upcoming" | "day";
+type ColorMode = "lifeArea" | "eventType";
+type EventTypeFilter = "all" | EventType;
+type UpcomingListItem =
+  | { id: string; type: "header"; title: string; range: string }
+  | { id: string; type: "event"; event: CalendarEvent };
 
 interface CalendarScreenProps {
   categoryFilter?: LifeCategory;
+  categoryId?: string;
+  colorMode?: ColorMode;
 }
 
-export default function CalendarScreen({ categoryFilter }: CalendarScreenProps = {}) {
+const HOUR_ROW_HEIGHT = 52;
+const TIME_LABEL_WIDTH = 44;
+const EVENT_LEFT_OFFSET = 48;
+const EVENT_RIGHT_OFFSET = 8;
+const EVENTS_COLUMN_FLEX = 0.65;
+const REMINDERS_COLUMN_FLEX = 0.35;
+const REMINDER_TAG_HEIGHT = 18;
+const REMINDER_TAG_GAP = 2;
+const SCHEDULE_LABEL_MIN_HEIGHT = HOUR_ROW_HEIGHT * 2;
+const DEFAULT_EVENT_COLOR = "#6B7FFF";
+const EVENT_TYPE_COLORS: Record<string, string> = {
+  appointment: "#3B82F6",
+  meeting: "#10B981",
+  reminder: "#F59E0B",
+  deadline: "#EF4444",
+  due_date: "#EF4444",
+};
+
+const formatDateKey = (date: Date) =>
+  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+
+const parseDateTime = (date: string, time: string) => new Date(`${date}T${time}:00`);
+
+const formatDateHeader = (dateStr: string) => {
+  const date = new Date(dateStr + "T00:00:00");
+  const options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
+  return date.toLocaleDateString("en-US", options);
+};
+
+const getMinutesIntoDay = (date: Date) => date.getHours() * 60 + date.getMinutes();
+
+type MonthCell = {
+  dateKey: string;
+  dayNumber: number;
+  isCurrentMonth: boolean;
+  isToday: boolean;
+  isSelected: boolean;
+};
+
+const buildMonthCells = (viewMonth: Date, selectedDate: string, today: string): MonthCell[] => {
+  const year = viewMonth.getFullYear();
+  const month = viewMonth.getMonth();
+  const firstOfMonth = new Date(year, month, 1);
+  const startOffset = firstOfMonth.getDay();
+  const startDate = new Date(year, month, 1 - startOffset);
+  return Array.from({ length: 42 }, (_, index) => {
+    const date = new Date(startDate);
+    date.setDate(startDate.getDate() + index);
+    const dateKey = formatDateKey(date);
+    return {
+      dateKey,
+      dayNumber: date.getDate(),
+      isCurrentMonth: date.getMonth() === month,
+      isToday: dateKey === today,
+      isSelected: dateKey === selectedDate,
+    };
+  });
+};
+
+const hexToRgba = (hexColor: string, alpha: number) => {
+  const hex = hexColor.replace("#", "");
+  const safeHex = hex.length === 3 ? hex.split("").map((char) => char + char).join("") : hex;
+  const num = Number.parseInt(safeHex, 16);
+  const r = (num >> 16) & 255;
+  const g = (num >> 8) & 255;
+  const b = num & 255;
+  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
+};
+
+const formatHour12 = (hour: number) => {
+  const ampm = hour >= 12 ? "PM" : "AM";
+  const hour12 = hour % 12 || 12;
+  return `${hour12}:00 ${ampm}`;
+};
+
+const hourToDate = (hour: number) => {
+  const date = new Date();
+  date.setHours(hour, 0, 0, 0);
+  return date;
+};
+
+export default function CalendarScreen({ categoryFilter, categoryId, colorMode }: CalendarScreenProps = {}) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
-  const { theme, isDark } = useTheme();
+  const { theme } = useTheme();
   const { user } = useAuth();
-  const { categories, events, deleteEvent, deleteEventSeries } = useApp();
+  const { categories, events, deleteEvent, deleteEventSeries, getSchedulesForDay } = useApp();
+  const [daySchedules, setDaySchedules] = useState<LifeAreaScheduleWithCategory[]>([]);
+
+  const nowDate = new Date();
+  const [currentTime, setCurrentTime] = useState(nowDate);
+  const [selectedDate, setSelectedDate] = useState(formatDateKey(nowDate));
+  const [viewMode, setViewMode] = useState<ViewMode>("upcoming");
+  const [dayHoursRange, setDayHoursRange] = useState({ start: 0, end: 23 });
+  const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>("all");
+  const [selectedLifeAreaFilterId, setSelectedLifeAreaFilterId] = useState<string | null>(null);
+  const [showFilterSheet, setShowFilterSheet] = useState(false);
+  const [activeTimePicker, setActiveTimePicker] = useState<"start" | "end" | null>(null);
+  const [hoursRangeError, setHoursRangeError] = useState(false);
+  const lastValidHoursRef = useRef({ start: 0, end: 23 });
+  const [newEventSeed, setNewEventSeed] = useState<{ date: string; startTime: string; endTime: string } | null>(null);
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [showRecurringModal, setShowRecurringModal] = useState(false);
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [editingAsInstance, setEditingAsInstance] = useState(false);
+  const [isMonthExpanded, setIsMonthExpanded] = useState(false);
+  const [viewMonth, setViewMonth] = useState(() => new Date(nowDate.getFullYear(), nowDate.getMonth(), 1));
+  const [monthGridMeasuredHeight, setMonthGridMeasuredHeight] = useState(0);
+
+  const eventsScrollRef = useRef<ScrollView>(null);
+  const remindersScrollRef = useRef<ScrollView>(null);
+  const scrollSyncingRef = useRef(false);
+  const dateStripScrollRef = useRef<ScrollView>(null);
+  const transitionX = useRef(new Animated.Value(0)).current;
+  const monthExpandAnim = useRef(new Animated.Value(0)).current;
+  const screenWidth = Dimensions.get("window").width;
+  const dateItemWidth = 52;
+
+  const effectiveCategoryFilter = useMemo(() => {
+    if (categoryFilter) return categoryFilter;
+    if (selectedLifeAreaFilterId) {
+      return categories.find((category) => category.id === selectedLifeAreaFilterId);
+    }
+    if (!categoryId) return undefined;
+    return categories.find((category) => category.id === categoryId);
+  }, [categoryFilter, selectedLifeAreaFilterId, categoryId, categories]);
+
+  const activeFilterCount = useMemo(() => {
+    let count = 0;
+    if (!categoryFilter && selectedLifeAreaFilterId) count += 1;
+    if (eventTypeFilter !== "all") count += 1;
+    return count;
+  }, [categoryFilter, selectedLifeAreaFilterId, eventTypeFilter]);
+
+  const effectiveColorMode: ColorMode = colorMode || (categoryId ? "eventType" : "lifeArea");
 
   const canModifyEvent = useCallback(
     (event: CalendarEvent) => {
       if (!user) return false;
-      if (categoryFilter) return canModifyEntriesInCategory(categoryFilter);
+      if (effectiveCategoryFilter) return canModifyEntriesInCategory(effectiveCategoryFilter);
       return canModifyEntryInLifeArea(
         user.id,
         event.userId ?? user.id,
@@ -45,107 +192,352 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
         categories,
       );
     },
-    [user, categoryFilter, categories],
+    [user, effectiveCategoryFilter, categories],
   );
 
-  const canAddEvents = categoryFilter
-    ? canModifyEntriesInCategory(categoryFilter)
+  const canAddEvents = effectiveCategoryFilter
+    ? canModifyEntriesInCategory(effectiveCategoryFilter)
     : true;
 
-  const now = new Date();
-  const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-  const [selectedDate, setSelectedDate] = useState(today);
-  const [viewMode, setViewMode] = useState<ViewMode>("upcoming");
-  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
-  const [showRecurringModal, setShowRecurringModal] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
-  const [editingAsInstance, setEditingAsInstance] = useState(false);
+  const today = formatDateKey(currentTime);
+  const tomorrowDate = useMemo(() => {
+    const date = new Date(today + "T00:00:00");
+    date.setDate(date.getDate() + 1);
+    return formatDateKey(date);
+  }, [today]);
 
-  const translateX = useSharedValue(0);
+  useEffect(() => {
+    const interval = setInterval(() => setCurrentTime(new Date()), 60_000);
+    return () => clearInterval(interval);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      setEventTypeFilter("all");
+      setSelectedLifeAreaFilterId(null);
+    };
+  }, []);
+
+  useEffect(() => {
+    const loadHourSettings = async () => {
+      try {
+        const [storedStart, storedEnd] = await Promise.all([
+          AsyncStorage.getItem("@calendar_hours_start"),
+          AsyncStorage.getItem("@calendar_hours_end"),
+        ]);
+        const start = Number.parseInt(storedStart || "0", 10);
+        const end = Number.parseInt(storedEnd || "23", 10);
+        const safeStart = Number.isFinite(start) ? Math.min(23, Math.max(0, start)) : 0;
+        const safeEnd = Number.isFinite(end) ? Math.min(23, Math.max(0, end)) : 23;
+        const nextRange = safeEnd <= safeStart
+          ? { start: safeStart, end: Math.min(23, safeStart + 1) }
+          : { start: safeStart, end: safeEnd };
+        setDayHoursRange(nextRange);
+        lastValidHoursRef.current = nextRange;
+      } catch {
+        setDayHoursRange({ start: 0, end: 23 });
+      }
+    };
+    loadHourSettings();
+  }, []);
 
   const filteredEvents = useMemo(() => {
-    if (categoryFilter) {
-      return events.filter(e => e.categoryId === categoryFilter.id);
+    if (effectiveCategoryFilter) {
+      return events.filter((event) => event.categoryId === effectiveCategoryFilter.id);
     }
     return events;
-  }, [events, categoryFilter]);
+  }, [events, effectiveCategoryFilter]);
 
-  const getStartOfWeek = (dateStr: string) => {
-    const date = new Date(dateStr + "T00:00:00");
-    const day = date.getDay();
-    const diff = date.getDate() - day;
-    const startOfWeek = new Date(date.setDate(diff));
-    return `${startOfWeek.getFullYear()}-${String(startOfWeek.getMonth() + 1).padStart(2, "0")}-${String(startOfWeek.getDate()).padStart(2, "0")}`;
-  };
-
-  const getEndOfWeek = (dateStr: string) => {
-    const date = new Date(dateStr + "T00:00:00");
-    const day = date.getDay();
-    const diff = date.getDate() + (6 - day);
-    const endOfWeek = new Date(date.setDate(diff));
-    return `${endOfWeek.getFullYear()}-${String(endOfWeek.getMonth() + 1).padStart(2, "0")}-${String(endOfWeek.getDate()).padStart(2, "0")}`;
-  };
-
-  const upcomingEvents = useMemo(() => 
-    filteredEvents
-      .filter((e) => e.startDate >= today)
-      .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.startTime.localeCompare(b.startTime)),
+  const upcomingEvents = useMemo(
+    () =>
+      filteredEvents
+        .filter((event) => event.startDate >= today)
+        .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.startTime.localeCompare(b.startTime)),
     [filteredEvents, today]
   );
 
-  const selectedDayEvents = useMemo(() =>
-    filteredEvents
-      .filter((e) => e.startDate === selectedDate)
-      .sort((a, b) => a.startTime.localeCompare(b.startTime)),
+  const selectedDayEvents = useMemo(
+    () =>
+      filteredEvents
+        .filter((event) => event.startDate <= selectedDate && event.endDate >= selectedDate)
+        .sort((a, b) => {
+          const aStart = a.startDate < selectedDate ? "00:00" : a.startTime;
+          const bStart = b.startDate < selectedDate ? "00:00" : b.startTime;
+          return aStart.localeCompare(bStart);
+        }),
     [filteredEvents, selectedDate]
   );
 
-  const selectedWeekEvents = useMemo(() => {
-    const weekStart = getStartOfWeek(selectedDate);
-    const weekEnd = getEndOfWeek(selectedDate);
-    return filteredEvents
-      .filter((e) => e.startDate >= weekStart && e.startDate <= weekEnd)
-      .sort((a, b) => a.startDate.localeCompare(b.startDate) || a.startTime.localeCompare(b.startTime));
-  }, [filteredEvents, selectedDate]);
+  const applyEventTypeFilter = useCallback((eventList: CalendarEvent[]) => {
+    if (eventTypeFilter === "all") return eventList;
+    return eventList.filter((event) => event.eventType === eventTypeFilter);
+  }, [eventTypeFilter]);
+
+  const filteredUpcomingEvents = useMemo(
+    () => applyEventTypeFilter(upcomingEvents),
+    [upcomingEvents, applyEventTypeFilter],
+  );
+  const filteredSelectedDayEvents = useMemo(
+    () => applyEventTypeFilter(selectedDayEvents),
+    [selectedDayEvents, applyEventTypeFilter],
+  );
 
   const displayedEvents = useMemo(() => {
-    switch (viewMode) {
-      case "upcoming": return upcomingEvents;
-      case "day": return selectedDayEvents;
-      case "week": return selectedWeekEvents;
-      case "month": return selectedDayEvents;
-      default: return [];
+    if (viewMode === "upcoming") return filteredUpcomingEvents;
+    return filteredSelectedDayEvents;
+  }, [viewMode, filteredUpcomingEvents, filteredSelectedDayEvents]);
+
+  const unfilteredCountForCurrentView = useMemo(() => {
+    const baseEvents = categoryFilter
+      ? events.filter((event) => event.categoryId === categoryFilter.id)
+      : events;
+    if (viewMode === "upcoming") {
+      return baseEvents.filter((event) => event.startDate >= today).length;
     }
-  }, [viewMode, upcomingEvents, selectedDayEvents, selectedWeekEvents]);
+    return baseEvents.filter(
+      (event) => event.startDate <= selectedDate && event.endDate >= selectedDate,
+    ).length;
+  }, [events, categoryFilter, viewMode, today, selectedDate]);
+  const filteredCountForCurrentView = displayedEvents.length;
 
-  const markedDates = useMemo(() => {
-    const marks: { [key: string]: any } = {};
-    const accentColor = categoryFilter?.color || theme.primary;
+  const dayStripDates = useMemo(() => {
+    const base = new Date(selectedDate + "T00:00:00");
+    return Array.from({ length: 31 }, (_, index) => {
+      const date = new Date(base);
+      date.setDate(base.getDate() + index - 15);
+      return formatDateKey(date);
+    });
+  }, [selectedDate]);
 
-    filteredEvents.forEach((event) => {
-      const eventCategory = categories.find(c => c.id === event.categoryId);
-      const dotColor = eventCategory?.color || getEventTypeInfo(event.eventType).color;
-      if (!marks[event.startDate]) {
-        marks[event.startDate] = { dots: [] };
-      }
-      if (marks[event.startDate].dots.length < 4) {
-        marks[event.startDate].dots.push({
-          key: event.id,
-          color: dotColor,
-        });
-      }
+  const dayHours = useMemo(() => {
+    const length = dayHoursRange.end - dayHoursRange.start + 1;
+    return Array.from({ length }, (_, index) => dayHoursRange.start + index);
+  }, [dayHoursRange]);
+
+  const dayTimelineHeight = dayHours.length * HOUR_ROW_HEIGHT;
+
+  useEffect(() => {
+    const dayOfWeek = new Date(`${selectedDate}T12:00:00`).getDay();
+    let cancelled = false;
+    getSchedulesForDay(dayOfWeek).then((schedules) => {
+      if (!cancelled) setDaySchedules(schedules);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, getSchedulesForDay]);
+
+  const scheduleShadingLayouts = useMemo(() => {
+    if (daySchedules.length === 0) return [];
+    const timelineStart = dayHoursRange.start * 60;
+    const timelineEnd = (dayHoursRange.end + 1) * 60;
+
+    return daySchedules
+      .map((schedule) => {
+        const startMinutes = timeToMinutes(schedule.startTime);
+        const endMinutes = timeToMinutes(schedule.endTime);
+        if (endMinutes <= startMinutes) return null;
+        const top = ((startMinutes - timelineStart) / 60) * HOUR_ROW_HEIGHT;
+        const height = ((endMinutes - startMinutes) / 60) * HOUR_ROW_HEIGHT;
+        return { schedule, top, height, startMinutes, endMinutes };
+      })
+      .filter(
+        (item): item is NonNullable<typeof item> =>
+          item !== null &&
+          item.endMinutes > timelineStart &&
+          item.startMinutes < timelineEnd,
+      );
+  }, [daySchedules, dayHoursRange]);
+
+  const scheduleLabelStackIndex = useMemo(() => {
+    const stackMap = new Map<string, number>();
+    const byStart = new Map<number, typeof scheduleShadingLayouts>();
+
+    scheduleShadingLayouts.forEach((item) => {
+      if (item.height < SCHEDULE_LABEL_MIN_HEIGHT) return;
+      const group = byStart.get(item.startMinutes) || [];
+      group.push(item);
+      byStart.set(item.startMinutes, group);
     });
 
-    marks[selectedDate] = {
-      ...marks[selectedDate],
-      selected: true,
-      selectedColor: accentColor,
+    byStart.forEach((group) => {
+      group.sort((a, b) => a.schedule.categoryName.localeCompare(b.schedule.categoryName));
+      group.forEach((item, index) => {
+        stackMap.set(item.schedule.id, index);
+      });
+    });
+
+    return stackMap;
+  }, [scheduleShadingLayouts]);
+
+  const getHourLabel = (hour: number) => {
+    const ampm = hour >= 12 ? "PM" : "AM";
+    const hour12 = hour % 12 || 12;
+    return `${hour12} ${ampm}`;
+  };
+
+  const getEventColor = useCallback((event: CalendarEvent) => {
+    if (effectiveColorMode === "eventType") {
+      return EVENT_TYPE_COLORS[event.eventType] || DEFAULT_EVENT_COLOR;
+    }
+    const eventCategory = categories.find((category) => category.id === event.categoryId);
+    return eventCategory?.color || DEFAULT_EVENT_COLOR;
+  }, [effectiveColorMode, categories]);
+
+  const getReminderTagColor = useCallback((event: CalendarEvent) => {
+    if (effectiveColorMode === "eventType") {
+      return EVENT_TYPE_COLORS[event.eventType] || DEFAULT_EVENT_COLOR;
+    }
+    return getEventColor(event);
+  }, [effectiveColorMode, getEventColor]);
+
+  const timedDayEvents = useMemo(
+    () => filteredSelectedDayEvents.filter(
+      (event) => event.eventType === "appointment" || event.eventType === "meeting",
+    ),
+    [filteredSelectedDayEvents],
+  );
+
+  const reminderDayEvents = useMemo(
+    () => filteredSelectedDayEvents.filter(
+      (event) => event.eventType === "reminder" || event.eventType === "due_date",
+    ),
+    [filteredSelectedDayEvents],
+  );
+
+  const timelineEvents = useMemo(() => {
+    return timedDayEvents
+      .map((event) => {
+        const startBoundary = new Date(selectedDate + "T00:00:00");
+        const endBoundary = new Date(selectedDate + "T23:59:59");
+        const eventStart = parseDateTime(event.startDate, event.startTime);
+        const eventEnd = parseDateTime(event.endDate, event.endTime);
+        const clippedStart = eventStart < startBoundary ? startBoundary : eventStart;
+        const clippedEnd = eventEnd > endBoundary ? endBoundary : eventEnd;
+        const startMinutes = getMinutesIntoDay(clippedStart);
+        const endMinutes = Math.max(startMinutes + 1, getMinutesIntoDay(clippedEnd));
+        const top = ((startMinutes - dayHoursRange.start * 60) / 60) * HOUR_ROW_HEIGHT;
+        const height = Math.max(44, ((endMinutes - startMinutes) / 60) * HOUR_ROW_HEIGHT);
+        return { event, top, height, startMinutes, endMinutes };
+      })
+      .filter((item) => item.endMinutes > dayHoursRange.start * 60 && item.startMinutes < (dayHoursRange.end + 1) * 60);
+  }, [timedDayEvents, selectedDate, dayHoursRange]);
+
+  const remindersByHour = useMemo(() => {
+    const map: Record<number, CalendarEvent[]> = {};
+    const startBoundary = new Date(selectedDate + "T00:00:00");
+    reminderDayEvents.forEach((event) => {
+      const eventStart = parseDateTime(event.startDate, event.startTime);
+      const clippedStart = eventStart < startBoundary ? startBoundary : eventStart;
+      const hour = clippedStart.getHours();
+      if (hour < dayHoursRange.start || hour > dayHoursRange.end) return;
+      if (!map[hour]) map[hour] = [];
+      map[hour].push(event);
+    });
+    Object.values(map).forEach((events) => {
+      events.sort((a, b) => a.startTime.localeCompare(b.startTime));
+    });
+    return map;
+  }, [reminderDayEvents, selectedDate, dayHoursRange]);
+
+  const getDotsForDate = useCallback(
+    (date: string) => {
+      const dayEvents = filteredEvents.filter(
+        (event) => event.startDate <= date && event.endDate >= date,
+      );
+      return dayEvents.slice(0, 3).map((event) => getEventColor(event));
+    },
+    [filteredEvents, getEventColor],
+  );
+
+  const dateStripEventDots = useMemo(() => {
+    const dotsByDate: Record<string, string[]> = {};
+    dayStripDates.forEach((date) => {
+      dotsByDate[date] = getDotsForDate(date);
+    });
+    return dotsByDate;
+  }, [dayStripDates, getDotsForDate]);
+
+  const monthCells = useMemo(
+    () => buildMonthCells(viewMonth, selectedDate, today),
+    [viewMonth, selectedDate, today],
+  );
+
+  const getDatePlusDays = useCallback((days: number) => {
+    const date = new Date(today + "T00:00:00");
+    date.setDate(date.getDate() + days);
+    return date;
+  }, [today]);
+
+  const getDayDiffFromToday = useCallback((dateKey: string) => {
+    const target = new Date(dateKey + "T00:00:00").getTime();
+    const base = new Date(today + "T00:00:00").getTime();
+    return Math.floor((target - base) / (24 * 60 * 60 * 1000));
+  }, [today]);
+
+  const upcomingListItems = useMemo<UpcomingListItem[]>(() => {
+    const buckets: Record<string, CalendarEvent[]> = {
+      today: [],
+      tomorrow: [],
+      thisWeek: [],
+      nextWeek: [],
+      nextMonth: [],
+      later: [],
     };
-    return marks;
-  }, [filteredEvents, selectedDate, theme, categoryFilter, categories]);
+    filteredUpcomingEvents.forEach((event) => {
+      const diff = getDayDiffFromToday(event.startDate);
+      if (diff <= 0) buckets.today.push(event);
+      else if (diff === 1) buckets.tomorrow.push(event);
+      else if (diff <= 7) buckets.thisWeek.push(event);
+      else if (diff <= 14) buckets.nextWeek.push(event);
+      else if (diff <= 60) buckets.nextMonth.push(event);
+      else buckets.later.push(event);
+    });
+
+    const config: Array<{ key: keyof typeof buckets; title: string; range: string }> = [
+      { key: "today", title: "Today", range: formatDateHeader(today) },
+      { key: "tomorrow", title: "Tomorrow", range: formatDateHeader(tomorrowDate) },
+      {
+        key: "thisWeek",
+        title: "This Week",
+        range: `${formatDateHeader(formatDateKey(getDatePlusDays(3)))} - ${formatDateHeader(formatDateKey(getDatePlusDays(7)))}`,
+      },
+      {
+        key: "nextWeek",
+        title: "Next Week",
+        range: `${formatDateHeader(formatDateKey(getDatePlusDays(8)))} - ${formatDateHeader(formatDateKey(getDatePlusDays(14)))}`,
+      },
+      {
+        key: "nextMonth",
+        title: "Next Month",
+        range: `${formatDateHeader(formatDateKey(getDatePlusDays(15)))} - ${formatDateHeader(formatDateKey(getDatePlusDays(60)))}`,
+      },
+      { key: "later", title: "Later", range: `After ${formatDateHeader(formatDateKey(getDatePlusDays(60)))}` },
+    ];
+
+    const items: UpcomingListItem[] = [];
+    config.forEach((section) => {
+      if (buckets[section.key].length === 0) return;
+      items.push({
+        id: `header-${section.key}`,
+        type: "header",
+        title: section.title,
+        range: section.range,
+      });
+      buckets[section.key].forEach((event) => {
+        items.push({
+          id: `event-${event.id}`,
+          type: "event",
+          event,
+        });
+      });
+    });
+    return items;
+  }, [filteredUpcomingEvents, getDayDiffFromToday, today, tomorrowDate, getDatePlusDays]);
 
   const handleEventPress = (event: CalendarEvent) => {
     if (!canModifyEvent(event)) return;
+    setNewEventSeed(null);
     setEditingEvent(event);
     if (isRecurringEvent(event)) {
       setShowRecurringModal(true);
@@ -155,6 +547,7 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
   };
 
   const handleAddEvent = () => {
+    setNewEventSeed(null);
     setEditingEvent(null);
     setEditingAsInstance(false);
     setShowSchedulingModal(true);
@@ -188,81 +581,28 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
     }
   };
 
-  const goToToday = () => {
-    setSelectedDate(today);
-  };
-
-  const navigatePeriod = useCallback((direction: "prev" | "next") => {
-    const date = new Date(selectedDate + "T00:00:00");
-    if (viewMode === "day") {
-      date.setDate(date.getDate() + (direction === "next" ? 1 : -1));
-    } else if (viewMode === "week") {
-      date.setDate(date.getDate() + (direction === "next" ? 7 : -7));
-    } else if (viewMode === "month") {
-      date.setMonth(date.getMonth() + (direction === "next" ? 1 : -1));
-    }
-    const newDate = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
-    setSelectedDate(newDate);
-  }, [selectedDate, viewMode]);
-
-  const swipeGesture = Gesture.Pan()
-    .onUpdate((e) => {
-      translateX.value = e.translationX;
-    })
-    .onEnd((e) => {
-      if (e.translationX > 50) {
-        runOnJS(navigatePeriod)("prev");
-      } else if (e.translationX < -50) {
-        runOnJS(navigatePeriod)("next");
-      }
-      translateX.value = withSpring(0);
-    });
-
-  const animatedStyle = useAnimatedStyle(() => ({
-    transform: [{ translateX: translateX.value * 0.3 }],
-  }));
-
   const formatTime = (timeString: string) => {
     const [hours, minutes] = timeString.split(":");
-    const hour = parseInt(hours, 10);
+    const hour = Number.parseInt(hours, 10);
     const ampm = hour >= 12 ? "PM" : "AM";
     const hour12 = hour % 12 || 12;
     return `${hour12}:${minutes} ${ampm}`;
   };
 
-  const formatDateHeader = (dateStr: string) => {
-    const date = new Date(dateStr + "T00:00:00");
-    const options: Intl.DateTimeFormatOptions = { weekday: "short", month: "short", day: "numeric" };
-    return date.toLocaleDateString("en-US", options);
-  };
-
-  const getViewTitle = () => {
-    if (viewMode === "upcoming") return "Upcoming Events";
-    if (viewMode === "day") return formatDateHeader(selectedDate);
-    if (viewMode === "week") {
-      const weekStart = getStartOfWeek(selectedDate);
-      const weekEnd = getEndOfWeek(selectedDate);
-      return `${formatDateHeader(weekStart)} - ${formatDateHeader(weekEnd)}`;
-    }
-    if (viewMode === "month") {
-      const date = new Date(selectedDate + "T00:00:00");
-      return date.toLocaleDateString("en-US", { month: "long", year: "numeric" });
-    }
-    return "";
-  };
+  const getViewTitle = () => "Upcoming Events";
 
   const renderEventCard = ({ item }: { item: CalendarEvent }) => {
     const eventTypeInfo = getEventTypeInfo(item.eventType);
-    const eventCategory = categories.find(c => c.id === item.categoryId);
-    const borderColor = eventCategory?.color || eventTypeInfo.color;
+    const eventCategory = categories.find((category) => category.id === item.categoryId);
+    const borderColor = getEventColor(item);
     const isTimedEvent = item.eventType === "appointment" || item.eventType === "meeting";
-    const showDate = viewMode === "upcoming" || viewMode === "week";
+    const showDate = viewMode === "upcoming";
 
     return (
-      <Pressable 
+      <Pressable
         style={[
-          styles.eventCard, 
-          { 
+          styles.eventCard,
+          {
             backgroundColor: theme.backgroundDefault,
             borderLeftColor: borderColor,
           }
@@ -294,17 +634,17 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
             </ThemedText>
           </View>
         </View>
-        
+
         <ThemedText style={styles.eventCardTitle} numberOfLines={2}>
           {item.title}
         </ThemedText>
-        
+
         {item.description ? (
           <ThemedText style={[styles.eventCardNotes, { color: theme.textSecondary }]} numberOfLines={2}>
             {item.description}
           </ThemedText>
         ) : null}
-        
+
         <View style={styles.eventCardFooter}>
           {eventCategory ? (
             <View style={[styles.categoryTag, { backgroundColor: eventCategory.color + "20" }]}>
@@ -321,59 +661,512 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
     );
   };
 
-  const renderViewToggle = () => (
-    <View style={[styles.viewToggleContainer, { backgroundColor: theme.backgroundDefault }]}>
-      {(["upcoming", "day", "week", "month"] as ViewMode[]).map((mode) => (
+  const applyDayHoursRange = useCallback(async (start: number, end: number) => {
+    const safeStart = Math.min(23, Math.max(0, start));
+    const safeEnd = Math.min(23, Math.max(0, end));
+    const nextRange = { start: safeStart, end: safeEnd };
+    setDayHoursRange(nextRange);
+    lastValidHoursRef.current = nextRange;
+    setHoursRangeError(false);
+    await AsyncStorage.multiSet([
+      ["@calendar_hours_start", String(safeStart)],
+      ["@calendar_hours_end", String(safeEnd)],
+    ]);
+  }, []);
+
+  const handleStartHourPickerChange = useCallback(
+    (event: DateTimePickerEvent, selectedDate?: Date) => {
+      if (Platform.OS !== "ios") {
+        setActiveTimePicker(null);
+      }
+      if (event.type === "dismissed" || !selectedDate) return;
+
+      const newStart = selectedDate.getHours();
+      if (dayHoursRange.end <= newStart) {
+        setHoursRangeError(true);
+        setDayHoursRange(lastValidHoursRef.current);
+        return;
+      }
+      applyDayHoursRange(newStart, dayHoursRange.end);
+    },
+    [dayHoursRange.end, applyDayHoursRange],
+  );
+
+  const handleEndHourPickerChange = useCallback(
+    (event: DateTimePickerEvent, selectedDate?: Date) => {
+      if (Platform.OS !== "ios") {
+        setActiveTimePicker(null);
+      }
+      if (event.type === "dismissed" || !selectedDate) return;
+
+      const newEnd = selectedDate.getHours();
+      if (newEnd <= dayHoursRange.start) {
+        setHoursRangeError(true);
+        setDayHoursRange(lastValidHoursRef.current);
+        return;
+      }
+      applyDayHoursRange(dayHoursRange.start, newEnd);
+    },
+    [dayHoursRange.start, applyDayHoursRange],
+  );
+
+  const resetDayHoursToFullDay = useCallback(async () => {
+    await applyDayHoursRange(0, 23);
+  }, [applyDayHoursRange]);
+
+  const renderViewToggleAndFilter = () => {
+    const filterActive = activeFilterCount > 0;
+    return (
+      <View style={styles.headerControlsRow}>
+        <View style={[styles.viewToggleContainer, { backgroundColor: theme.backgroundDefault }]}>
+          {(["upcoming", "day"] as ViewMode[]).map((mode) => (
+            <Pressable
+              key={mode}
+              style={[
+                styles.viewToggleBtn,
+                viewMode === mode && { backgroundColor: effectiveCategoryFilter?.color || theme.primary },
+              ]}
+              onPress={() => setViewMode(mode)}
+            >
+              <ThemedText
+                style={[
+                  styles.viewToggleBtnText,
+                  { color: viewMode === mode ? "#FFFFFF" : theme.textSecondary },
+                ]}
+              >
+                {mode.charAt(0).toUpperCase() + mode.slice(1)}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </View>
         <Pressable
-          key={mode}
           style={[
-            styles.viewToggleBtn,
-            viewMode === mode && { backgroundColor: categoryFilter?.color || theme.primary },
+            styles.filterControlButton,
+            {
+              backgroundColor: theme.backgroundDefault,
+              borderColor: filterActive ? "#6B7FFF" : theme.border,
+            },
           ]}
-          onPress={() => setViewMode(mode)}
+          onPress={() => setShowFilterSheet(true)}
         >
+          <Feather name="filter" size={14} color={filterActive ? "#6B7FFF" : theme.textSecondary} />
           <ThemedText
             style={[
-              styles.viewToggleBtnText,
-              { color: viewMode === mode ? "#FFFFFF" : theme.textSecondary },
+              styles.filterControlButtonText,
+              { color: filterActive ? "#6B7FFF" : theme.text },
             ]}
           >
-            {mode.charAt(0).toUpperCase() + mode.slice(1)}
+            {filterActive ? `Filter · ${activeFilterCount}` : "Filter"}
           </ThemedText>
         </Pressable>
+      </View>
+    );
+  };
+
+  const renderFilterSheet = () => (
+    <Modal
+      visible={showFilterSheet}
+      animationType="slide"
+      presentationStyle="pageSheet"
+      onRequestClose={() => {
+        setShowFilterSheet(false);
+        setActiveTimePicker(null);
+        setHoursRangeError(false);
+      }}
+    >
+      <View style={[styles.filterSheetContainer, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={[styles.filterSheetHeader, { borderBottomColor: theme.border }]}>
+          <Pressable
+            onPress={() => {
+              setShowFilterSheet(false);
+              setActiveTimePicker(null);
+              setHoursRangeError(false);
+            }}
+            hitSlop={12}
+          >
+            <ThemedText style={[styles.filterSheetClose, { color: theme.textSecondary }]}>
+              Close
+            </ThemedText>
+          </Pressable>
+          <ThemedText style={styles.filterSheetTitle}>Filter</ThemedText>
+          <View style={styles.filterSheetHeaderSpacer} />
+        </View>
+
+        <ScrollView
+          contentContainerStyle={[
+            styles.filterSheetContent,
+            { paddingBottom: insets.bottom + Spacing.xxl },
+          ]}
+          showsVerticalScrollIndicator={false}
+        >
+          {!categoryFilter ? (
+            <View style={styles.filterSheetSection}>
+              <ThemedText style={[styles.filterSheetSectionTitle, { color: theme.textSecondary }]}>
+                Life Area
+              </ThemedText>
+              <Pressable
+                style={[
+                  styles.filterSheetRow,
+                  { borderBottomColor: theme.border },
+                  selectedLifeAreaFilterId === null && { backgroundColor: theme.primary + "10" },
+                ]}
+                onPress={() => setSelectedLifeAreaFilterId(null)}
+              >
+                <ThemedText style={styles.filterSheetRowText}>All Life Areas</ThemedText>
+                {selectedLifeAreaFilterId === null ? (
+                  <Feather name="check" size={18} color={theme.primary} />
+                ) : null}
+              </Pressable>
+              {categories.map((category) => {
+                const isSelected = selectedLifeAreaFilterId === category.id;
+                return (
+                  <Pressable
+                    key={category.id}
+                    style={[
+                      styles.filterSheetRow,
+                      { borderBottomColor: theme.border },
+                      isSelected && { backgroundColor: theme.primary + "10" },
+                    ]}
+                    onPress={() => setSelectedLifeAreaFilterId(category.id)}
+                  >
+                    <View style={styles.filterSheetRowLeft}>
+                      <View style={[styles.filterSheetRowDot, { backgroundColor: category.color }]} />
+                      <ThemedText style={styles.filterSheetRowText}>{category.name}</ThemedText>
+                    </View>
+                    {isSelected ? <Feather name="check" size={18} color={theme.primary} /> : null}
+                  </Pressable>
+                );
+              })}
+            </View>
+          ) : null}
+
+          <View style={styles.filterSheetSection}>
+            <ThemedText style={[styles.filterSheetSectionTitle, { color: theme.textSecondary }]}>
+              Event Type
+            </ThemedText>
+            <Pressable
+              style={[
+                styles.filterSheetRow,
+                { borderBottomColor: theme.border },
+                eventTypeFilter === "all" && { backgroundColor: theme.primary + "10" },
+              ]}
+              onPress={() => setEventTypeFilter("all")}
+            >
+              <ThemedText style={styles.filterSheetRowText}>All Types</ThemedText>
+              {eventTypeFilter === "all" ? (
+                <Feather name="check" size={18} color={theme.primary} />
+              ) : null}
+            </Pressable>
+            {EVENT_TYPES.map((eventType) => {
+              const isSelected = eventTypeFilter === eventType.value;
+              return (
+                <Pressable
+                  key={eventType.value}
+                  style={[
+                    styles.filterSheetRow,
+                    { borderBottomColor: theme.border },
+                    isSelected && { backgroundColor: theme.primary + "10" },
+                  ]}
+                  onPress={() => setEventTypeFilter(eventType.value)}
+                >
+                  <View style={styles.filterSheetRowLeft}>
+                    <Feather name={eventType.icon as any} size={16} color={eventType.color} />
+                    <ThemedText style={styles.filterSheetRowText}>{eventType.label}</ThemedText>
+                  </View>
+                  {isSelected ? <Feather name="check" size={18} color={theme.primary} /> : null}
+                </Pressable>
+              );
+            })}
+          </View>
+
+          <View style={styles.filterSheetSection}>
+            <ThemedText style={[styles.filterSheetSectionTitle, { color: theme.textSecondary }]}>
+              Day View Hours
+            </ThemedText>
+            <ThemedText style={[styles.filterSheetSectionSubtext, { color: theme.textSecondary }]}>
+              Adjust the visible time range for the Day View
+            </ThemedText>
+            <View style={[styles.filterSheetRow, { borderBottomColor: theme.border }]}>
+              <ThemedText style={styles.filterSheetRowText}>Start time</ThemedText>
+              <Pressable
+                style={styles.dayHoursPill}
+                onPress={() => setActiveTimePicker("start")}
+              >
+                <ThemedText style={styles.dayHoursPillText}>
+                  {formatHour12(dayHoursRange.start)}
+                </ThemedText>
+              </Pressable>
+            </View>
+            <View style={[styles.filterSheetRow, { borderBottomColor: theme.border }]}>
+              <ThemedText style={styles.filterSheetRowText}>End time</ThemedText>
+              <Pressable
+                style={styles.dayHoursPill}
+                onPress={() => setActiveTimePicker("end")}
+              >
+                <ThemedText style={styles.dayHoursPillText}>
+                  {formatHour12(dayHoursRange.end)}
+                </ThemedText>
+              </Pressable>
+            </View>
+            {hoursRangeError ? (
+              <ThemedText style={styles.dayHoursErrorText}>
+                End time must be after start time
+              </ThemedText>
+            ) : null}
+            {activeTimePicker && Platform.OS !== "web" ? (
+              <DateTimePicker
+                value={hourToDate(activeTimePicker === "start" ? dayHoursRange.start : dayHoursRange.end)}
+                mode="time"
+                display={Platform.OS === "ios" ? "spinner" : "default"}
+                onChange={activeTimePicker === "start" ? handleStartHourPickerChange : handleEndHourPickerChange}
+              />
+            ) : null}
+            <Pressable onPress={resetDayHoursToFullDay}>
+              <ThemedText style={[styles.dayHoursResetLink, { color: theme.textSecondary }]}>
+                Reset to full day
+              </ThemedText>
+            </Pressable>
+          </View>
+
+          <Pressable
+            style={[styles.filterSheetClearButton, { borderColor: theme.border }]}
+            onPress={() => {
+              setSelectedLifeAreaFilterId(null);
+              setEventTypeFilter("all");
+            }}
+          >
+            <Feather name="x-circle" size={16} color={theme.textSecondary} />
+            <ThemedText style={[styles.filterSheetClearText, { color: theme.textSecondary }]}>
+              Clear all filters
+            </ThemedText>
+          </Pressable>
+        </ScrollView>
+      </View>
+    </Modal>
+  );
+
+  const accentColor = effectiveCategoryFilter?.color || theme.primary;
+
+  const renderNavigation = () => (
+    <View style={styles.navigationRow}>
+      <ThemedText style={styles.viewTitle}>{getViewTitle()}</ThemedText>
+    </View>
+  );
+
+  const toggleMonthExpanded = useCallback(
+    (expanded: boolean) => {
+      setIsMonthExpanded(expanded);
+      Animated.spring(monthExpandAnim, {
+        toValue: expanded ? 1 : 0,
+        useNativeDriver: false,
+        damping: 18,
+        stiffness: 200,
+        mass: 0.8,
+      }).start();
+    },
+    [monthExpandAnim],
+  );
+
+  const changeViewMonth = useCallback((delta: number) => {
+    setViewMonth((prev) => new Date(prev.getFullYear(), prev.getMonth() + delta, 1));
+  }, []);
+
+  const handleMonthDateSelect = useCallback(
+    (dateKey: string) => {
+      setSelectedDate(dateKey);
+      toggleMonthExpanded(false);
+    },
+    [toggleMonthExpanded],
+  );
+
+  const handleMonthToday = useCallback(() => {
+    setSelectedDate(today);
+    setViewMonth(new Date(nowDate.getFullYear(), nowDate.getMonth(), 1));
+    toggleMonthExpanded(false);
+  }, [today, nowDate, toggleMonthExpanded]);
+
+  const monthPanResponder = useMemo(
+    () =>
+      PanResponder.create({
+        onMoveShouldSetPanResponder: (_, gestureState) =>
+          Math.abs(gestureState.dx) > 12 && Math.abs(gestureState.dy) < 24,
+        onPanResponderRelease: (_, gestureState) => {
+          if (gestureState.dx > 50) changeViewMonth(-1);
+          else if (gestureState.dx < -50) changeViewMonth(1);
+        },
+      }),
+    [changeViewMonth],
+  );
+
+  const effectiveMonthGridHeight = monthGridMeasuredHeight > 0 ? monthGridMeasuredHeight : 280;
+  const animatedGridHeight = monthExpandAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: [0, effectiveMonthGridHeight],
+  });
+
+  const renderEventDots = (dots: string[], gap: number) => (
+    <View style={[styles.eventDotsRow, { gap }]}>
+      {dots.map((dotColor, dotIndex) => (
+        <View
+          key={`dot-${dotIndex}`}
+          style={[styles.dateStripDot, { backgroundColor: dotColor }]}
+        />
       ))}
     </View>
   );
 
-  const renderNavigation = () => (
-    <View style={styles.navigationRow}>
-      {viewMode !== "upcoming" ? (
-        <>
-          <Pressable
-            style={[styles.navButton, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => navigatePeriod("prev")}
-          >
-            <Feather name="chevron-left" size={20} color={theme.text} />
-          </Pressable>
-          <ThemedText style={styles.viewTitle} numberOfLines={1}>
-            {getViewTitle()}
-          </ThemedText>
-          <Pressable
-            style={[styles.navButton, { backgroundColor: theme.backgroundDefault }]}
-            onPress={() => navigatePeriod("next")}
-          >
-            <Feather name="chevron-right" size={20} color={theme.text} />
-          </Pressable>
-          <Pressable
-            style={[styles.todayButton, { backgroundColor: categoryFilter?.color || theme.primary }]}
-            onPress={goToToday}
-          >
-            <ThemedText style={styles.todayButtonText}>Today</ThemedText>
-          </Pressable>
-        </>
-      ) : (
-        <ThemedText style={styles.viewTitle}>{getViewTitle()}</ThemedText>
-      )}
+  const renderMonthToggleChevron = (onPress: () => void) => (
+    <Pressable style={styles.dragHandleRow} onPress={onPress} accessibilityRole="button">
+      <View style={styles.chevronCircle}>
+        <Feather
+          name={isMonthExpanded ? "chevron-up" : "chevron-down"}
+          size={36}
+          color="#aaaaaa"
+        />
+      </View>
+    </Pressable>
+  );
+
+  const renderMonthGrid = () => {
+    const monthTitle = viewMonth.toLocaleDateString("en-US", { month: "long", year: "numeric" });
+    const weeks: MonthCell[][] = [];
+    for (let i = 0; i < monthCells.length; i += 7) {
+      weeks.push(monthCells.slice(i, i + 7));
+    }
+
+    return (
+      <View
+        style={styles.monthGridInner}
+        onLayout={(event) => {
+          const height = event.nativeEvent.layout.height;
+          if (height > 0 && height !== monthGridMeasuredHeight) {
+            setMonthGridMeasuredHeight(height);
+          }
+        }}
+        {...monthPanResponder.panHandlers}
+      >
+        <View style={styles.monthGridHeader}>
+          <View style={styles.monthGridHeaderSide}>
+            <Pressable
+              style={[styles.monthNavButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => changeViewMonth(-1)}
+            >
+              <Feather name="chevron-left" size={16} color={theme.text} />
+            </Pressable>
+          </View>
+          <ThemedText style={[styles.monthGridTitle, { color: theme.text }]}>{monthTitle}</ThemedText>
+          <View style={[styles.monthGridHeaderSide, styles.monthGridHeaderSideRight]}>
+            <Pressable style={styles.monthTodayButton} onPress={handleMonthToday}>
+              <ThemedText style={styles.monthTodayButtonText}>Today</ThemedText>
+            </Pressable>
+            <Pressable
+              style={[styles.monthNavButton, { backgroundColor: theme.backgroundDefault }]}
+              onPress={() => changeViewMonth(1)}
+            >
+              <Feather name="chevron-right" size={16} color={theme.text} />
+            </Pressable>
+          </View>
+        </View>
+
+        <View style={styles.monthWeekdayRow}>
+          {["S", "M", "T", "W", "T", "F", "S"].map((label, index) => (
+            <View key={`${label}-${index}`} style={styles.monthWeekdayCell}>
+              <ThemedText style={[styles.monthWeekdayLabel, { color: theme.textSecondary }]}>
+                {label}
+              </ThemedText>
+            </View>
+          ))}
+        </View>
+
+        {weeks.map((week, weekIndex) => (
+          <View key={`week-${weekIndex}`} style={styles.monthWeekRow}>
+            {week.map((cell) => {
+              const dots = getDotsForDate(cell.dateKey);
+              const numberColor = cell.isSelected
+                ? "#FFFFFF"
+                : cell.isToday
+                  ? "#6B7FFF"
+                  : cell.isCurrentMonth
+                    ? "#777777"
+                    : "#333333";
+              return (
+                <Pressable
+                  key={cell.dateKey}
+                  style={styles.monthDayCell}
+                  onPress={() => handleMonthDateSelect(cell.dateKey)}
+                >
+                  <View
+                    style={[
+                      styles.monthDayNumberWrap,
+                      cell.isSelected && styles.monthDayNumberSelected,
+                    ]}
+                  >
+                    <ThemedText
+                      style={[
+                        styles.monthDayNumber,
+                        { color: numberColor },
+                        cell.isToday && !cell.isSelected && styles.monthDayNumberToday,
+                      ]}
+                    >
+                      {cell.dayNumber}
+                    </ThemedText>
+                  </View>
+                  <View style={styles.monthDayDotsRow}>
+                    {renderEventDots(dots, 1.5)}
+                  </View>
+                </Pressable>
+              );
+            })}
+          </View>
+        ))}
+      </View>
+    );
+  };
+
+  const renderDayDateSelector = () => (
+    <View>
+      <ScrollView
+        ref={dateStripScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        contentContainerStyle={styles.dateStripContent}
+      >
+        {dayStripDates.map((date) => {
+          const dateObj = new Date(date + "T00:00:00");
+          const isSelected = date === selectedDate;
+          const isToday = date === today;
+          const eventDots = dateStripEventDots[date] || [];
+          const showEventDots = !(isToday && eventDots.length === 0);
+          return (
+            <Pressable key={date} style={styles.dateItem} onPress={() => setSelectedDate(date)}>
+              <ThemedText style={[styles.dateItemDay, { color: theme.textSecondary }]}>
+                {dateObj.toLocaleDateString("en-US", { weekday: "narrow" })}
+              </ThemedText>
+              <View
+                style={[
+                  styles.dateNumberCircle,
+                  { borderColor: theme.border, backgroundColor: "transparent" },
+                  isSelected && { backgroundColor: accentColor, borderColor: accentColor },
+                ]}
+              >
+                <ThemedText style={[styles.dateItemNumber, { color: isSelected ? "#FFFFFF" : theme.text }]}>
+                  {dateObj.getDate()}
+                </ThemedText>
+              </View>
+              {isToday && !isSelected ? <View style={[styles.todayDot, { backgroundColor: accentColor }]} /> : null}
+              <View style={styles.dateStripDotsRow}>
+                {showEventDots ? renderEventDots(eventDots, 2) : null}
+              </View>
+            </Pressable>
+          );
+        })}
+      </ScrollView>
+
+      <Animated.View style={[styles.monthGridAnimatedWrap, { height: animatedGridHeight }]}>
+        {renderMonthGrid()}
+      </Animated.View>
+
+      {renderMonthToggleChevron(() => toggleMonthExpanded(!isMonthExpanded))}
     </View>
   );
 
@@ -381,12 +1174,12 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
     <View style={styles.emptyContainer}>
       <Feather name="calendar" size={48} color={theme.textSecondary} />
       <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-        {viewMode === "upcoming" 
-          ? "No upcoming events scheduled" 
-          : `No events for this ${viewMode}`}
+        {viewMode === "upcoming"
+          ? "No upcoming events scheduled"
+          : "No events for this day"}
       </ThemedText>
       <Pressable
-        style={[styles.addEventButton, { backgroundColor: categoryFilter?.color || theme.primary }]}
+        style={[styles.addEventButton, { backgroundColor: effectiveCategoryFilter?.color || theme.primary }]}
         onPress={handleAddEvent}
       >
         <Feather name="plus" size={16} color="#FFFFFF" />
@@ -395,79 +1188,346 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
     </View>
   );
 
-  const showCalendarGrid = viewMode === "month" || viewMode === "week";
-  const accentColor = categoryFilter?.color || theme.primary;
+  const handleSlotPress = (hour: number) => {
+    const startHour = Math.max(0, Math.min(23, hour));
+    const endHour = Math.max(0, Math.min(23, startHour + 1));
+    setEditingEvent(null);
+    setEditingAsInstance(false);
+    setNewEventSeed({
+      date: selectedDate,
+      startTime: `${String(startHour).padStart(2, "0")}:00`,
+      endTime: `${String(endHour).padStart(2, "0")}:00`,
+    });
+    setShowSchedulingModal(true);
+  };
+
+  const handleTimelineScroll = useCallback((source: "events" | "reminders") => {
+    return (event: { nativeEvent: { contentOffset: { y: number } } }) => {
+      if (scrollSyncingRef.current) return;
+      scrollSyncingRef.current = true;
+      const y = event.nativeEvent.contentOffset.y;
+      const targetRef = source === "events" ? remindersScrollRef : eventsScrollRef;
+      targetRef.current?.scrollTo({ y, animated: false });
+      requestAnimationFrame(() => {
+        scrollSyncingRef.current = false;
+      });
+    };
+  }, []);
+
+  const scrollBothTimelinesTo = useCallback((y: number, animated: boolean) => {
+    eventsScrollRef.current?.scrollTo({ y, animated });
+    remindersScrollRef.current?.scrollTo({ y, animated });
+  }, []);
+
+  const renderReminderHourCell = (hour: number, index: number) => {
+    const hourEvents = remindersByHour[hour] || [];
+    const maxTagsInRow = Math.floor(HOUR_ROW_HEIGHT / (REMINDER_TAG_HEIGHT + REMINDER_TAG_GAP));
+    let visibleEvents = hourEvents;
+    let overflowCount = 0;
+    if (hourEvents.length > maxTagsInRow) {
+      const maxWithLabel = Math.max(1, maxTagsInRow - 1);
+      visibleEvents = hourEvents.slice(0, maxWithLabel);
+      overflowCount = hourEvents.length - maxWithLabel;
+    }
+
+    return (
+      <View
+        key={`reminder-hour-${hour}`}
+        style={[styles.reminderHourCell, { top: index * HOUR_ROW_HEIGHT, height: HOUR_ROW_HEIGHT }]}
+      >
+        {visibleEvents.map((event) => {
+          const color = getReminderTagColor(event);
+          const iconName = event.eventType === "due_date" ? "flag" : "bell";
+          return (
+            <Pressable
+              key={event.id}
+              style={[
+                styles.reminderTag,
+                {
+                  backgroundColor: theme.backgroundDefault,
+                  borderLeftColor: color,
+                },
+              ]}
+              onPress={() => handleEventPress(event)}
+            >
+              <Feather name={iconName} size={9} color={color} />
+              <ThemedText numberOfLines={1} style={[styles.reminderTagText, { color }]}>
+                {event.title}
+              </ThemedText>
+            </Pressable>
+          );
+        })}
+        {overflowCount > 0 ? (
+          <ThemedText style={[styles.reminderOverflowLabel, { color: theme.textSecondary }]}>
+            {`+${overflowCount} more`}
+          </ThemedText>
+        ) : null}
+      </View>
+    );
+  };
+
+  const dayScrollContentPadding = {
+    paddingBottom: tabBarHeight + Spacing.xl + 60,
+  };
+
+  useEffect(() => {
+    setMonthGridMeasuredHeight(0);
+  }, [viewMonth]);
+
+  useEffect(() => {
+    if (viewMode !== "day") return;
+    const selectedIndex = dayStripDates.findIndex((date) => date === selectedDate);
+    if (selectedIndex < 0) return;
+    const targetX = Math.max(0, selectedIndex * dateItemWidth - screenWidth / 2 + dateItemWidth / 2);
+    requestAnimationFrame(() => {
+      dateStripScrollRef.current?.scrollTo({ x: targetX, animated: true });
+    });
+  }, [viewMode, selectedDate, dayStripDates, screenWidth]);
+
+  useEffect(() => {
+    if (viewMode !== "day") return;
+    const timelineStartMinutes = dayHoursRange.start * 60;
+    const dayStart = new Date(selectedDate + "T00:00:00");
+    const isFutureDate = dayStart > new Date(today + "T00:00:00");
+    const anchorMinutes = selectedDate === today
+      ? getMinutesIntoDay(currentTime)
+      : isFutureDate
+        ? 8 * 60
+        : 8 * 60;
+    const y = ((anchorMinutes - timelineStartMinutes) / 60) * HOUR_ROW_HEIGHT - HOUR_ROW_HEIGHT * 1.2;
+    const maxY = Math.max(0, dayTimelineHeight - HOUR_ROW_HEIGHT);
+    const nextY = Math.max(0, Math.min(maxY, y));
+    requestAnimationFrame(() => {
+      scrollBothTimelinesTo(nextY, true);
+    });
+  }, [viewMode, selectedDate, today, currentTime, dayHoursRange.start, dayTimelineHeight, scrollBothTimelinesTo]);
+
+  useEffect(() => {
+    Animated.spring(transitionX, {
+      toValue: viewMode === "day" ? 1 : 0,
+      useNativeDriver: true,
+      damping: 16,
+      stiffness: 220,
+      mass: 0.5,
+    }).start();
+  }, [viewMode, transitionX]);
+
+  const currentLinePosition = ((getMinutesIntoDay(currentTime) - dayHoursRange.start * 60) / 60) * HOUR_ROW_HEIGHT;
+  const showCurrentTimeIndicator = viewMode === "day"
+    && selectedDate === today
+    && currentLinePosition >= 0
+    && currentLinePosition <= dayTimelineHeight;
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
       <View style={[styles.headerSection, { paddingTop: headerHeight + Spacing.sm }]}>
-        {renderViewToggle()}
-        {renderNavigation()}
+        {renderViewToggleAndFilter()}
+        {viewMode === "upcoming" ? renderNavigation() : null}
+        {viewMode === "day" ? renderDayDateSelector() : null}
+        {viewMode === "day" ? (
+          <View style={styles.dayColumnHeaderRow}>
+            <View style={styles.dayColumnHeaderEventsWrap}>
+              <View style={{ width: TIME_LABEL_WIDTH }} />
+              <ThemedText style={[styles.dayColumnHeaderLabel, { color: theme.textSecondary }]}>
+                EVENTS
+              </ThemedText>
+            </View>
+            <View style={[styles.dayColumnHeaderRemindersWrap, { borderLeftColor: theme.border }]}>
+              <ThemedText style={[styles.dayColumnHeaderLabel, { color: theme.textSecondary }]}>
+                REMINDERS
+              </ThemedText>
+            </View>
+          </View>
+        ) : null}
       </View>
 
-      <GestureDetector gesture={swipeGesture}>
-        <Animated.View style={[{ flex: 1 }, animatedStyle]}>
-          {showCalendarGrid ? (
-            <View style={styles.calendarGridContainer}>
-              <Calendar
-                current={selectedDate}
-                onDayPress={(day: DateData) => setSelectedDate(day.dateString)}
-                markingType="multi-dot"
-                markedDates={markedDates}
-                theme={{
-                  backgroundColor: theme.backgroundRoot,
-                  calendarBackground: theme.backgroundRoot,
-                  textSectionTitleColor: theme.textSecondary,
-                  selectedDayBackgroundColor: accentColor,
-                  selectedDayTextColor: "#ffffff",
-                  todayTextColor: accentColor,
-                  dayTextColor: theme.text,
-                  textDisabledColor: theme.textSecondary + "60",
-                  monthTextColor: theme.text,
-                  arrowColor: accentColor,
-                  textMonthFontWeight: "600",
-                  textDayFontWeight: "400",
-                  textDayHeaderFontWeight: "500",
-                }}
-                style={styles.calendarCompact}
-                hideArrows={true}
-              />
+      <Animated.View
+        style={{
+          flex: 1,
+          transform: [
+            {
+              translateX: transitionX.interpolate({
+                inputRange: [0, 1],
+                outputRange: [4, 0],
+              }),
+            },
+          ],
+        }}
+      >
+        <View style={[styles.eventListHeader, { borderTopColor: theme.border, borderTopWidth: 0 }]}>
+          <ThemedText style={styles.eventListTitle}>
+            {activeFilterCount === 0
+              ? `${filteredCountForCurrentView} event${filteredCountForCurrentView !== 1 ? "s" : ""}`
+              : `${filteredCountForCurrentView} of ${unfilteredCountForCurrentView} events`}
+          </ThemedText>
+        </View>
+
+        {viewMode === "day" ? (
+          <View style={styles.dayTimelineRow}>
+            <View style={styles.dayEventsColumnWrap}>
+              <ScrollView
+                ref={eventsScrollRef}
+                style={styles.dayEventsScroll}
+                contentContainerStyle={dayScrollContentPadding}
+                scrollIndicatorInsets={{ bottom: insets.bottom }}
+                scrollEventThrottle={16}
+                onScroll={handleTimelineScroll("events")}
+                showsVerticalScrollIndicator
+              >
+              <View style={[styles.timelineCanvas, { height: dayTimelineHeight }]}>
+                {dayHours.map((hour, index) => (
+                  <View key={hour} style={[styles.hourRow, { top: index * HOUR_ROW_HEIGHT, height: HOUR_ROW_HEIGHT }]}>
+                    <View style={styles.timeCell}>
+                      <ThemedText style={[styles.timeLabel, { color: theme.textSecondary }]}>{getHourLabel(hour)}</ThemedText>
+                    </View>
+                    <Pressable
+                      style={styles.hourContent}
+                      onPress={() => handleSlotPress(hour)}
+                      android_ripple={{ color: theme.primary + "12" }}
+                    >
+                      <View style={[styles.hourDivider, { backgroundColor: theme.border }]} />
+                      <View style={[styles.halfHourDivider, { backgroundColor: theme.border + "80" }]} />
+                    </Pressable>
+                  </View>
+                ))}
+
+                {scheduleShadingLayouts.map(({ schedule, top, height }) => {
+                  const color = schedule.categoryColor || DEFAULT_EVENT_COLOR;
+                  const showLabel = height >= SCHEDULE_LABEL_MIN_HEIGHT;
+                  const labelStack = scheduleLabelStackIndex.get(schedule.id) ?? 0;
+                  return (
+                    <View
+                      key={`schedule-shade-${schedule.id}`}
+                      pointerEvents="none"
+                      style={[
+                        styles.scheduleShadingBlock,
+                        {
+                          top,
+                          height,
+                          backgroundColor: hexToRgba(color, 0.08),
+                          borderLeftColor: hexToRgba(color, 0.3),
+                        },
+                      ]}
+                    >
+                      {showLabel ? (
+                        <View
+                          style={[
+                            styles.scheduleBlockLabel,
+                            { top: 2 + labelStack * 11 },
+                          ]}
+                        >
+                          <View style={[styles.scheduleColorDot, { backgroundColor: color }]} />
+                          <ThemedText
+                            numberOfLines={1}
+                            style={[styles.scheduleBlockLabelText, { color }]}
+                          >
+                            {schedule.categoryName}
+                          </ThemedText>
+                        </View>
+                      ) : null}
+                    </View>
+                  );
+                })}
+
+                {timelineEvents.map(({ event, top, height }) => {
+                  const color = getEventColor(event);
+                  const eventType = getEventTypeInfo(event.eventType);
+                  const eventCategory = categories.find((category) => category.id === event.categoryId);
+                  const startLabel = event.startDate < selectedDate ? "12:00 AM" : formatTime(event.startTime);
+                  const endLabel = event.endDate > selectedDate ? "11:59 PM" : formatTime(event.endTime);
+                  return (
+                    <Pressable
+                      key={event.id}
+                      style={[
+                        styles.timelineEventBlock,
+                        {
+                          top,
+                          height,
+                          borderLeftColor: color,
+                          backgroundColor: hexToRgba(color, 0.18),
+                        },
+                      ]}
+                      onPress={() => handleEventPress(event)}
+                    >
+                      <ThemedText numberOfLines={1} style={[styles.timelineEventTitle, { color }]}>
+                        {event.title}
+                      </ThemedText>
+                      <ThemedText style={[styles.timelineEventTime, { color: hexToRgba(color, 0.72) }]}>
+                        {`${startLabel} - ${endLabel}`}
+                      </ThemedText>
+                      <View style={[styles.timelineBadge, { backgroundColor: hexToRgba(color, 0.2) }]}>
+                        <ThemedText style={[styles.timelineBadgeText, { color }]}>
+                          {(eventCategory?.name || "General") + " · " + eventType.label}
+                        </ThemedText>
+                      </View>
+                    </Pressable>
+                  );
+                })}
+
+                {showCurrentTimeIndicator ? (
+                  <View style={[styles.currentTimeContainer, { top: currentLinePosition }]}>
+                    <View style={styles.currentTimeLine} />
+                    <View style={styles.currentTimeDot} />
+                  </View>
+              ) : null}
             </View>
-          ) : null}
+              </ScrollView>
+            </View>
 
-          <View style={[
-            styles.eventListHeader, 
-            { borderTopColor: theme.border },
-            !showCalendarGrid && { borderTopWidth: 0 }
-          ]}>
-            <ThemedText style={styles.eventListTitle}>
-              {displayedEvents.length} event{displayedEvents.length !== 1 ? "s" : ""}
-            </ThemedText>
+            <View style={[styles.columnDivider, { backgroundColor: theme.border }]} />
+
+            <View style={styles.dayRemindersColumnWrap}>
+              <ScrollView
+                ref={remindersScrollRef}
+                style={styles.dayRemindersScroll}
+                contentContainerStyle={dayScrollContentPadding}
+                scrollIndicatorInsets={{ bottom: insets.bottom }}
+                scrollEventThrottle={16}
+                onScroll={handleTimelineScroll("reminders")}
+                showsVerticalScrollIndicator={false}
+              >
+                <View style={[styles.remindersCanvas, { height: dayTimelineHeight }]}>
+                  {dayHours.map((hour, index) => renderReminderHourCell(hour, index))}
+                </View>
+              </ScrollView>
+            </View>
           </View>
-
+        ) : (
           <FlatList
-            data={displayedEvents}
+            data={upcomingListItems}
             keyExtractor={(item) => item.id}
-            renderItem={renderEventCard}
+            renderItem={({ item }) => {
+              if (item.type === "header") {
+                return (
+                  <View style={styles.sectionHeaderRow}>
+                    <View style={styles.sectionHeaderTitleRow}>
+                      <ThemedText style={styles.sectionHeaderTitle}>{item.title}</ThemedText>
+                      <ThemedText style={styles.sectionHeaderRange}>{` — ${item.range}`}</ThemedText>
+                    </View>
+                    <View style={[styles.sectionHeaderDivider, { backgroundColor: theme.border }]} />
+                  </View>
+                );
+              }
+              return <View style={styles.sectionEventWrap}>{renderEventCard({ item: item.event })}</View>;
+            }}
             contentContainerStyle={{
-              paddingHorizontal: Spacing.lg,
               paddingBottom: tabBarHeight + Spacing.xl + 60,
               flexGrow: 1,
             }}
             scrollIndicatorInsets={{ bottom: insets.bottom }}
-            ItemSeparatorComponent={() => <View style={{ height: Spacing.md }} />}
+            ItemSeparatorComponent={() => <View style={{ height: Spacing.sm }} />}
             ListEmptyComponent={renderEmptyState}
           />
-        </Animated.View>
-      </GestureDetector>
+        )}
+      </Animated.View>
 
       {canAddEvents ? (
-      <Pressable
-        style={[styles.fab, { backgroundColor: accentColor, bottom: tabBarHeight + Spacing.lg }]}
-        onPress={handleAddEvent}
-      >
-        <Feather name="plus" size={24} color="#FFFFFF" />
-      </Pressable>
+        <Pressable
+          style={[styles.fab, { backgroundColor: accentColor, bottom: tabBarHeight + Spacing.lg }]}
+          onPress={handleAddEvent}
+        >
+          <Feather name="plus" size={24} color="#FFFFFF" />
+        </Pressable>
       ) : null}
 
       <SchedulingModal
@@ -476,11 +1536,14 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
           setShowSchedulingModal(false);
           setEditingEvent(null);
           setEditingAsInstance(false);
+          setNewEventSeed(null);
         }}
-        initialDate={selectedDate}
+        initialDate={newEventSeed?.date || selectedDate}
+        initialStartTime={newEventSeed?.startTime}
+        initialEndTime={newEventSeed?.endTime}
         editingEvent={editingEvent}
         editingAsInstance={editingAsInstance}
-        preselectedCategoryId={categoryFilter?.id}
+        preselectedCategoryId={effectiveCategoryFilter?.id}
         readOnly={editingEvent ? !canModifyEvent(editingEvent) : false}
         canDelete={editingEvent ? canModifyEvent(editingEvent) : false}
       />
@@ -496,6 +1559,7 @@ export default function CalendarScreen({ categoryFilter }: CalendarScreenProps =
         onDeleteInstance={handleDeleteInstance}
         onDeleteSeries={handleDeleteSeries}
       />
+      {renderFilterSheet()}
     </View>
   );
 }
@@ -505,10 +1569,128 @@ const styles = StyleSheet.create({
     paddingHorizontal: Spacing.lg,
     gap: Spacing.sm,
   },
+  headerControlsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
   viewToggleContainer: {
+    flex: 1,
     flexDirection: "row",
     borderRadius: BorderRadius.full,
     padding: 3,
+  },
+  filterControlButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderRadius: BorderRadius.full,
+    borderWidth: 1,
+  },
+  filterControlButtonText: {
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  filterSheetContainer: {
+    flex: 1,
+  },
+  filterSheetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: Spacing.lg,
+    paddingVertical: Spacing.md,
+    borderBottomWidth: 1,
+  },
+  filterSheetClose: {
+    fontSize: 16,
+    minWidth: 50,
+  },
+  filterSheetTitle: {
+    fontSize: 17,
+    fontWeight: "600",
+  },
+  filterSheetHeaderSpacer: {
+    minWidth: 50,
+  },
+  filterSheetContent: {
+    padding: Spacing.lg,
+    gap: Spacing.xl,
+  },
+  filterSheetSection: {
+    gap: Spacing.sm,
+  },
+  filterSheetSectionTitle: {
+    fontSize: 13,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.5,
+  },
+  filterSheetSectionSubtext: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  dayHoursPill: {
+    backgroundColor: "#1c1c26",
+    borderWidth: 1,
+    borderColor: "#333333",
+    borderRadius: 10,
+    paddingVertical: 4,
+    paddingHorizontal: 12,
+  },
+  dayHoursPillText: {
+    fontSize: 13,
+    color: "#FFFFFF",
+    fontWeight: "500",
+  },
+  dayHoursErrorText: {
+    fontSize: 12,
+    color: "#EF4444",
+    marginTop: Spacing.xs,
+  },
+  dayHoursResetLink: {
+    fontSize: 13,
+    fontWeight: "500",
+    marginTop: Spacing.xs,
+  },
+  filterSheetRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Spacing.md,
+    paddingHorizontal: Spacing.sm,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderRadius: BorderRadius.sm,
+  },
+  filterSheetRowLeft: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    flex: 1,
+  },
+  filterSheetRowDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  filterSheetRowText: {
+    fontSize: 15,
+  },
+  filterSheetClearButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing.sm,
+    paddingVertical: Spacing.md,
+    borderRadius: BorderRadius.sm,
+    borderWidth: 1,
+    marginTop: Spacing.sm,
+  },
+  filterSheetClearText: {
+    fontSize: 15,
+    fontWeight: "500",
   },
   viewToggleBtn: {
     flex: 1,
@@ -549,11 +1731,233 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: "600",
   },
-  calendarGridContainer: {
-    maxHeight: Dimensions.get("window").height * 0.38,
+  dateStripContent: {
+    paddingVertical: Spacing.xs,
+    paddingRight: Spacing.md,
   },
-  calendarCompact: {
+  dateItem: {
+    width: 44,
+    alignItems: "center",
+    marginRight: Spacing.sm,
+  },
+  dateItemDay: {
+    fontSize: 11,
+    marginBottom: 6,
+    fontWeight: "500",
+  },
+  dateNumberCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dateItemNumber: {
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  todayDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    marginTop: 5,
+  },
+  dateStripDotsRow: {
+    minHeight: 6,
+    marginTop: 4,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  eventDotsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dateStripDot: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+  },
+  dragHandleRow: {
+    height: 48,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  chevronCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: "rgba(255,255,255,0.06)",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthGridAnimatedWrap: {
+    overflow: "hidden",
+  },
+  monthGridInner: {
     paddingBottom: Spacing.xs,
+  },
+  monthGridHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingVertical: Spacing.sm,
+  },
+  monthNavButton: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  monthGridHeaderSide: {
+    width: 88,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  monthGridHeaderSideRight: {
+    justifyContent: "flex-end",
+    gap: Spacing.xs,
+  },
+  monthGridTitle: {
+    flex: 1,
+    textAlign: "center",
+    fontSize: 14,
+    fontWeight: "700",
+  },
+  monthTodayButton: {
+    backgroundColor: "#6B7FFF",
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: BorderRadius.full,
+  },
+  monthTodayButtonText: {
+    color: "#FFFFFF",
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  monthWeekdayRow: {
+    flexDirection: "row",
+    marginBottom: 4,
+  },
+  monthWeekdayCell: {
+    flex: 1,
+    alignItems: "center",
+  },
+  monthWeekdayLabel: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  monthWeekRow: {
+    flexDirection: "row",
+  },
+  monthDayCell: {
+    flex: 1,
+    alignItems: "center",
+    paddingVertical: 4,
+  },
+  monthDayNumberWrap: {
+    width: 26,
+    height: 26,
+    alignItems: "center",
+    justifyContent: "center",
+    borderRadius: 13,
+  },
+  monthDayNumberSelected: {
+    backgroundColor: "#6B7FFF",
+  },
+  monthDayNumber: {
+    fontSize: 11,
+    fontWeight: "400",
+  },
+  monthDayNumberToday: {
+    fontWeight: "700",
+  },
+  monthDayDotsRow: {
+    minHeight: 6,
+    marginTop: 2,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  dayColumnHeaderRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingBottom: 4,
+  },
+  dayColumnHeaderEventsWrap: {
+    flex: EVENTS_COLUMN_FLEX,
+    flexBasis: 0,
+    minWidth: 0,
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  dayColumnHeaderRemindersWrap: {
+    flex: REMINDERS_COLUMN_FLEX,
+    flexBasis: 0,
+    minWidth: 0,
+    borderLeftWidth: StyleSheet.hairlineWidth,
+    paddingLeft: Spacing.sm,
+    justifyContent: "center",
+  },
+  dayColumnHeaderLabel: {
+    fontSize: 9,
+    fontWeight: "600",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  dayTimelineRow: {
+    flex: 1,
+    flexDirection: "row",
+  },
+  dayEventsColumnWrap: {
+    flex: EVENTS_COLUMN_FLEX,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  dayEventsScroll: {
+    flex: 1,
+  },
+  dayRemindersColumnWrap: {
+    flex: REMINDERS_COLUMN_FLEX,
+    flexBasis: 0,
+    minWidth: 0,
+  },
+  dayRemindersScroll: {
+    flex: 1,
+  },
+  columnDivider: {
+    width: StyleSheet.hairlineWidth,
+  },
+  remindersCanvas: {
+    position: "relative",
+  },
+  reminderHourCell: {
+    position: "absolute",
+    left: 8,
+    right: 8,
+    gap: REMINDER_TAG_GAP,
+    overflow: "hidden",
+  },
+  reminderTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 4,
+    borderRadius: 6,
+    borderLeftWidth: 2,
+    paddingVertical: 3,
+    paddingHorizontal: 5,
+    height: REMINDER_TAG_HEIGHT,
+  },
+  reminderTagText: {
+    flex: 1,
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  reminderOverflowLabel: {
+    fontSize: 8,
+    fontWeight: "500",
+    marginTop: 1,
   },
   eventListHeader: {
     flexDirection: "row",
@@ -566,6 +1970,142 @@ const styles = StyleSheet.create({
   eventListTitle: {
     fontSize: 14,
     fontWeight: "500",
+  },
+  sectionHeaderRow: {
+    paddingTop: 10,
+    paddingHorizontal: 16,
+    paddingBottom: 6,
+  },
+  sectionHeaderTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+  },
+  sectionHeaderTitle: {
+    color: "#FFFFFF",
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  sectionHeaderRange: {
+    color: "#888888",
+    fontSize: 12,
+    marginLeft: 2,
+  },
+  sectionHeaderDivider: {
+    marginTop: 6,
+    height: StyleSheet.hairlineWidth,
+  },
+  sectionEventWrap: {
+    paddingHorizontal: Spacing.lg,
+  },
+  timelineCanvas: {
+    position: "relative",
+  },
+  hourRow: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+  },
+  timeCell: {
+    width: TIME_LABEL_WIDTH,
+    paddingRight: 6,
+    alignItems: "flex-end",
+  },
+  timeLabel: {
+    fontSize: 11,
+    fontWeight: "500",
+    marginTop: -6,
+  },
+  hourContent: {
+    flex: 1,
+    marginLeft: 4,
+  },
+  hourDivider: {
+    height: 1,
+  },
+  halfHourDivider: {
+    position: "absolute",
+    top: HOUR_ROW_HEIGHT / 2,
+    left: 0,
+    right: 0,
+    height: StyleSheet.hairlineWidth,
+  },
+  scheduleShadingBlock: {
+    position: "absolute",
+    left: EVENT_LEFT_OFFSET,
+    right: EVENT_RIGHT_OFFSET,
+    borderLeftWidth: 2,
+    borderRadius: 0,
+    zIndex: 0,
+    overflow: "hidden",
+  },
+  scheduleBlockLabel: {
+    position: "absolute",
+    left: 6,
+    right: 4,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  scheduleColorDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  scheduleBlockLabelText: {
+    fontSize: 8,
+    fontWeight: "600",
+    flex: 1,
+  },
+  timelineEventBlock: {
+    position: "absolute",
+    left: EVENT_LEFT_OFFSET,
+    right: EVENT_RIGHT_OFFSET,
+    borderRadius: 6,
+    borderLeftWidth: 3,
+    paddingVertical: 6,
+    paddingHorizontal: 8,
+    zIndex: 5,
+  },
+  timelineEventTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  timelineEventTime: {
+    fontSize: 10,
+    marginTop: 1,
+  },
+  timelineBadge: {
+    alignSelf: "flex-start",
+    borderRadius: BorderRadius.full,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    marginTop: 4,
+  },
+  timelineBadgeText: {
+    fontSize: 9,
+    fontWeight: "600",
+  },
+  currentTimeContainer: {
+    position: "absolute",
+    left: 0,
+    right: 0,
+    flexDirection: "row",
+    alignItems: "center",
+    zIndex: 10,
+  },
+  currentTimeLine: {
+    height: 1.5,
+    backgroundColor: "#EF4444",
+    flex: 1,
+  },
+  currentTimeDot: {
+    position: "absolute",
+    left: TIME_LABEL_WIDTH - 4,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: "#EF4444",
   },
   eventCard: {
     borderRadius: BorderRadius.md,

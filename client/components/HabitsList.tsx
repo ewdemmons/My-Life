@@ -14,6 +14,7 @@ import { Habit, HABIT_TYPES, GOAL_FREQUENCIES, Occurrence } from "@/types";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { HabitProgressChart } from "@/components/HabitProgressChart";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
+import { HabitCardActions } from "@/components/HabitCardActions";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 
 interface HabitsListProps {
@@ -286,6 +287,7 @@ export function HabitsList({ categoryId }: HabitsListProps) {
 
   const renderHabitItem = ({ item }: { item: Habit }) => {
     const typeInfo = getHabitTypeInfo(item.habitType);
+    const category = categories.find((c) => c.id === item.categoryId);
     const periodCount = getPeriodCount(item);
     const goalMet = periodCount >= item.goalCount;
     const counts = getOccurrenceCounts(item);
@@ -394,38 +396,18 @@ export function HabitsList({ categoryId }: HabitsListProps) {
                 onBarPress={(dateKey, count) => handleBarPress(item, dateKey, count)}
               />
             </View>
-
-            <View style={styles.actionButtons}>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
-                onPress={() => handleViewAllLogs(item)}
-              >
-                <Feather name="list" size={14} color={theme.primary} />
-                <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
-                  View Logs
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: theme.primary + "15" }]}
-                onPress={() => handleEditHabit(item)}
-              >
-                <Feather name="edit-2" size={14} color={theme.primary} />
-                <ThemedText style={[styles.actionButtonText, { color: theme.primary }]}>
-                  Edit Habit
-                </ThemedText>
-              </Pressable>
-              <Pressable
-                style={[styles.actionButton, { backgroundColor: "#FBBF24" + "15" }]}
-                onPress={() => handleAssist(item)}
-              >
-                <Feather name="zap" size={14} color="#FBBF24" />
-                <ThemedText style={[styles.actionButtonText, { color: "#FBBF24" }]}>
-                  AI Assist
-                </ThemedText>
-              </Pressable>
-            </View>
           </View>
         ) : null}
+
+        <View style={[styles.cardActionsRow, { borderTopColor: theme.border }]}>
+          <HabitCardActions
+            habit={item}
+            categoryColor={category?.color}
+            onEdit={handleEditHabit}
+            onLogs={handleViewAllLogs}
+            onAssist={handleAssist}
+          />
+        </View>
       </View>
     );
   };
@@ -676,23 +658,10 @@ const styles = StyleSheet.create({
     letterSpacing: 0.5,
     marginBottom: Spacing.xs,
   },
-  actionButtons: {
-    flexDirection: "row",
-    gap: Spacing.sm,
-    marginTop: Spacing.md,
-  },
-  actionButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
+  cardActionsRow: {
+    borderTopWidth: 1,
+    paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
-    borderRadius: BorderRadius.sm,
-    gap: Spacing.xs,
-  },
-  actionButtonText: {
-    fontSize: 13,
-    fontWeight: "600",
   },
   progressBarContainer: {
     marginTop: Spacing.md,

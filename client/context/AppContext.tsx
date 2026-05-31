@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES, LifeAreaSchedule, LifeAreaScheduleInput, LifeAreaScheduleWithCategory } from "@/types";
 import {
   applyBulkLifeAreaOwnerFilter,
   applyEntryOwnerFilter,
@@ -29,6 +29,7 @@ interface AppContextType {
   habits: Habit[];
   occurrences: Occurrence[];
   recycleBin: DeletedItem[];
+  lifeAreaSchedules: LifeAreaSchedule[];
   isLoading: boolean;
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<LifeCategory | void>;
   updateCategory: (id: string, updates: Partial<LifeCategory>) => Promise<void>;
@@ -62,6 +63,9 @@ interface AppContextType {
   addHabit: (habit: Omit<Habit, "id" | "createdAt">) => Promise<void>;
   updateHabit: (id: string, updates: Partial<Habit>) => Promise<void>;
   deleteHabit: (id: string) => Promise<void>;
+  pinnedHabits: Habit[];
+  pinHabit: (habitId: string) => Promise<boolean>;
+  unpinHabit: (habitId: string) => Promise<boolean>;
   addOccurrence: (occurrence: Omit<Occurrence, "id" | "createdAt">) => Promise<Occurrence | null>;
   updateOccurrence: (id: string, updates: Partial<Occurrence>) => Promise<void>;
   deleteOccurrence: (id: string) => Promise<void>;
@@ -71,6 +75,11 @@ interface AppContextType {
   emptyRecycleBin: () => Promise<void>;
   clearAllData: () => Promise<void>;
   refreshData: () => Promise<void>;
+  getLifeAreaSchedules: (categoryId?: string) => Promise<LifeAreaSchedule[]>;
+  addLifeAreaSchedule: (input: LifeAreaScheduleInput) => Promise<LifeAreaSchedule | null>;
+  updateLifeAreaSchedule: (id: string, updates: Partial<LifeAreaScheduleInput>) => Promise<LifeAreaSchedule | null>;
+  deleteLifeAreaSchedule: (id: string) => Promise<void>;
+  getSchedulesForDay: (dayOfWeek: number) => Promise<LifeAreaScheduleWithCategory[]>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -136,6 +145,8 @@ function mapSupabaseHabitToHabit(item: any): Habit {
     categoryId: item.bubble_id || null,
     linkedTaskId: item.linked_task_id || null,
     isActive: item.is_active !== false,
+    isPinned: item.is_pinned || false,
+    pinnedOrder: item.pinned_order || 0,
     createdAt: new Date(item.created_at).getTime(),
   };
 }
@@ -182,6 +193,8 @@ function mapHabitToSupabase(habit: Partial<Habit>, userId: string) {
   if (habit.categoryId !== undefined) result.bubble_id = habit.categoryId;
   if (habit.linkedTaskId !== undefined) result.linked_task_id = habit.linkedTaskId;
   if (habit.isActive !== undefined) result.is_active = habit.isActive;
+  if (habit.isPinned !== undefined) result.is_pinned = habit.isPinned;
+  if (habit.pinnedOrder !== undefined) result.pinned_order = habit.pinnedOrder;
   return result;
 }
 
@@ -338,6 +351,37 @@ function mapPersonToSupabase(person: Partial<Person>, userId: string) {
   return result;
 }
 
+function formatScheduleTime(time: string): string {
+  if (!time) return "09:00";
+  return time.length >= 5 ? time.substring(0, 5) : time;
+}
+
+function mapSupabaseScheduleToSchedule(row: any): LifeAreaSchedule {
+  return {
+    id: row.id,
+    userId: row.user_id,
+    categoryId: row.category_id,
+    label: row.label || undefined,
+    daysOfWeek: row.days_of_week || [],
+    startTime: formatScheduleTime(row.start_time),
+    endTime: formatScheduleTime(row.end_time),
+    isActive: row.is_active !== false,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapScheduleInputToSupabase(input: Partial<LifeAreaScheduleInput>, userId: string) {
+  const result: any = { user_id: userId };
+  if (input.categoryId !== undefined) result.category_id = input.categoryId;
+  if (input.label !== undefined) result.label = input.label || null;
+  if (input.daysOfWeek !== undefined) result.days_of_week = input.daysOfWeek;
+  if (input.startTime !== undefined) result.start_time = input.startTime;
+  if (input.endTime !== undefined) result.end_time = input.endTime;
+  if (input.isActive !== undefined) result.is_active = input.isActive;
+  return result;
+}
+
 function mapSupabaseRecycleBinToDeletedItem(item: any): DeletedItem {
   return {
     id: item.id,
@@ -404,6 +448,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [habits, setHabits] = useState<Habit[]>([]);
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
+  const [lifeAreaSchedules, setLifeAreaSchedules] = useState<LifeAreaSchedule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const subscriptionRef = useRef<any>(null);
   const sharedBubbleIdsRef = useRef<Set<string>>(new Set());
@@ -433,6 +478,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHabits([]);
     setOccurrences([]);
     setRecycleBin([]);
+    setLifeAreaSchedules([]);
     setIsLoading(false);
   };
 
@@ -818,7 +864,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Store owned bubble IDs for realtime subscriptions
       ownedBubbleIdsRef.current = new Set(ownedBubbleIds);
 
-      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes, habitsRes, occurrencesRes] = await Promise.all([
+      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes, habitsRes, occurrencesRes, schedulesRes] = await Promise.all([
         // Fetch all tasks in bubbles the user owns or is shared with
         allRelevantBubbleIds.length > 0
           ? supabase.from("tasks").select("*").in("bubble_id", allRelevantBubbleIds).order("created_at", { ascending: true })
@@ -835,6 +881,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from("recycle_bin").select("*").eq("user_id", user.id).order("deleted_at", { ascending: false }),
         supabase.from("habits").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
         supabase.from("occurrences").select("*").eq("user_id", user.id).order("occurred_at", { ascending: false }),
+        supabase.from("life_area_schedules").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
       ]);
 
       const ownedCategories = bubblesRes.error ? [] : (bubblesRes.data || []).map(mapSupabaseBubbleToCategory);
@@ -878,6 +925,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (occurrencesRes.error) console.warn("Error loading occurrences:", occurrencesRes.error.message);
       else setOccurrences((occurrencesRes.data || []).map(mapSupabaseOccurrenceToOccurrence));
+
+      if (schedulesRes.error) console.warn("Error loading life area schedules:", schedulesRes.error.message);
+      else setLifeAreaSchedules((schedulesRes.data || []).map(mapSupabaseScheduleToSchedule));
 
       await cleanupExpiredRecycleBin();
     } catch (error) {
@@ -2148,6 +2198,76 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOccurrences((prev) => prev.filter((o) => !(o.itemId === id && o.itemType === "habit")));
   }, [user]);
 
+  const pinnedHabits = React.useMemo(() => {
+    return habits
+      .filter((habit) => habit.isPinned && habit.isActive)
+      .sort((a, b) => (a.pinnedOrder || 0) - (b.pinnedOrder || 0));
+  }, [habits]);
+
+  const pinHabit = useCallback(async (habitId: string): Promise<boolean> => {
+    if (!user) return false;
+    const habit = habits.find((h) => h.id === habitId);
+    if (!habit) return false;
+
+    const previousState = { isPinned: habit.isPinned, pinnedOrder: habit.pinnedOrder };
+    const maxOrder = Math.max(0, ...habits.filter((h) => h.isPinned).map((h) => h.pinnedOrder || 0));
+    const newOrder = maxOrder + 1;
+
+    setHabits((prev) =>
+      prev.map((h) =>
+        h.id === habitId ? { ...h, isPinned: true, pinnedOrder: newOrder } : h,
+      ),
+    );
+
+    const { error } = await supabase
+      .from("habits")
+      .update({ is_pinned: true, pinned_order: newOrder })
+      .eq("id", habitId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error pinning habit:", error.message);
+      setHabits((prev) =>
+        prev.map((h) =>
+          h.id === habitId ? { ...h, ...previousState } : h,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }, [user, habits]);
+
+  const unpinHabit = useCallback(async (habitId: string): Promise<boolean> => {
+    if (!user) return false;
+    const habit = habits.find((h) => h.id === habitId);
+    if (!habit) return false;
+
+    const previousState = { isPinned: habit.isPinned, pinnedOrder: habit.pinnedOrder };
+
+    setHabits((prev) =>
+      prev.map((h) =>
+        h.id === habitId ? { ...h, isPinned: false, pinnedOrder: 0 } : h,
+      ),
+    );
+
+    const { error } = await supabase
+      .from("habits")
+      .update({ is_pinned: false, pinned_order: 0 })
+      .eq("id", habitId)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error unpinning habit:", error.message);
+      setHabits((prev) =>
+        prev.map((h) =>
+          h.id === habitId ? { ...h, ...previousState } : h,
+        ),
+      );
+      return false;
+    }
+    return true;
+  }, [user, habits]);
+
   const addOccurrence = useCallback(async (occurrence: Omit<Occurrence, "id" | "createdAt">): Promise<Occurrence | null> => {
     if (!user) throw new Error("User session required");
 
@@ -2456,6 +2576,129 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
   }, [updatePinnedTasksBatch]);
 
+  const getLifeAreaSchedules = useCallback(async (categoryId?: string): Promise<LifeAreaSchedule[]> => {
+    if (!user) return [];
+
+    let query = supabase
+      .from("life_area_schedules")
+      .select("*")
+      .eq("user_id", user.id)
+      .order("created_at", { ascending: true });
+
+    if (categoryId) {
+      query = query.eq("category_id", categoryId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("Error fetching life area schedules:", error.message);
+      return [];
+    }
+
+    const schedules = (data || []).map(mapSupabaseScheduleToSchedule);
+    setLifeAreaSchedules((prev) => {
+      if (!categoryId) return schedules;
+      const otherSchedules = prev.filter((s) => s.categoryId !== categoryId);
+      return [...otherSchedules, ...schedules];
+    });
+    return schedules;
+  }, [user]);
+
+  const addLifeAreaSchedule = useCallback(async (input: LifeAreaScheduleInput): Promise<LifeAreaSchedule | null> => {
+    if (!user) return null;
+
+    const { data, error } = await supabase
+      .from("life_area_schedules")
+      .insert(mapScheduleInputToSupabase(input, user.id))
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error adding life area schedule:", error.message);
+      return null;
+    }
+
+    const newSchedule = mapSupabaseScheduleToSchedule(data);
+    setLifeAreaSchedules((prev) => [...prev, newSchedule]);
+    return newSchedule;
+  }, [user]);
+
+  const updateLifeAreaSchedule = useCallback(async (
+    id: string,
+    updates: Partial<LifeAreaScheduleInput>,
+  ): Promise<LifeAreaSchedule | null> => {
+    if (!user) return null;
+
+    const supabaseUpdates = mapScheduleInputToSupabase(updates, user.id);
+    delete supabaseUpdates.user_id;
+
+    const { data, error } = await supabase
+      .from("life_area_schedules")
+      .update(supabaseUpdates)
+      .eq("id", id)
+      .eq("user_id", user.id)
+      .select()
+      .single();
+
+    if (error) {
+      console.error("Error updating life area schedule:", error.message);
+      return null;
+    }
+
+    const updatedSchedule = mapSupabaseScheduleToSchedule(data);
+    setLifeAreaSchedules((prev) =>
+      prev.map((schedule) => (schedule.id === id ? updatedSchedule : schedule)),
+    );
+    return updatedSchedule;
+  }, [user]);
+
+  const deleteLifeAreaSchedule = useCallback(async (id: string) => {
+    if (!user) return;
+
+    const { error } = await supabase
+      .from("life_area_schedules")
+      .delete()
+      .eq("id", id)
+      .eq("user_id", user.id);
+
+    if (error) {
+      console.error("Error deleting life area schedule:", error.message);
+      return;
+    }
+
+    setLifeAreaSchedules((prev) => prev.filter((schedule) => schedule.id !== id));
+  }, [user]);
+
+  const getSchedulesForDay = useCallback(async (dayOfWeek: number): Promise<LifeAreaScheduleWithCategory[]> => {
+    if (!user) return [];
+
+    const { data, error } = await supabase
+      .from("life_area_schedules")
+      .select(`
+        *,
+        life_bubbles:category_id (
+          name,
+          color
+        )
+      `)
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .contains("days_of_week", [dayOfWeek])
+      .order("start_time", { ascending: true });
+
+    if (error) {
+      console.error("Error fetching schedules for day:", error.message);
+      return [];
+    }
+
+    return (data || []).map((row: any) => ({
+      ...mapSupabaseScheduleToSchedule(row),
+      categoryName: row.life_bubbles?.name || "",
+      categoryColor: row.life_bubbles?.color || "",
+    }));
+  }, [user]);
+
   const clearAllData = useCallback(async () => {
     if (!user) return;
 
@@ -2466,6 +2709,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       supabase.from("recycle_bin").delete().eq("user_id", user.id),
       supabase.from("habits").delete().eq("user_id", user.id),
       supabase.from("occurrences").delete().eq("user_id", user.id),
+      supabase.from("life_area_schedules").delete().eq("user_id", user.id),
     ]);
 
     setTasks([]);
@@ -2474,6 +2718,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setHabits([]);
     setOccurrences([]);
     setRecycleBin([]);
+    setLifeAreaSchedules([]);
   }, [user]);
 
   return (
@@ -2486,6 +2731,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         habits,
         occurrences,
         recycleBin,
+        lifeAreaSchedules,
         isLoading,
         addCategory,
         updateCategory,
@@ -2517,6 +2763,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addHabit,
         updateHabit,
         deleteHabit,
+        pinnedHabits,
+        pinHabit,
+        unpinHabit,
         addOccurrence,
         updateOccurrence,
         deleteOccurrence,
@@ -2526,6 +2775,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         emptyRecycleBin,
         clearAllData,
         refreshData: loadData,
+        getLifeAreaSchedules,
+        addLifeAreaSchedule,
+        updateLifeAreaSchedule,
+        deleteLifeAreaSchedule,
+        getSchedulesForDay,
       }}
     >
       {children}

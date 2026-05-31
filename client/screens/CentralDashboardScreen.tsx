@@ -23,11 +23,12 @@ import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { canModifyEntryInLifeArea } from "@/lib/permissions";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { getTaskTypeInfo, getEventTypeInfo, Task } from "@/types";
+import { getTaskTypeInfo, getEventTypeInfo, Task, Habit } from "@/types";
 import { MasterListSortSheet } from "@/components/MasterListSortSheet";
 import { MasterListFilterSheet } from "@/components/MasterListFilterSheet";
 import {
   applyMasterListFilters,
+  applyMasterListHabitFilters,
   buildMasterListFlatData,
   countActiveFilters,
   DEFAULT_MASTERLIST_FILTERS,
@@ -39,6 +40,8 @@ import {
   MasterListSortOption,
   MasterListTaskSection,
   processMasterListDragEnd,
+  shouldShowPinnedEntries,
+  shouldShowPinnedHabits,
   sortMasterListTasks,
 } from "@/utils/masterListUtils";
 
@@ -105,8 +108,10 @@ export default function CentralDashboardScreen() {
   const { user } = useAuth();
   const {
     pinnedTasks,
+    pinnedHabits,
     tasks,
     unpinTask,
+    unpinHabit,
     updateTask,
     updatePinnedTasksBatch,
     categories,
@@ -179,10 +184,21 @@ export default function CentralDashboardScreen() {
   const isManualSort = sortOption === "manual";
   const dragEnabled = isManualSort && !isLoading && !isSavingOrder;
 
+  const showPinnedEntries = shouldShowPinnedEntries(filters);
+  const showPinnedHabitsList = shouldShowPinnedHabits(filters);
+
   const filteredTasks = useMemo(
-    () => applyMasterListFilters(pinnedTasks, filters),
-    [pinnedTasks, filters],
+    () => (showPinnedEntries ? applyMasterListFilters(pinnedTasks, filters) : []),
+    [pinnedTasks, filters, showPinnedEntries],
   );
+
+  const filteredHabits = useMemo(
+    () => (showPinnedHabitsList ? applyMasterListHabitFilters(pinnedHabits, filters) : []),
+    [pinnedHabits, filters, showPinnedHabitsList],
+  );
+
+  const hasAnyPinned = pinnedTasks.length > 0 || pinnedHabits.length > 0;
+  const masterListCount = filteredTasks.length + filteredHabits.length;
 
   const taskSections = useMemo(() => {
     const sections = groupPinnedTasks(filteredTasks);
@@ -226,6 +242,27 @@ export default function CentralDashboardScreen() {
       }
     },
     [categories, navigation],
+  );
+
+  const navigateToHabit = useCallback(
+    (habit: Habit) => {
+      if (!habit.categoryId) return;
+      const category = categories.find((c) => c.id === habit.categoryId);
+      if (category) {
+        navigation.navigate("CategoryDetail", { category });
+      }
+    },
+    [categories, navigation],
+  );
+
+  const handleUnpinHabit = useCallback(
+    async (habitId: string) => {
+      const success = await unpinHabit(habitId);
+      if (!success) {
+        showToast("Failed to remove pin. Please try again.");
+      }
+    },
+    [unpinHabit, showToast],
   );
 
   const handleDragEnd = useCallback(
@@ -317,6 +354,7 @@ export default function CentralDashboardScreen() {
       thisWeek: { label: styles.sectionLabelThisWeek, color: theme.textSecondary },
       later: { label: styles.sectionLabelLater, color: theme.textSecondary },
       pinned: { label: styles.sectionLabelToday, color: theme.text },
+      habits: { label: styles.sectionLabelLater, color: theme.textSecondary },
     };
     const style = headerStyles[section.key];
 
@@ -345,6 +383,7 @@ export default function CentralDashboardScreen() {
       thisWeek: { label: styles.sectionLabelThisWeek, color: theme.textSecondary },
       later: { label: styles.sectionLabelLater, color: theme.textSecondary },
       pinned: { label: styles.sectionLabelToday, color: theme.text },
+      habits: { label: styles.sectionLabelLater, color: theme.textSecondary },
     };
     const style = headerStyles[item.sectionKey];
 
@@ -490,6 +529,84 @@ export default function CentralDashboardScreen() {
     );
   };
 
+  const renderHabitCardContent = (habit: Habit) => {
+    const category = categories.find((c) => c.id === habit.categoryId);
+
+    return (
+      <View style={[styles.taskCard, { backgroundColor: theme.backgroundDefault }]}>
+        <View style={styles.checkBtn}>
+          <Feather name="circle" size={22} color={theme.textSecondary} />
+        </View>
+
+        <View style={styles.taskContent}>
+          <ThemedText style={styles.taskTitle} numberOfLines={1}>
+            {habit.name}
+          </ThemedText>
+          <View style={styles.taskMeta}>
+            {category ? (
+              <View style={styles.categoryBadge}>
+                <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                  {category.name}
+                </ThemedText>
+              </View>
+            ) : null}
+            <View style={[styles.typeBadge, { backgroundColor: "#6B7280" + "20" }]}>
+              <Feather name="activity" size={10} color={theme.textSecondary} />
+              <ThemedText style={[styles.typeText, { color: theme.textSecondary }]}>
+                Habit
+              </ThemedText>
+            </View>
+          </View>
+        </View>
+
+        <Pressable
+          onPress={() => handleUnpinHabit(habit.id)}
+          hitSlop={8}
+          style={styles.unpinBtn}
+        >
+          <Feather name="star" size={18} color="#F59E0B" />
+        </Pressable>
+      </View>
+    );
+  };
+
+  const renderStaticHabitCard = (habit: Habit) => (
+    <View key={habit.id} style={styles.taskCardWrapper}>
+      <Pressable onPress={() => navigateToHabit(habit)}>
+        {renderHabitCardContent(habit)}
+      </Pressable>
+    </View>
+  );
+
+  const renderHabitsSection = () => {
+    if (filteredHabits.length === 0) return null;
+
+    const isCollapsed = !!collapsedSections.habits;
+
+    return (
+      <View style={styles.taskSection}>
+        <Pressable
+          style={styles.groupHeader}
+          onPress={() => toggleSection("habits")}
+        >
+          <View style={styles.groupHeaderRow}>
+            <ThemedText style={[styles.sectionLabelLater, { color: theme.textSecondary }]}>
+              Habits
+            </ThemedText>
+            <Feather
+              name={isCollapsed ? "chevron-down" : "chevron-up"}
+              size={18}
+              color={theme.textSecondary}
+            />
+          </View>
+          <View style={[styles.groupSeparator, { backgroundColor: theme.border }]} />
+        </Pressable>
+        {!isCollapsed ? filteredHabits.map((habit) => renderStaticHabitCard(habit)) : null}
+      </View>
+    );
+  };
+
   const renderStaticTaskCard = (task: Task) => (
     <View key={task.id} style={styles.taskCardWrapper}>
       <Pressable
@@ -550,7 +667,7 @@ export default function CentralDashboardScreen() {
   );
 
   const renderMasterListContent = () => {
-    if (pinnedTasks.length === 0) {
+    if (!hasAnyPinned) {
       return (
         <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
           <Feather name="star" size={32} color={theme.textSecondary} />
@@ -564,7 +681,7 @@ export default function CentralDashboardScreen() {
       );
     }
 
-    if (filteredTasks.length === 0) {
+    if (masterListCount === 0) {
       return (
         <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
           <Feather name="filter" size={32} color={theme.textSecondary} />
@@ -586,15 +703,18 @@ export default function CentralDashboardScreen() {
               Saving order…
             </ThemedText>
           ) : null}
-          <NestableDraggableFlatList
-            data={localFlatData}
-            keyExtractor={(item) => item.id}
-            scrollEnabled={false}
-            onDragBegin={handleDragBegin}
-            onDragEnd={handleDragEnd}
-            renderItem={renderDraggableItem}
-            activationDistance={8}
-          />
+          {filteredTasks.length > 0 ? (
+            <NestableDraggableFlatList
+              data={localFlatData}
+              keyExtractor={(item) => item.id}
+              scrollEnabled={false}
+              onDragBegin={handleDragBegin}
+              onDragEnd={handleDragEnd}
+              renderItem={renderDraggableItem}
+              activationDistance={8}
+            />
+          ) : null}
+          {renderHabitsSection()}
         </>
       );
     }
@@ -612,6 +732,7 @@ export default function CentralDashboardScreen() {
               : null}
           </View>
         ))}
+        {renderHabitsSection()}
       </>
     );
   };
@@ -631,12 +752,12 @@ export default function CentralDashboardScreen() {
             <ThemedText style={styles.sectionTitle}>Master To Do</ThemedText>
             <View style={[styles.badge, { backgroundColor: theme.primary + "20" }]}>
               <ThemedText style={[styles.badgeText, { color: theme.primary }]}>
-                {filteredTasks.length}
+                {masterListCount}
               </ThemedText>
             </View>
           </View>
 
-          {pinnedTasks.length > 0 ? (
+          {hasAnyPinned ? (
             <View style={styles.controlsRow}>
               <Pressable
                 style={[styles.controlButton, { backgroundColor: theme.backgroundDefault, borderColor: theme.border }]}

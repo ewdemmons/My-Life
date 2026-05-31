@@ -1,7 +1,8 @@
-import React, { useState, useLayoutEffect, useCallback } from "react";
-import { View, StyleSheet, Pressable, TextInput } from "react-native";
+import React, { useState, useLayoutEffect, useCallback, useEffect, useRef, useMemo } from "react";
+import { View, StyleSheet, Pressable, TextInput, ActivityIndicator, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { HeaderButton, useHeaderHeight } from "@react-navigation/elements";
 import { Feather } from "@expo/vector-icons";
 
@@ -10,8 +11,11 @@ import { Spacing, BorderRadius, CategoryColors } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { PeopleSelector } from "@/components/PeopleSelector";
+import { PreferredTimesSection } from "@/components/PreferredTimesSection";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { LifeAreaSchedule, PendingScheduleBlock } from "@/types";
+import { isEndAfterStart } from "@/utils/scheduleTimeUtils";
 
 const ICONS = [
   "heart", "activity", "briefcase", "star", "dollar-sign", "book",
@@ -21,71 +25,244 @@ const ICONS = [
 
 type RouteParams = RouteProp<RootStackParamList, "AddCategory">;
 
+function scheduleToPendingBlock(schedule: LifeAreaSchedule): PendingScheduleBlock {
+  return {
+    clientKey: schedule.id,
+    id: schedule.id,
+    label: schedule.label,
+    daysOfWeek: [...schedule.daysOfWeek],
+    startTime: schedule.startTime,
+    endTime: schedule.endTime,
+  };
+}
+
+function blocksEqual(a: PendingScheduleBlock, b: LifeAreaSchedule): boolean {
+  return (
+    (a.label || "") === (b.label || "") &&
+    a.startTime === b.startTime &&
+    a.endTime === b.endTime &&
+    a.daysOfWeek.length === b.daysOfWeek.length &&
+    a.daysOfWeek.every((d) => b.daysOfWeek.includes(d))
+  );
+}
+
 export default function AddCategoryScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const { theme } = useTheme();
-  const navigation = useNavigation();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { addCategory, updateCategory } = useApp();
+  const {
+    addCategory,
+    updateCategory,
+    getLifeAreaSchedules,
+    addLifeAreaSchedule,
+    updateLifeAreaSchedule,
+    deleteLifeAreaSchedule,
+  } = useApp();
 
   const editingCategory = route.params?.category;
   const isEditing = !!editingCategory;
+  const scrollToPreferredTimes = route.params?.scrollToPreferredTimes;
+
+  const scrollRef = useRef<ScrollView>(null);
+  const preferredTimesRef = useRef<View>(null);
+  const initialSnapshotRef = useRef<Map<string, LifeAreaSchedule>>(new Map());
+  const hasScrolledRef = useRef(false);
+  const [preferredTimesY, setPreferredTimesY] = useState(0);
 
   const [name, setName] = useState(editingCategory?.name || "");
   const [description, setDescription] = useState(editingCategory?.description || "");
   const [color, setColor] = useState(editingCategory?.color || CategoryColors[0]);
   const [icon, setIcon] = useState(editingCategory?.icon || ICONS[0]);
   const [peopleIds, setPeopleIds] = useState<string[]>(editingCategory?.peopleIds || []);
+  const [pendingBlocks, setPendingBlocks] = useState<PendingScheduleBlock[]>([]);
+  const [originalBlockIds, setOriginalBlockIds] = useState<string[]>([]);
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [schedulesLoaded, setSchedulesLoaded] = useState(!isEditing);
 
-  const isValid = name.trim().length > 0;
+  useEffect(() => {
+    if (!isEditing || !editingCategory) return;
+
+    let cancelled = false;
+    (async () => {
+      const schedules = await getLifeAreaSchedules(editingCategory.id);
+      if (cancelled) return;
+      const snapshot = new Map<string, LifeAreaSchedule>();
+      schedules.forEach((s) => snapshot.set(s.id, s));
+      initialSnapshotRef.current = snapshot;
+      setPendingBlocks(schedules.map(scheduleToPendingBlock));
+      setOriginalBlockIds(schedules.map((s) => s.id));
+      setSchedulesLoaded(true);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isEditing, editingCategory?.id, getLifeAreaSchedules]);
+
+  useEffect(() => {
+    if (!scrollToPreferredTimes || !isEditing || !schedulesLoaded || hasScrolledRef.current) {
+      return;
+    }
+    if (preferredTimesY <= 0) return;
+
+    const timer = setTimeout(() => {
+      scrollRef.current?.scrollTo({
+        y: Math.max(0, preferredTimesY - Spacing.lg),
+        animated: true,
+      });
+      hasScrolledRef.current = true;
+      navigation.setParams({ scrollToPreferredTimes: undefined });
+    }, 350);
+
+    return () => clearTimeout(timer);
+  }, [scrollToPreferredTimes, isEditing, schedulesLoaded, preferredTimesY, navigation]);
+
+  const schedulesValid = useMemo(() => {
+    if (!isEditing) return true;
+    return pendingBlocks.every(
+      (b) =>
+        b.daysOfWeek.length >= 1 && isEndAfterStart(b.startTime, b.endTime),
+    );
+  }, [isEditing, pendingBlocks]);
+
+  const isValid = name.trim().length > 0 && schedulesValid;
+
+  const saveSchedules = useCallback(async (categoryId: string): Promise<boolean> => {
+    const currentIds = new Set(
+      pendingBlocks.filter((b) => b.id).map((b) => b.id as string),
+    );
+    const toDelete = originalBlockIds.filter((id) => !currentIds.has(id));
+
+    for (const id of toDelete) {
+      await deleteLifeAreaSchedule(id);
+    }
+
+    for (const block of pendingBlocks) {
+      if (!block.id) {
+        const created = await addLifeAreaSchedule({
+          categoryId,
+          label: block.label,
+          daysOfWeek: block.daysOfWeek,
+          startTime: block.startTime,
+          endTime: block.endTime,
+          isActive: true,
+        });
+        if (!created) {
+          setSaveError("Failed to save a time block. Please try again.");
+          return false;
+        }
+      } else {
+        const original = initialSnapshotRef.current.get(block.id);
+        if (original && !blocksEqual(block, original)) {
+          const updated = await updateLifeAreaSchedule(block.id, {
+            label: block.label,
+            daysOfWeek: block.daysOfWeek,
+            startTime: block.startTime,
+            endTime: block.endTime,
+          });
+          if (!updated) {
+            setSaveError("Failed to update a time block. Please try again.");
+            return false;
+          }
+        }
+      }
+    }
+
+    await getLifeAreaSchedules();
+    return true;
+  }, [
+    pendingBlocks,
+    originalBlockIds,
+    deleteLifeAreaSchedule,
+    addLifeAreaSchedule,
+    updateLifeAreaSchedule,
+    getLifeAreaSchedules,
+  ]);
 
   const handleSave = useCallback(async () => {
-    if (!name.trim()) return;
-    
-    if (isEditing && editingCategory) {
-      await updateCategory(editingCategory.id, {
-        name: name.trim(),
-        description: description.trim(),
-        color,
-        icon,
-        peopleIds,
-      });
-    } else {
-      await addCategory({
-        name: name.trim(),
-        description: description.trim(),
-        color,
-        icon,
-        peopleIds,
-      });
+    if (!name.trim() || !schedulesValid) return;
+
+    setIsSaving(true);
+    setSaveError(null);
+
+    try {
+      if (isEditing && editingCategory) {
+        await updateCategory(editingCategory.id, {
+          name: name.trim(),
+          description: description.trim(),
+          color,
+          icon,
+          peopleIds,
+        });
+
+        const schedulesOk = await saveSchedules(editingCategory.id);
+        if (!schedulesOk) {
+          setIsSaving(false);
+          return;
+        }
+      } else {
+        await addCategory({
+          name: name.trim(),
+          description: description.trim(),
+          color,
+          icon,
+          peopleIds,
+        });
+      }
+      navigation.goBack();
+    } catch (error) {
+      console.error("Error saving category:", error);
+      setSaveError("Failed to save. Please try again.");
+      setIsSaving(false);
     }
-    navigation.goBack();
-  }, [name, description, color, icon, peopleIds, isEditing, editingCategory, addCategory, updateCategory, navigation]);
+  }, [
+    name,
+    description,
+    color,
+    icon,
+    peopleIds,
+    isEditing,
+    editingCategory,
+    schedulesValid,
+    updateCategory,
+    addCategory,
+    saveSchedules,
+    navigation,
+  ]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: isEditing ? "Edit Category" : "Add Category",
       headerLeft: () => (
-        <HeaderButton onPress={() => navigation.goBack()}>
+        <HeaderButton onPress={() => navigation.goBack()} disabled={isSaving}>
           <ThemedText style={{ color: theme.primary }}>Cancel</ThemedText>
         </HeaderButton>
       ),
       headerRight: () => (
-        <HeaderButton
-          onPress={handleSave}
-          disabled={!isValid}
-        >
-          <ThemedText style={{ color: isValid ? theme.primary : theme.textSecondary, fontWeight: "600" }}>
-            Save
-          </ThemedText>
+        <HeaderButton onPress={handleSave} disabled={!isValid || isSaving}>
+          {isSaving ? (
+            <ActivityIndicator size="small" color={theme.primary} />
+          ) : (
+            <ThemedText
+              style={{
+                color: isValid ? theme.primary : theme.textSecondary,
+                fontWeight: "600",
+              }}
+            >
+              Save
+            </ThemedText>
+          )}
         </HeaderButton>
       ),
     });
-  }, [navigation, isEditing, isValid, theme, handleSave]);
+  }, [navigation, isEditing, isValid, isSaving, theme, handleSave]);
 
   return (
     <KeyboardAwareScrollViewCompat
+      ref={scrollRef}
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
         paddingTop: headerHeight + Spacing.lg,
@@ -108,7 +285,7 @@ export default function AddCategoryScreen() {
           placeholderTextColor={theme.textSecondary}
           value={name}
           onChangeText={setName}
-          autoFocus
+          autoFocus={!scrollToPreferredTimes}
         />
       </View>
 
@@ -184,6 +361,17 @@ export default function AddCategoryScreen() {
         label="Tag People (Optional)"
         placeholder="Tag family, friends, or teammates..."
       />
+
+      {isEditing && editingCategory ? (
+        <PreferredTimesSection
+          sectionRef={preferredTimesRef}
+          onSectionLayout={setPreferredTimesY}
+          blocks={pendingBlocks}
+          onBlocksChange={setPendingBlocks}
+          accentColor={color}
+          saveError={saveError}
+        />
+      ) : null}
 
       <View style={[styles.preview, { backgroundColor: theme.backgroundDefault }]}>
         <ThemedText style={[styles.previewLabel, { color: theme.textSecondary }]}>
