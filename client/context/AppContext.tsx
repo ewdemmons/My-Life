@@ -12,6 +12,11 @@ import { supabase } from "@/lib/supabase";
 import { useAuth } from "./AuthContext";
 import { DEFAULT_BUBBLES } from "@/lib/defaultBubbles";
 import { scheduleEventNotifications, cancelEventNotifications } from "@/utils/notifications";
+import {
+  checkAndReopenCompleteUntilEntries,
+  findCompleteUntilReminder,
+  syncCompleteUntilReminder,
+} from "@/utils/completeUntilUtils";
 import { useNotifications } from "./NotificationContext";
 
 const TASKS_KEY = "@mylife_tasks";
@@ -902,7 +907,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const taskMap = new Map<string, Task>();
       bubbleTasks.forEach(t => taskMap.set(t.id, t));
       uncategorizedTasks.forEach(t => { if (!taskMap.has(t.id)) taskMap.set(t.id, t); });
-      setTasks(Array.from(taskMap.values()));
+      const loadedTasks = Array.from(taskMap.values());
+      setTasks(loadedTasks);
 
       // Combine events from bubbles + uncategorized user events
       const bubbleEvents = eventsInBubblesRes.error ? [] : (eventsInBubblesRes.data || []).map(mapSupabaseEventToEvent);
@@ -912,7 +918,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const eventMap = new Map<string, CalendarEvent>();
       bubbleEvents.forEach(e => eventMap.set(e.id, e));
       uncategorizedEvents.forEach(e => { if (!eventMap.has(e.id)) eventMap.set(e.id, e); });
-      setEvents(Array.from(eventMap.values()));
+      const loadedEvents = Array.from(eventMap.values());
+      setEvents(loadedEvents);
 
       if (peopleRes.error) console.warn("Error loading people:", peopleRes.error.message);
       else setPeople((peopleRes.data || []).map(mapSupabasePersonToPerson));
@@ -930,6 +937,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       else setLifeAreaSchedules((schedulesRes.data || []).map(mapSupabaseScheduleToSchedule));
 
       await cleanupExpiredRecycleBin();
+
+      try {
+        await checkAndReopenCompleteUntilEntries({
+          tasks: loadedTasks,
+          updateTask,
+          events: loadedEvents,
+          addEvent,
+          updateEvent,
+          deleteEvent,
+        });
+      } catch (reopenError) {
+        console.warn("Failed to check Complete Until entries on load:", reopenError);
+      }
     } catch (error) {
       console.error("Error loading data:", error);
     } finally {
@@ -1137,49 +1157,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
   }, [user, tasks, categories, people]);
-
-  const deleteTask = useCallback(async (id: string) => {
-    if (!user) return;
-
-    const taskToDelete = tasks.find((t) => t.id === id);
-    if (!taskToDelete) return;
-
-    const entryUserId = taskToDelete.userId ?? user.id;
-    if (!canModifyEntryInLifeArea(user.id, entryUserId, taskToDelete.categoryId || null, categories)) {
-      return;
-    }
-
-    const getDescendants = (taskId: string): Task[] => {
-      const children = tasks.filter((t) => t.parentId === taskId);
-      return children.flatMap((child) => [child, ...getDescendants(child.id)]);
-    };
-
-    const descendants = getDescendants(id);
-
-    const { data, error: insertError } = await supabase.from("recycle_bin").insert({
-      user_id: user.id,
-      item_type: "task",
-      item_data: taskToDelete,
-      related_items: descendants,
-    }).select().single();
-
-    if (!insertError && data) {
-      const deletedItem = mapSupabaseRecycleBinToDeletedItem(data);
-      setRecycleBin((prev) => [...prev, deletedItem]);
-    }
-
-    const idsToDelete = [id, ...descendants.map((t) => t.id)];
-    for (const taskId of idsToDelete) {
-      const row = taskId === id ? taskToDelete : tasks.find((t) => t.id === taskId);
-      const rowUserId = row?.userId ?? user.id;
-      const rowCategoryId = row?.categoryId || taskToDelete.categoryId || null;
-      let query = supabase.from("tasks").delete().eq("id", taskId);
-      query = applyEntryOwnerFilter(query, rowUserId, rowCategoryId, user.id, categories);
-      await query;
-    }
-
-    setTasks((prev) => prev.filter((task) => !idsToDelete.includes(task.id)));
-  }, [user, tasks, categories]);
 
   const reorderTasks = useCallback(async (taskIds: string[], parentId: string | null) => {
     if (!user) return;
@@ -1541,6 +1518,61 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     setEvents((prev) => prev.filter((event) => event.id !== id));
   }, [user, events, categories, notificationContext]);
+
+  const deleteTask = useCallback(async (id: string) => {
+    if (!user) return;
+
+    const taskToDelete = tasks.find((t) => t.id === id);
+    if (!taskToDelete) return;
+
+    const entryUserId = taskToDelete.userId ?? user.id;
+    if (!canModifyEntryInLifeArea(user.id, entryUserId, taskToDelete.categoryId || null, categories)) {
+      return;
+    }
+
+    const getDescendants = (taskId: string): Task[] => {
+      const children = tasks.filter((t) => t.parentId === taskId);
+      return children.flatMap((child) => [child, ...getDescendants(child.id)]);
+    };
+
+    const descendants = getDescendants(id);
+
+    const { data, error: insertError } = await supabase.from("recycle_bin").insert({
+      user_id: user.id,
+      item_type: "task",
+      item_data: taskToDelete,
+      related_items: descendants,
+    }).select().single();
+
+    if (!insertError && data) {
+      const deletedItem = mapSupabaseRecycleBinToDeletedItem(data);
+      setRecycleBin((prev) => [...prev, deletedItem]);
+    }
+
+    const idsToDelete = [id, ...descendants.map((t) => t.id)];
+
+    for (const taskId of idsToDelete) {
+      const linkedReminder = findCompleteUntilReminder(events, taskId);
+      if (linkedReminder) {
+        try {
+          await deleteEvent(linkedReminder.id);
+        } catch (reminderError) {
+          console.warn("Failed to delete Complete Until reminder:", reminderError);
+        }
+      }
+    }
+
+    for (const taskId of idsToDelete) {
+      const row = taskId === id ? taskToDelete : tasks.find((t) => t.id === taskId);
+      const rowUserId = row?.userId ?? user.id;
+      const rowCategoryId = row?.categoryId || taskToDelete.categoryId || null;
+      let query = supabase.from("tasks").delete().eq("id", taskId);
+      query = applyEntryOwnerFilter(query, rowUserId, rowCategoryId, user.id, categories);
+      await query;
+    }
+
+    setTasks((prev) => prev.filter((task) => !idsToDelete.includes(task.id)));
+  }, [user, tasks, categories, events, deleteEvent]);
 
   const updateEventSeries = useCallback(async (seriesId: string, updates: Partial<CalendarEvent>, editedEventId?: string): Promise<boolean> => {
     if (!user) return false;

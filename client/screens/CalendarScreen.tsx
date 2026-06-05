@@ -12,7 +12,7 @@ import {
   Platform,
 } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import AppTimePicker from "@/components/AppTimePicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -119,11 +119,11 @@ const formatHour12 = (hour: number) => {
   return `${hour12}:00 ${ampm}`;
 };
 
-const hourToDate = (hour: number) => {
-  const date = new Date();
-  date.setHours(hour, 0, 0, 0);
-  return date;
-};
+const hourToHhmm = (hour: number) =>
+  `${String(hour).padStart(2, "0")}:00`;
+
+const hhmmToHour = (timeStr: string) =>
+  parseInt(timeStr.split(":")[0], 10);
 
 export default function CalendarScreen({ categoryFilter, categoryId, colorMode }: CalendarScreenProps = {}) {
   const insets = useSafeAreaInsets();
@@ -674,38 +674,32 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
     ]);
   }, []);
 
-  const handleStartHourPickerChange = useCallback(
-    (event: DateTimePickerEvent, selectedDate?: Date) => {
-      if (Platform.OS !== "ios") {
-        setActiveTimePicker(null);
-      }
-      if (event.type === "dismissed" || !selectedDate) return;
-
-      const newStart = selectedDate.getHours();
+  const handleStartHourConfirm = useCallback(
+    (timeStr: string) => {
+      const newStart = hhmmToHour(timeStr);
       if (dayHoursRange.end <= newStart) {
         setHoursRangeError(true);
         setDayHoursRange(lastValidHoursRef.current);
+        setActiveTimePicker(null);
         return;
       }
       applyDayHoursRange(newStart, dayHoursRange.end);
+      setActiveTimePicker(null);
     },
     [dayHoursRange.end, applyDayHoursRange],
   );
 
-  const handleEndHourPickerChange = useCallback(
-    (event: DateTimePickerEvent, selectedDate?: Date) => {
-      if (Platform.OS !== "ios") {
-        setActiveTimePicker(null);
-      }
-      if (event.type === "dismissed" || !selectedDate) return;
-
-      const newEnd = selectedDate.getHours();
+  const handleEndHourConfirm = useCallback(
+    (timeStr: string) => {
+      const newEnd = hhmmToHour(timeStr);
       if (newEnd <= dayHoursRange.start) {
         setHoursRangeError(true);
         setDayHoursRange(lastValidHoursRef.current);
+        setActiveTimePicker(null);
         return;
       }
       applyDayHoursRange(dayHoursRange.start, newEnd);
+      setActiveTimePicker(null);
     },
     [dayHoursRange.start, applyDayHoursRange],
   );
@@ -765,7 +759,7 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
 
   const renderFilterSheet = () => (
     <Modal
-      visible={showFilterSheet}
+      visible={showFilterSheet && activeTimePicker === null}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={() => {
@@ -912,14 +906,6 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
               <ThemedText style={styles.dayHoursErrorText}>
                 End time must be after start time
               </ThemedText>
-            ) : null}
-            {activeTimePicker && Platform.OS !== "web" ? (
-              <DateTimePicker
-                value={hourToDate(activeTimePicker === "start" ? dayHoursRange.start : dayHoursRange.end)}
-                mode="time"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                onChange={activeTimePicker === "start" ? handleStartHourPickerChange : handleEndHourPickerChange}
-              />
             ) : null}
             <Pressable onPress={resetDayHoursToFullDay}>
               <ThemedText style={[styles.dayHoursResetLink, { color: theme.textSecondary }]}>
@@ -1558,6 +1544,20 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
         onEditSeries={handleEditSeries}
         onDeleteInstance={handleDeleteInstance}
         onDeleteSeries={handleDeleteSeries}
+      />
+      <AppTimePicker
+        visible={activeTimePicker === "start"}
+        value={hourToHhmm(dayHoursRange.start)}
+        title="Start time"
+        onConfirm={handleStartHourConfirm}
+        onCancel={() => setActiveTimePicker(null)}
+      />
+      <AppTimePicker
+        visible={activeTimePicker === "end"}
+        value={hourToHhmm(dayHoursRange.end)}
+        title="End time"
+        onConfirm={handleEndHourConfirm}
+        onCancel={() => setActiveTimePicker(null)}
       />
       {renderFilterSheet()}
     </View>

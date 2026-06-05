@@ -10,7 +10,8 @@ import {
   Platform,
   KeyboardAvoidingView,
 } from "react-native";
-import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import AppDatePicker from "@/components/AppDatePicker";
+import AppTimePicker from "@/components/AppTimePicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, CommonActions } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -805,14 +806,6 @@ export default function OnboardingScreen() {
       )
     );
   };
-  const onStep4DateChange = (index: number) => (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS !== "ios") setStep4Picker(null);
-    if (selectedDate) updateStep4Event(index, "date", selectedDate);
-  };
-  const onStep4TimeChange = (index: number) => (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS !== "ios") setStep4Picker(null);
-    if (selectedDate) updateStep4Event(index, "time", selectedDate);
-  };
 
   const addStep5Goal = () => {
     if (step5Goals.length >= 3) return;
@@ -1560,14 +1553,6 @@ export default function OnboardingScreen() {
                   )}
                 </View>
               ))}
-              {step4Picker && (
-                <DateTimePicker
-                  value={step4Picker.mode === "date" ? step4Events[step4Picker.index].date : (step4Events[step4Picker.index].time || step4Events[step4Picker.index].date)}
-                  mode={step4Picker.mode}
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                  onChange={step4Picker.mode === "date" ? onStep4DateChange(step4Picker.index) : onStep4TimeChange(step4Picker.index)}
-                />
-              )}
               {step4Events.length < 5 && (
                 <Pressable onPress={addStep4Event} style={[styles.addAnotherButton, { borderColor: theme.border }]}>
                   <Feather name="plus" size={16} color={theme.primary} />
@@ -1812,6 +1797,57 @@ export default function OnboardingScreen() {
           </Pressable>
         )}
       </View>
+
+      <AppDatePicker
+        visible={step4Picker?.mode === "date"}
+        value={
+          step4Picker != null
+            ? toYYYYMMDD(step4Events[step4Picker.index]?.date ?? new Date())
+            : toYYYYMMDD(new Date())
+        }
+        title="Event date"
+        onConfirm={(dateStr) => {
+          const index = step4Picker?.index;
+          if (index == null) {
+            setStep4Picker(null);
+            return;
+          }
+          const [y, m, d] = dateStr.split("-").map(Number);
+          updateStep4Event(index, "date", new Date(y, m - 1, d));
+          setStep4Picker(null);
+        }}
+        onCancel={() => setStep4Picker(null)}
+      />
+      <AppTimePicker
+        visible={step4Picker?.mode === "time"}
+        value={
+          step4Picker != null
+            ? step4Events[step4Picker.index]?.time
+              ? toHHMM(step4Events[step4Picker.index].time!)
+              : "09:00"
+            : "09:00"
+        }
+        title="Event time"
+        onConfirm={(timeStr) => {
+          const index = step4Picker?.index;
+          if (index == null) {
+            setStep4Picker(null);
+            return;
+          }
+          const ev = step4Events[index];
+          const [h, min] = timeStr.split(":").map(Number);
+          const merged = new Date(
+            ev.date.getFullYear(),
+            ev.date.getMonth(),
+            ev.date.getDate(),
+            h,
+            min,
+          );
+          updateStep4Event(index, "time", merged);
+          setStep4Picker(null);
+        }}
+        onCancel={() => setStep4Picker(null)}
+      />
     </View>
   );
 }

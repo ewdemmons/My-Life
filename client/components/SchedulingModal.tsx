@@ -1,16 +1,16 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   Modal,
   View,
   StyleSheet,
   Pressable,
   ScrollView,
-  Platform,
   TextInput,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
 import { ThemedText } from "./ThemedText";
+import AppDatePicker from "./AppDatePicker";
+import AppTimePicker from "./AppTimePicker";
 import { PeopleSelector } from "./PeopleSelector";
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
@@ -60,7 +60,7 @@ export function SchedulingModal({
   canDelete = true,
 }: SchedulingModalProps) {
   const { theme } = useTheme();
-  const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories } = useApp();
+  const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories, events } = useApp();
   const { preferences } = useNotifications();
 
   const getInitialStartDate = () => {
@@ -100,6 +100,12 @@ export function SchedulingModal({
   const [showRecurrencePicker, setShowRecurrencePicker] = useState(false);
   const [showTaskPicker, setShowTaskPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
+
+  const schedulePickerOpen =
+    showStartDatePicker ||
+    showStartTimePicker ||
+    showEndDatePicker ||
+    showEndTimePicker;
 
   const isTimedEvent = eventType === "appointment" || eventType === "meeting";
 
@@ -172,57 +178,80 @@ export function SchedulingModal({
     return `${hours}:${minutes}`;
   };
 
-  const handleStartDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    setShowStartDatePicker(Platform.OS === "ios");
-    if (selectedDate) {
-      const newStart = new Date(startDate);
-      newStart.setFullYear(selectedDate.getFullYear());
-      newStart.setMonth(selectedDate.getMonth());
-      newStart.setDate(selectedDate.getDate());
-      setStartDate(newStart);
-      if (newStart > endDate) {
-        setEndDate(new Date(newStart.getTime() + 60 * 60 * 1000));
-      }
-    }
+  const applyDateToDate = (target: Date, dateStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    const next = new Date(target);
+    next.setFullYear(y, m - 1, d);
+    return next;
   };
 
-  const handleStartTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    setShowStartTimePicker(Platform.OS === "ios");
-    if (selectedDate) {
-      const newStart = new Date(startDate);
-      newStart.setHours(selectedDate.getHours());
-      newStart.setMinutes(selectedDate.getMinutes());
-      setStartDate(newStart);
-      if (newStart >= endDate) {
-        setEndDate(new Date(newStart.getTime() + 60 * 60 * 1000));
-      }
-    }
+  const applyTimeToDate = (target: Date, timeStr: string) => {
+    const [h, min] = timeStr.split(":").map(Number);
+    const next = new Date(target);
+    next.setHours(h, min, 0, 0);
+    return next;
   };
 
-  const handleEndDateChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    setShowEndDatePicker(Platform.OS === "ios");
-    if (selectedDate) {
-      const newEnd = new Date(endDate);
-      newEnd.setFullYear(selectedDate.getFullYear());
-      newEnd.setMonth(selectedDate.getMonth());
-      newEnd.setDate(selectedDate.getDate());
-      if (newEnd >= startDate) {
-        setEndDate(newEnd);
-      }
+  const handleStartDateConfirm = (dateStr: string) => {
+    const newStart = applyDateToDate(startDate, dateStr);
+    setStartDate(newStart);
+    if (newStart > endDate) {
+      setEndDate(new Date(newStart.getTime() + 60 * 60 * 1000));
     }
+    setShowStartDatePicker(false);
   };
 
-  const handleEndTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    setShowEndTimePicker(Platform.OS === "ios");
-    if (selectedDate) {
-      const newEnd = new Date(endDate);
-      newEnd.setHours(selectedDate.getHours());
-      newEnd.setMinutes(selectedDate.getMinutes());
-      if (newEnd > startDate) {
-        setEndDate(newEnd);
+  const handleStartTimeConfirm = (timeStr: string) => {
+    const newStart = applyTimeToDate(startDate, timeStr);
+    setStartDate(newStart);
+    if (newStart >= endDate) {
+      setEndDate(new Date(newStart.getTime() + 60 * 60 * 1000));
+    }
+    setShowStartTimePicker(false);
+  };
+
+  const handleEndDateConfirm = (dateStr: string) => {
+    const newEnd = applyDateToDate(endDate, dateStr);
+    if (newEnd >= startDate) {
+      setEndDate(newEnd);
+    }
+    setShowEndDatePicker(false);
+  };
+
+  const handleEndTimeConfirm = (timeStr: string) => {
+    const newEnd = applyTimeToDate(endDate, timeStr);
+    if (newEnd > startDate) {
+      setEndDate(newEnd);
+    }
+    setShowEndTimePicker(false);
+  };
+
+  const datePickerEvents = useMemo(() => {
+    const result: { date: string; color: string }[] = [];
+    const enumerateDays = (start: string, end: string) => {
+      const days: string[] = [];
+      const cur = new Date(start + "T12:00:00");
+      const last = new Date(end + "T12:00:00");
+      while (cur <= last) {
+        const y = cur.getFullYear();
+        const m = String(cur.getMonth() + 1).padStart(2, "0");
+        const d = String(cur.getDate()).padStart(2, "0");
+        days.push(`${y}-${m}-${d}`);
+        cur.setDate(cur.getDate() + 1);
+      }
+      return days;
+    };
+    for (const event of events) {
+      const color =
+        categories.find((c) => c.id === event.categoryId)?.color ??
+        EVENT_TYPES.find((t) => t.value === event.eventType)?.color ??
+        theme.primary;
+      for (const day of enumerateDays(event.startDate, event.endDate)) {
+        result.push({ date: day, color });
       }
     }
-  };
+    return result;
+  }, [events, categories, theme.primary]);
 
   const handleSave = async () => {
     if (!title.trim() || isSaving) return;
@@ -304,7 +333,8 @@ export function SchedulingModal({
   const recurrenceInfo = RECURRENCE_OPTIONS.find((r) => r.value === recurrence);
 
   return (
-    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+    <>
+      <Modal visible={visible && !schedulePickerOpen} transparent animationType="slide" onRequestClose={onClose}>
       <View style={[styles.overlay, { backgroundColor: "rgba(0,0,0,0.5)" }]}>
         <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
           <View style={styles.header}>
@@ -620,24 +650,6 @@ export function SchedulingModal({
             <View style={{ height: Spacing.xxl }} />
           </ScrollView>
 
-          {(showStartDatePicker || showStartTimePicker || showEndDatePicker || showEndTimePicker) && Platform.OS !== "web" ? (
-            <DateTimePicker
-              value={
-                showStartDatePicker || showStartTimePicker ? startDate : endDate
-              }
-              mode={showStartDatePicker || showEndDatePicker ? "date" : "time"}
-              display={Platform.OS === "ios" ? "spinner" : "default"}
-              onChange={
-                showStartDatePicker
-                  ? handleStartDateChange
-                  : showStartTimePicker
-                  ? handleStartTimeChange
-                  : showEndDatePicker
-                  ? handleEndDateChange
-                  : handleEndTimeChange
-              }
-            />
-          ) : null}
         </View>
       </View>
 
@@ -847,6 +859,39 @@ export function SchedulingModal({
         </Pressable>
       </Modal>
     </Modal>
+
+      <AppDatePicker
+        visible={showStartDatePicker}
+        value={getDateString(startDate)}
+        title="Start Date"
+        events={datePickerEvents}
+        onConfirm={handleStartDateConfirm}
+        onCancel={() => setShowStartDatePicker(false)}
+      />
+      <AppTimePicker
+        visible={showStartTimePicker}
+        value={getTimeString(startDate)}
+        title="Start Time"
+        onConfirm={handleStartTimeConfirm}
+        onCancel={() => setShowStartTimePicker(false)}
+      />
+      <AppDatePicker
+        visible={showEndDatePicker}
+        value={getDateString(endDate)}
+        title="End Date"
+        minDate={getDateString(startDate)}
+        events={datePickerEvents}
+        onConfirm={handleEndDateConfirm}
+        onCancel={() => setShowEndDatePicker(false)}
+      />
+      <AppTimePicker
+        visible={showEndTimePicker}
+        value={getTimeString(endDate)}
+        title="End Time"
+        onConfirm={handleEndTimeConfirm}
+        onCancel={() => setShowEndTimePicker(false)}
+      />
+    </>
   );
 }
 

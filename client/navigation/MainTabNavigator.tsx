@@ -21,7 +21,7 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useApp } from "@/context/AppContext";
 
 export type MainTabParamList = {
-  HomeTab: undefined;
+  HomeTab: { scrollToAgenda?: boolean; refreshTimestamp?: number } | undefined;
   TasksTab: undefined;
   CalendarTab: undefined;
   PeopleTab: undefined;

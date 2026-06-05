@@ -102,6 +102,7 @@ export async function sendToAI(params: {
   context: string;
   history: Array<{ role: string; content: string }>;
   systemPrompt: string;
+  maxTokens?: number;
 }): Promise<string> {
   const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -125,7 +126,7 @@ export async function sendToAI(params: {
     },
     body: JSON.stringify({
       model: "claude-sonnet-4-6",
-      max_tokens: 2048,
+      max_tokens: params.maxTokens ?? 2048,
       system: params.systemPrompt,
       messages,
     }),

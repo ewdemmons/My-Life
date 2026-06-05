@@ -1,13 +1,14 @@
 import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Modal, TextInput, Alert } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import AppDatePicker from "@/components/AppDatePicker";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
-import { Task, CompletionType, COMPLETION_TYPES } from "@/types";
+import { Task } from "@/types";
 import { useApp } from "@/context/AppContext";
+import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
 
 interface TaskCompletionModalProps {
   visible: boolean;
@@ -18,7 +19,7 @@ interface TaskCompletionModalProps {
 
 export function TaskCompletionModal({ visible, task, onClose, onComplete }: TaskCompletionModalProps) {
   const { theme } = useTheme();
-  const { updateTask, addOccurrence, deleteTask, deleteOccurrence, habits } = useApp();
+  const { updateTask, addOccurrence, deleteTask, deleteOccurrence, habits, events, addEvent, updateEvent, deleteEvent } = useApp();
   
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
   
@@ -80,8 +81,11 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
       }
       
       // 2. Handle Task Status/Update
+      let completeUntilDateForReminder: string | null = null;
+
       if (mainOption === "for_now") {
         const untilStr = formatDateForStorage(completeUntilDate);
+        completeUntilDateForReminder = untilStr;
         await updateTask(task.id, {
           completionType: "until",
           completionDate: untilStr,
@@ -89,6 +93,7 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
         });
       } else {
         // Option is "complete"
+        completeUntilDateForReminder = null;
         if (completeSubOption === "recycle") {
           await deleteTask(task.id);
         } else {
@@ -97,6 +102,21 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
             completionType: "as_of",
             completionDate: completedOnStr
           });
+        }
+      }
+
+      if (completeSubOption !== "recycle") {
+        try {
+          await syncCompleteUntilReminder({
+            task,
+            completeUntilDate: completeUntilDateForReminder,
+            events,
+            addEvent,
+            updateEvent,
+            deleteEvent,
+          });
+        } catch (reminderError) {
+          console.warn("Failed to sync Complete Until reminder:", reminderError);
         }
       }
 
@@ -121,16 +141,11 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
     }
   };
 
-  const handleDateChange = (event: any, selectedDate?: Date) => {
-    const type = showDatePicker;
-    setShowDatePicker(null);
-    if (selectedDate) {
-      if (type === "completed_on") {
-        setCompletedOnDate(selectedDate);
-      } else if (type === "complete_until") {
-        setCompleteUntilDate(selectedDate);
-      }
-    }
+  const getTodayDateString = () => formatDateForStorage(new Date());
+
+  const parseDateString = (dateStr: string) => {
+    const [y, m, d] = dateStr.split("-").map(Number);
+    return new Date(y, m - 1, d);
   };
 
   const resetState = () => {
@@ -150,9 +165,10 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
   };
 
   return (
-    <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <Pressable style={styles.overlay} onPress={handleClose}>
-        <Pressable style={[styles.modal, { backgroundColor: theme.backgroundDefault }]} onPress={(e) => e.stopPropagation()}>
+    <>
+      <Modal visible={visible && showDatePicker === null} transparent animationType="fade" onRequestClose={handleClose}>
+        <Pressable style={styles.overlay} onPress={handleClose}>
+          <Pressable style={[styles.modal, { backgroundColor: theme.backgroundDefault }]} onPress={(e) => e.stopPropagation()}>
           <View style={styles.header}>
             <ThemedText style={styles.title}>Complete Task</ThemedText>
             <Pressable onPress={handleClose} hitSlop={10}>
@@ -269,19 +285,33 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
             )}
           </Pressable>
 
-          {showDatePicker ? (
-            <DateTimePicker
-              value={showDatePicker === "completed_on" ? completedOnDate : completeUntilDate}
-              mode="date"
-              display="spinner"
-              onChange={handleDateChange}
-              maximumDate={showDatePicker === "completed_on" ? new Date() : undefined}
-              minimumDate={showDatePicker === "complete_until" ? new Date() : undefined}
-            />
-          ) : null}
         </Pressable>
       </Pressable>
-    </Modal>
+      </Modal>
+
+      <AppDatePicker
+        visible={showDatePicker === "completed_on"}
+        value={formatDateForStorage(completedOnDate)}
+        title="Completed On"
+        maxDate={getTodayDateString()}
+        onConfirm={(dateStr) => {
+          setCompletedOnDate(parseDateString(dateStr));
+          setShowDatePicker(null);
+        }}
+        onCancel={() => setShowDatePicker(null)}
+      />
+      <AppDatePicker
+        visible={showDatePicker === "complete_until"}
+        value={formatDateForStorage(completeUntilDate)}
+        title="Complete Until"
+        minDate={getTodayDateString()}
+        onConfirm={(dateStr) => {
+          setCompleteUntilDate(parseDateString(dateStr));
+          setShowDatePicker(null);
+        }}
+        onCancel={() => setShowDatePicker(null)}
+      />
+    </>
   );
 }
 

@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { View, StyleSheet, Pressable, FlatList, Alert, Modal, Platform } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import AppDatePicker from "@/components/AppDatePicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -487,35 +487,17 @@ export function HabitsList({ categoryId }: HabitsListProps) {
         filterDate={logModalDate}
       />
 
-      {showDatePickerModal ? (
-        <Modal visible transparent animationType="fade">
-          <Pressable style={styles.datePickerBackdrop} onPress={() => setShowDatePickerModal(false)}>
-            <View style={[styles.datePickerContainer, { backgroundColor: theme.backgroundRoot }]}>
-              <ThemedText style={[styles.datePickerTitle, { color: theme.text }]}>Log for date</ThemedText>
-              <DateTimePicker
-                value={new Date(logDate + "T12:00:00")}
-                mode="date"
-                maximumDate={new Date()}
-                onChange={(_, selectedDate) => {
-                  if (Platform.OS === "android") setShowDatePickerModal(false);
-                  if (selectedDate) {
-                    const y = selectedDate.getFullYear();
-                    const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
-                    const d = String(selectedDate.getDate()).padStart(2, "0");
-                    setLogDate(`${y}-${m}-${d}`);
-                  }
-                }}
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-              />
-              {Platform.OS === "ios" ? (
-                <Pressable style={[styles.datePickerDone, { backgroundColor: theme.primary }]} onPress={() => setShowDatePickerModal(false)}>
-                  <ThemedText style={styles.datePickerDoneText}>Done</ThemedText>
-                </Pressable>
-              ) : null}
-            </View>
-          </Pressable>
-        </Modal>
-      ) : null}
+      <AppDatePicker
+        visible={showDatePickerModal}
+        value={logDate}
+        title="Log for date"
+        maxDate={getTodayDateString()}
+        onConfirm={(dateStr) => {
+          setLogDate(dateStr);
+          setShowDatePickerModal(false);
+        }}
+        onCancel={() => setShowDatePickerModal(false)}
+      />
     </View>
   );
 }

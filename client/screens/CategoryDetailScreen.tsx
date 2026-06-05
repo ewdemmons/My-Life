@@ -1,4 +1,4 @@
-import React, { useState, useLayoutEffect, useMemo, useCallback } from "react";
+import React, { useState, useLayoutEffect, useMemo, useCallback, useRef, useEffect } from "react";
 import { View, StyleSheet, Pressable, ScrollView, FlatList, ActivityIndicator, Text, Modal } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -17,6 +17,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
+import QuickListModal from "@/components/QuickListModal";
+import { BriefToast } from "@/components/BriefToast";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { SharePeopleModal } from "@/components/SharePeopleModal";
@@ -93,8 +95,33 @@ export default function CategoryDetailScreen() {
   const [editingAsInstance, setEditingAsInstance] = useState(false);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(initialTaskId || null);
+  const [quickListEntry, setQuickListEntry] = useState<Task | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const categoryTasks = getTasksByCategory(category.id);
   const canModifyEntries = canModifyEntriesInCategory(category);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const showQuickListToast = useCallback((count: number) => {
+    const message = count === 1 ? "1 item added" : `${count} items added`;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastMessage(message);
+    setToastVisible(true);
+    toastTimerRef.current = setTimeout(() => {
+      setToastVisible(false);
+      setToastMessage(null);
+    }, 2500);
+  }, []);
+
+  const handleQuickList = useCallback((entry: Task) => {
+    setQuickListEntry(entry);
+  }, []);
   const preferredTimesCount = lifeAreaSchedules.filter((s) => s.categoryId === category.id).length;
 
   const handleUpdateSharing = async (shares: ShareRecord[]) => {
@@ -319,6 +346,7 @@ export default function CategoryDetailScreen() {
           highlightedTaskId={highlightedTaskId}
           onHighlightCleared={() => setHighlightedTaskId(null)}
           canModifyEntries={canModifyEntries}
+          onQuickList={canModifyEntries ? handleQuickList : undefined}
         />
       </ScrollView>
     </>
@@ -1066,6 +1094,20 @@ export default function CategoryDetailScreen() {
           </View>
         </Pressable>
       </Modal>
+
+      {quickListEntry ? (
+        <QuickListModal
+          visible={quickListEntry !== null}
+          parentEntry={quickListEntry}
+          onClose={() => setQuickListEntry(null)}
+          onSaved={(count) => {
+            setQuickListEntry(null);
+            showQuickListToast(count);
+          }}
+        />
+      ) : null}
+
+      <BriefToast message={toastMessage} visible={toastVisible} />
     </View>
   );
 }

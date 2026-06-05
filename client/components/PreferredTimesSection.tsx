@@ -1,6 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Platform } from "react-native";
-import DateTimePicker, { DateTimePickerEvent } from "@react-native-community/datetimepicker";
+import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -8,14 +7,13 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { LifeAreaScheduleBlockCard } from "@/components/LifeAreaScheduleBlockCard";
 import { LifeAreaScheduleWeekPreview } from "@/components/LifeAreaScheduleWeekPreview";
+import AppTimePicker from "@/components/AppTimePicker";
 import { PendingScheduleBlock } from "@/types";
 import { generateUUID } from "@/utils/recurrence";
 import {
   DEFAULT_END_TIME,
   DEFAULT_START_TIME,
   DEFAULT_WEEKDAYS,
-  dateFromTimeString,
-  getTimeStringFromDate,
 } from "@/utils/scheduleTimeUtils";
 
 interface PreferredTimesSectionProps {
@@ -54,32 +52,10 @@ export function PreferredTimesSection({
     ? blocks.find((b) => b.clientKey === activePicker.clientKey)
     : null;
 
-  const pickerValue = activeBlock
-    ? dateFromTimeString(
-        activePicker?.field === "end" ? activeBlock.endTime : activeBlock.startTime,
-      )
-    : new Date();
-
   const updateBlock = (clientKey: string, updates: Partial<PendingScheduleBlock>) => {
     onBlocksChange(
       blocks.map((b) => (b.clientKey === clientKey ? { ...b, ...updates } : b)),
     );
-  };
-
-  const handleTimeChange = (event: DateTimePickerEvent, selectedDate?: Date) => {
-    if (Platform.OS === "ios") {
-      // Keep picker open on iOS like SchedulingModal
-    } else {
-      setActivePicker(null);
-    }
-    if (event.type === "dismissed" || !selectedDate || !activePicker || !activeBlock) {
-      if (Platform.OS !== "ios") setActivePicker(null);
-      return;
-    }
-    const timeStr = getTimeStringFromDate(selectedDate);
-    updateBlock(activeBlock.clientKey, {
-      [activePicker.field === "start" ? "startTime" : "endTime"]: timeStr,
-    });
   };
 
   const handleAddBlock = () => {
@@ -132,14 +108,28 @@ export function PreferredTimesSection({
 
       <LifeAreaScheduleWeekPreview blocks={blocks} accentColor={accentColor} />
 
-      {activePicker && Platform.OS !== "web" ? (
-        <DateTimePicker
-          value={pickerValue}
-          mode="time"
-          display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={handleTimeChange}
-        />
-      ) : null}
+      <AppTimePicker
+        visible={activePicker !== null}
+        value={
+          activeBlock
+            ? activePicker?.field === "end"
+              ? activeBlock.endTime
+              : activeBlock.startTime
+            : DEFAULT_START_TIME
+        }
+        title={activePicker?.field === "end" ? "End time" : "Start time"}
+        onConfirm={(timeStr) => {
+          if (!activePicker || !activeBlock) {
+            setActivePicker(null);
+            return;
+          }
+          updateBlock(activeBlock.clientKey, {
+            [activePicker.field === "start" ? "startTime" : "endTime"]: timeStr,
+          });
+          setActivePicker(null);
+        }}
+        onCancel={() => setActivePicker(null)}
+      />
     </View>
   );
 }

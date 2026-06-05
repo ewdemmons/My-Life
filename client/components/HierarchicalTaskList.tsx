@@ -16,7 +16,7 @@ import {
   GestureHandlerRootView,
 } from "react-native-gesture-handler";
 import * as Haptics from "expo-haptics";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import AppDatePicker from "@/components/AppDatePicker";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -29,6 +29,7 @@ import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
+import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
 
 function isTemporarilyComplete(task: Task): boolean {
   if (task.completionType !== "until" || !task.completionDate) return false;
@@ -45,6 +46,33 @@ function formatShortDate(dateStr: string): string {
   const day = date.getDate();
   const year = date.getFullYear().toString().slice(-2);
   return `${month}/${day}/${year}`;
+}
+
+function formatDateForStorage(date: Date): string {
+  const y = date.getFullYear();
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
+  return `${y}-${m}-${d}`;
+}
+
+function parseDateString(dateStr: string): Date {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  return new Date(y, m - 1, d);
+}
+
+function formatDisplayDate(date: Date): string {
+  return date.toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
+
+function getCompleteUntilDateFromTask(task: Task): Date | null {
+  if (task.completionType !== "until" || !task.completionDate) {
+    return null;
+  }
+  return parseDateString(task.completionDate);
 }
 
 const TYPE_COLORS: Record<TaskType, string> = {
@@ -87,6 +115,7 @@ interface HierarchicalTaskListProps {
   highlightedTaskId?: string | null;
   onHighlightCleared?: () => void;
   canModifyEntries?: boolean;
+  onQuickList?: (entry: Task) => void;
 }
 
 export function HierarchicalTaskList({ 
@@ -96,6 +125,7 @@ export function HierarchicalTaskList({
   highlightedTaskId = null,
   onHighlightCleared,
   canModifyEntries = true,
+  onQuickList,
 }: HierarchicalTaskListProps) {
   const { categories, moveTaskToParent, reorderTasks } = useApp();
   const { theme } = useTheme();
@@ -334,6 +364,7 @@ export function HierarchicalTaskList({
               parentColor={null}
               tasksMap={tasksMap}
               canModifyEntries={canModifyEntries}
+              onQuickList={onQuickList}
             />
           ))}
         </View>
@@ -410,6 +441,14 @@ export function HierarchicalTaskList({
   );
 }
 
+type ActionLayout = "goal_idea" | "item_step" | "default";
+
+function getActionLayout(type: TaskType): ActionLayout {
+  if (type === "goal" || type === "idea") return "goal_idea";
+  if (type === "item" || type === "subtask") return "item_step";
+  return "default";
+}
+
 interface TaskItemProps {
   task: TaskHierarchy;
   depth: number;
@@ -418,14 +457,18 @@ interface TaskItemProps {
   parentColor: string | null;
   tasksMap: Map<string, Task>;
   canModifyEntries: boolean;
+  onQuickList?: (entry: Task) => void;
 }
 
-function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap, canModifyEntries }: TaskItemProps) {
+function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap, canModifyEntries, onQuickList }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits, pinTask, unpinTask } = useApp();
+  const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits, pinTask, unpinTask, events, addEvent, updateEvent, deleteEvent } = useApp();
   const [editingOccurrence, setEditingOccurrence] = useState<{ id: string; notes: string; date: Date } | null>(null);
+  const [editCompleteUntilDate, setEditCompleteUntilDate] = useState<Date | null>(null);
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+  const [showEditCompleteUntilPicker, setShowEditCompleteUntilPicker] = useState(false);
+  const editPickerOpen = showEditDatePicker || showEditCompleteUntilPicker;
   const tempComplete = isTemporarilyComplete(task);
   const showAsComplete = task.status === "completed" || tempComplete;
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
@@ -446,10 +489,130 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   const isHighlighted = highlightedTaskId === task.id;
 
   const typeInfo = getTaskTypeInfo(task.type);
+  const actionLayout = getActionLayout(task.type);
   const category = categories.find((c) => c.id === task.categoryId);
   const hasChildren = task.children.length > 0;
   const typeColor = TYPE_COLORS[task.type];
   const categoryColor = category?.color || theme.primary;
+
+  const closeEditCompletionModal = useCallback(() => {
+    setEditingOccurrence(null);
+    setEditCompleteUntilDate(null);
+    setShowEditDatePicker(false);
+    setShowEditCompleteUntilPicker(false);
+  }, []);
+
+  const openEditCompletion = useCallback((occ: { id: string; notes?: string; occurredAt: number }) => {
+    setEditingOccurrence({
+      id: occ.id,
+      notes: occ.notes || "",
+      date: new Date(occ.occurredAt),
+    });
+    setEditCompleteUntilDate(getCompleteUntilDateFromTask(task));
+    setShowEditDatePicker(false);
+    setShowEditCompleteUntilPicker(false);
+  }, [task]);
+
+  const handleSaveEditCompletion = useCallback(async () => {
+    if (!editingOccurrence) return;
+
+    try {
+      const dateStr = formatDateForStorage(editingOccurrence.date);
+      await updateOccurrence(editingOccurrence.id, {
+        notes: editingOccurrence.notes || undefined,
+        occurredAt: editingOccurrence.date.getTime(),
+        occurredDate: dateStr,
+      });
+
+      const untilStr = editCompleteUntilDate ? formatDateForStorage(editCompleteUntilDate) : null;
+      if (untilStr) {
+        await updateTask(task.id, {
+          completionType: "until",
+          completionDate: untilStr,
+          status: "pending",
+        });
+      } else if (task.completionType === "until") {
+        await updateTask(task.id, {
+          completionType: null,
+          completionDate: undefined,
+        });
+      }
+
+      if (untilStr || task.completionType === "until") {
+        try {
+          await syncCompleteUntilReminder({
+            task,
+            completeUntilDate: untilStr,
+            events,
+            addEvent,
+            updateEvent,
+            deleteEvent,
+          });
+        } catch (reminderError) {
+          console.warn("Failed to sync Complete Until reminder:", reminderError);
+        }
+      }
+
+      closeEditCompletionModal();
+    } catch (error) {
+      Alert.alert("Error", "Failed to save changes. Please try again.");
+    }
+  }, [
+    editingOccurrence,
+    editCompleteUntilDate,
+    updateOccurrence,
+    updateTask,
+    task,
+    events,
+    addEvent,
+    updateEvent,
+    deleteEvent,
+    closeEditCompletionModal,
+  ]);
+
+  const handleDeleteCompletionLog = useCallback(async (occurrenceId: string) => {
+    const remainingCount = taskOccurrences.filter((o) => o.id !== occurrenceId).length;
+
+    try {
+      await deleteOccurrence(occurrenceId);
+
+      if (remainingCount === 0) {
+        try {
+          await updateTask(task.id, {
+            status: "pending",
+            completionType: null,
+            completionDate: undefined,
+          });
+        } catch (updateError) {
+          console.warn("Failed to reset task after deleting completion log:", updateError);
+        }
+
+        try {
+          await syncCompleteUntilReminder({
+            task,
+            completeUntilDate: null,
+            events,
+            addEvent,
+            updateEvent,
+            deleteEvent,
+          });
+        } catch (reminderError) {
+          console.warn("Failed to delete Complete Until reminder:", reminderError);
+        }
+      }
+    } catch (error) {
+      Alert.alert("Error", "Failed to delete completion log. Please try again.");
+    }
+  }, [
+    taskOccurrences,
+    deleteOccurrence,
+    updateTask,
+    task,
+    events,
+    addEvent,
+    updateEvent,
+    deleteEvent,
+  ]);
 
   const toggleExpand = useCallback(() => {
     setIsExpanded(!isExpanded);
@@ -467,11 +630,27 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
 
   const handleToggleComplete = useCallback(async () => {
     if (task.status === "completed") {
-      await updateTask(task.id, { status: "pending" });
+      await updateTask(task.id, {
+        status: "pending",
+        completionType: null,
+        completionDate: undefined,
+      });
+      try {
+        await syncCompleteUntilReminder({
+          task,
+          completeUntilDate: null,
+          events,
+          addEvent,
+          updateEvent,
+          deleteEvent,
+        });
+      } catch (reminderError) {
+        console.warn("Failed to clear Complete Until reminder:", reminderError);
+      }
     } else {
       setShowCompletionModal(true);
     }
-  }, [task.id, task.status, updateTask]);
+  }, [task, events, addEvent, updateEvent, deleteEvent, updateTask]);
 
   const handleEdit = useCallback(() => {
     navigation.navigate("AddTask", { task, categoryId: task.categoryId, parentTaskId: task.parentId || undefined });
@@ -505,6 +684,11 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
     navigation.navigate("AddTask", { categoryId: task.categoryId, parentTaskId: task.id });
     setShowDetails(false);
   }, [navigation, task.categoryId, task.id]);
+
+  const handleQuickList = useCallback(() => {
+    onQuickList?.(task);
+    setShowDetails(false);
+  }, [onQuickList, task]);
 
   const handleSchedule = useCallback(() => {
     setShowSchedulingModal(true);
@@ -840,18 +1024,70 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                   <Feather name="check" size={14} color="#F59E0B" />
                 ) : null}
               </Pressable>
-              <Pressable
-                style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: typeColor + "15" }]}
-                onPress={handleAddSubtask}
-              >
-                <Feather name="plus" size={18} color={typeColor} />
-              </Pressable>
+              {actionLayout === "goal_idea" ? (
+                <>
+                  <Pressable
+                    style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: typeColor + "15" }]}
+                    onPress={handleAddSubtask}
+                  >
+                    <Feather name="plus" size={18} color={typeColor} />
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionsMenuButton, styles.actionsRowButton, styles.actionsRowButtonLabeled, { backgroundColor: "#F59E0B" + "15" }]}
+                    onPress={handleAssist}
+                  >
+                    <Feather name="zap" size={14} color="#F59E0B" />
+                    <ThemedText style={[styles.actionsRowButtonLabel, { color: "#F59E0B" }]} numberOfLines={1}>
+                      Life Coach
+                    </ThemedText>
+                  </Pressable>
+                </>
+              ) : actionLayout === "item_step" ? (
+                <>
+                  <Pressable
+                    style={[styles.actionsMenuButton, styles.actionsRowButton, styles.actionsRowButtonLabeled, { backgroundColor: theme.success + "15" }]}
+                    onPress={handleToggleComplete}
+                  >
+                    <Feather name="check-circle" size={14} color={theme.success} />
+                    <ThemedText style={[styles.actionsRowButtonLabel, { color: theme.success }]} numberOfLines={1}>
+                      Complete
+                    </ThemedText>
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionsMenuButton, styles.actionsRowButton, styles.actionsRowButtonLabeled, { backgroundColor: theme.error + "15" }]}
+                    onPress={handleDelete}
+                  >
+                    <Feather name="trash-2" size={14} color={theme.error} />
+                    <ThemedText style={[styles.actionsRowButtonLabel, { color: theme.error }]} numberOfLines={1}>
+                      Delete
+                    </ThemedText>
+                  </Pressable>
+                </>
+              ) : (
+                <>
+                  <Pressable
+                    style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: typeColor + "15" }]}
+                    onPress={handleAddSubtask}
+                  >
+                    <Feather name="plus" size={18} color={typeColor} />
+                  </Pressable>
+                  <Pressable
+                    style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: "#6B7FFF" + "15" }]}
+                    onPress={handleQuickList}
+                    disabled={!onQuickList}
+                  >
+                    <Feather name="list" size={18} color="#6B7FFF" />
+                  </Pressable>
+                </>
+              )}
               <Pressable
                 style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: theme.primary + "15" }]}
                 onPress={() => setShowActionsMenu(true)}
               >
                 <Feather name="more-horizontal" size={18} color={theme.primary} />
-                <ThemedText style={[styles.actionsMenuButtonText, { color: theme.primary }]}>Actions</ThemedText>
+                <ThemedText style={[styles.actionsMenuButtonText, { color: theme.primary }]} numberOfLines={1}>
+                  Actions
+                </ThemedText>
               </Pressable>
             </View>
             ) : null}
@@ -887,6 +1123,20 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                       <Feather name="plus" size={18} color={typeColor} />
                     </View>
                     <ThemedText style={styles.actionsMenuItemText}>Add Sub-entry</ThemedText>
+                  </Pressable>
+
+                  <Pressable
+                    style={styles.actionsMenuItem}
+                    onPress={() => {
+                      setShowActionsMenu(false);
+                      handleQuickList();
+                    }}
+                    disabled={!onQuickList}
+                  >
+                    <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#6B7FFF" + "15" }]}>
+                      <Feather name="list" size={18} color="#6B7FFF" />
+                    </View>
+                    <ThemedText style={styles.actionsMenuItemText}>Quick List</ThemedText>
                   </Pressable>
 
                   <Pressable
@@ -1009,11 +1259,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                     </View>
                     <View style={styles.historyItemActions}>
                       <Pressable
-                        onPress={() => setEditingOccurrence({ 
-                          id: occ.id, 
-                          notes: occ.notes || "", 
-                          date: new Date(occ.occurredAt) 
-                        })}
+                        onPress={() => openEditCompletion(occ)}
                         hitSlop={10}
                         style={styles.historyActionBtn}
                       >
@@ -1029,7 +1275,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                               { 
                                 text: "Delete", 
                                 style: "destructive", 
-                                onPress: () => deleteOccurrence(occ.id)
+                                onPress: () => handleDeleteCompletionLog(occ.id),
                               },
                             ]
                           );
@@ -1064,6 +1310,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                 parentColor={categoryColor}
                 tasksMap={tasksMap}
                 canModifyEntries={canModifyEntries}
+                onQuickList={onQuickList}
               />
             ))}
           </View>
@@ -1091,19 +1338,19 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
       />
 
       <Modal
-        visible={editingOccurrence !== null}
+        visible={editingOccurrence !== null && !editPickerOpen}
         transparent
         animationType="fade"
-        onRequestClose={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }}
+        onRequestClose={closeEditCompletionModal}
       >
-        <Pressable style={styles.modalOverlay} onPress={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }}>
+        <Pressable style={styles.modalOverlay} onPress={closeEditCompletionModal}>
           <Pressable 
             style={[styles.editNotesModal, { backgroundColor: theme.backgroundDefault }]}
             onPress={(e) => e.stopPropagation()}
           >
             <View style={styles.editNotesHeader}>
               <ThemedText style={styles.editNotesTitle}>Edit Completion</ThemedText>
-              <Pressable onPress={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }} hitSlop={10}>
+              <Pressable onPress={closeEditCompletionModal} hitSlop={10}>
                 <Feather name="x" size={22} color={theme.textSecondary} />
               </Pressable>
             </View>
@@ -1115,37 +1362,37 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
             >
               <Feather name="calendar" size={16} color={theme.primary} />
               <ThemedText style={{ color: theme.text, marginLeft: Spacing.sm }}>
-                {editingOccurrence?.date.toLocaleDateString("en-US", { 
-                  month: "short", 
-                  day: "numeric", 
-                  year: "numeric" 
-                })}
+                {editingOccurrence ? formatDisplayDate(editingOccurrence.date) : ""}
               </ThemedText>
             </Pressable>
-            {showEditDatePicker ? (
-              <DateTimePicker
-                value={editingOccurrence?.date || new Date()}
-                mode="date"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                onChange={(event, selectedDate) => {
-                  if (Platform.OS !== "ios") {
-                    setShowEditDatePicker(false);
-                  }
-                  if (selectedDate) {
-                    setEditingOccurrence(prev => prev ? { ...prev, date: selectedDate } : null);
-                  }
-                }}
-                maximumDate={new Date()}
-              />
-            ) : null}
-            {Platform.OS === "ios" && showEditDatePicker ? (
-              <Pressable 
-                style={[styles.editDateDoneBtn, { backgroundColor: theme.primary }]}
-                onPress={() => setShowEditDatePicker(false)}
+
+            <ThemedText style={[styles.editFieldLabel, { color: theme.textSecondary, marginTop: Spacing.md }]}>
+              Complete Until (optional)
+            </ThemedText>
+            <View style={styles.editCompleteUntilRow}>
+              <Pressable
+                style={[
+                  styles.editDateButton,
+                  styles.editCompleteUntilButton,
+                  { backgroundColor: theme.backgroundSecondary, borderColor: theme.border },
+                ]}
+                onPress={() => setShowEditCompleteUntilPicker(true)}
               >
-                <ThemedText style={{ color: "#FFFFFF", fontWeight: "600" }}>Done</ThemedText>
+                <Feather name="calendar" size={16} color={theme.primary} />
+                <ThemedText style={{ color: theme.text, marginLeft: Spacing.sm }}>
+                  {editCompleteUntilDate ? formatDisplayDate(editCompleteUntilDate) : "Not set"}
+                </ThemedText>
               </Pressable>
-            ) : null}
+              {editCompleteUntilDate ? (
+                <Pressable
+                  onPress={() => setEditCompleteUntilDate(null)}
+                  hitSlop={10}
+                  style={[styles.editClearUntilBtn, { borderColor: theme.border }]}
+                >
+                  <Feather name="x" size={16} color={theme.textSecondary} />
+                </Pressable>
+              ) : null}
+            </View>
 
             <ThemedText style={[styles.editFieldLabel, { color: theme.textSecondary, marginTop: Spacing.md }]}>Notes</ThemedText>
             <TextInput
@@ -1165,24 +1412,13 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
             <View style={styles.editNotesButtons}>
               <Pressable
                 style={[styles.editNotesCancelBtn, { backgroundColor: theme.border }]}
-                onPress={() => { setEditingOccurrence(null); setShowEditDatePicker(false); }}
+                onPress={closeEditCompletionModal}
               >
                 <ThemedText style={styles.editNotesBtnText}>Cancel</ThemedText>
               </Pressable>
               <Pressable
                 style={[styles.editNotesSaveBtn, { backgroundColor: theme.primary }]}
-                onPress={() => {
-                  if (editingOccurrence) {
-                    const dateStr = editingOccurrence.date.toISOString().split("T")[0];
-                    updateOccurrence(editingOccurrence.id, { 
-                      notes: editingOccurrence.notes || undefined,
-                      occurredAt: editingOccurrence.date.getTime(),
-                      occurredDate: dateStr,
-                    });
-                    setEditingOccurrence(null);
-                    setShowEditDatePicker(false);
-                  }
-                }}
+                onPress={handleSaveEditCompletion}
               >
                 <ThemedText style={[styles.editNotesBtnText, { color: "#FFFFFF" }]}>Save</ThemedText>
               </Pressable>
@@ -1190,6 +1426,35 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
           </Pressable>
         </Pressable>
       </Modal>
+
+      <AppDatePicker
+        visible={showEditDatePicker && editingOccurrence !== null}
+        value={editingOccurrence ? formatDateForStorage(editingOccurrence.date) : ""}
+        title="Completed On"
+        maxDate={formatDateForStorage(new Date())}
+        onConfirm={(dateStr) => {
+          setEditingOccurrence((prev) =>
+            prev ? { ...prev, date: parseDateString(dateStr) } : null,
+          );
+          setShowEditDatePicker(false);
+        }}
+        onCancel={() => setShowEditDatePicker(false)}
+      />
+      <AppDatePicker
+        visible={showEditCompleteUntilPicker && editingOccurrence !== null}
+        value={
+          editCompleteUntilDate
+            ? formatDateForStorage(editCompleteUntilDate)
+            : formatDateForStorage(editingOccurrence?.date ?? new Date())
+        }
+        title="Complete Until"
+        minDate={editingOccurrence ? formatDateForStorage(editingOccurrence.date) : undefined}
+        onConfirm={(dateStr) => {
+          setEditCompleteUntilDate(parseDateString(dateStr));
+          setShowEditCompleteUntilPicker(false);
+        }}
+        onCancel={() => setShowEditCompleteUntilPicker(false)}
+      />
     </View>
   );
 }
@@ -1401,7 +1666,20 @@ const styles = StyleSheet.create({
   actionsRowButton: {
     flex: 1,
     minWidth: 0,
-    paddingHorizontal: Spacing.sm,
+    height: 34,
+    paddingHorizontal: Spacing.xs,
+    paddingVertical: 0,
+  },
+  actionsRowButtonLabeled: {
+    flexDirection: "column",
+    gap: 2,
+    paddingVertical: 0,
+  },
+  actionsRowButtonLabel: {
+    fontSize: 8,
+    fontWeight: "600",
+    textAlign: "center",
+    lineHeight: 10,
   },
   actionButton: {
     flexDirection: "row",
@@ -1582,6 +1860,24 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.md,
     marginBottom: Spacing.sm,
   },
+  editCompleteUntilRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+    marginBottom: Spacing.sm,
+  },
+  editCompleteUntilButton: {
+    flex: 1,
+    marginBottom: 0,
+  },
+  editClearUntilBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
   editDateDoneBtn: {
     alignItems: "center",
     paddingVertical: Spacing.sm,
@@ -1592,13 +1888,11 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    paddingVertical: 10,
-    paddingHorizontal: Spacing.lg,
     borderRadius: BorderRadius.sm,
-    gap: 6,
+    gap: 4,
   },
   actionsMenuButtonText: {
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: "600",
   },
   actionsMenuOverlay: {

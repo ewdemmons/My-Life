@@ -172,6 +172,55 @@ export function formatLocalDateYYYYMMDD(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day);
+}
+
+export function groupPinnedTasks(tasks: Task[]): MasterListTaskSection[] {
+  const hasAnyDeadline = tasks.some((t) => !!t.deadline);
+
+  if (!hasAnyDeadline) {
+    return tasks.length > 0
+      ? [{ key: "pinned", label: "Pinned", tasks }]
+      : [];
+  }
+
+  const todayStr = formatLocalDateYYYYMMDD(getLocalTodayDate());
+  const todayDate = getLocalTodayDate();
+  const weekEnd = new Date(todayDate);
+  weekEnd.setDate(weekEnd.getDate() + 7);
+
+  const todayTasks: Task[] = [];
+  const thisWeekTasks: Task[] = [];
+  const laterTasks: Task[] = [];
+
+  for (const task of tasks) {
+    if (task.deadline === todayStr) {
+      todayTasks.push(task);
+    } else if (task.priority === "high" && !task.deadline) {
+      todayTasks.push(task);
+    } else if (task.deadline) {
+      const deadlineDate = parseLocalDate(task.deadline);
+      if (deadlineDate < todayDate) {
+        todayTasks.push(task);
+      } else if (deadlineDate > todayDate && deadlineDate <= weekEnd) {
+        thisWeekTasks.push(task);
+      } else {
+        laterTasks.push(task);
+      }
+    } else {
+      laterTasks.push(task);
+    }
+  }
+
+  const sections: MasterListTaskSection[] = [];
+  if (todayTasks.length > 0) sections.push({ key: "today", label: "Today", tasks: todayTasks });
+  if (thisWeekTasks.length > 0) sections.push({ key: "thisWeek", label: "This Week", tasks: thisWeekTasks });
+  if (laterTasks.length > 0) sections.push({ key: "later", label: "Later", tasks: laterTasks });
+  return sections;
+}
+
 export function getLocalTodayDate(): Date {
   const now = new Date();
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());

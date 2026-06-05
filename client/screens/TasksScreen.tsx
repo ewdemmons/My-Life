@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { View, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -10,7 +10,9 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
-import { TASK_TYPES, TaskType } from "@/types";
+import QuickListModal from "@/components/QuickListModal";
+import { BriefToast } from "@/components/BriefToast";
+import { TASK_TYPES, TaskType, Task } from "@/types";
 
 export default function TasksScreen() {
   const insets = useSafeAreaInsets();
@@ -22,6 +24,31 @@ export default function TasksScreen() {
   const [showCompleted, setShowCompleted] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [selectedType, setSelectedType] = useState<TaskType | null>(null);
+  const [quickListEntry, setQuickListEntry] = useState<Task | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+  const [toastVisible, setToastVisible] = useState(false);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    };
+  }, []);
+
+  const showQuickListToast = useCallback((count: number) => {
+    const message = count === 1 ? "1 item added" : `${count} items added`;
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setToastMessage(message);
+    setToastVisible(true);
+    toastTimerRef.current = setTimeout(() => {
+      setToastVisible(false);
+      setToastMessage(null);
+    }, 2500);
+  }, []);
+
+  const handleQuickList = useCallback((entry: Task) => {
+    setQuickListEntry(entry);
+  }, []);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
@@ -192,8 +219,27 @@ export default function TasksScreen() {
         }}
         scrollIndicatorInsets={{ bottom: insets.bottom }}
       >
-        <HierarchicalTaskList tasks={filteredTasks} showCategory filterType={selectedType} />
+        <HierarchicalTaskList
+          tasks={filteredTasks}
+          showCategory
+          filterType={selectedType}
+          onQuickList={handleQuickList}
+        />
       </ScrollView>
+
+      {quickListEntry ? (
+        <QuickListModal
+          visible={quickListEntry !== null}
+          parentEntry={quickListEntry}
+          onClose={() => setQuickListEntry(null)}
+          onSaved={(count) => {
+            setQuickListEntry(null);
+            showQuickListToast(count);
+          }}
+        />
+      ) : null}
+
+      <BriefToast message={toastMessage} visible={toastVisible} />
     </View>
   );
 }

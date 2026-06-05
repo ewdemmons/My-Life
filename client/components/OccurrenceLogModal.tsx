@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { View, StyleSheet, Modal, Pressable, FlatList, Alert, Platform } from "react-native";
-import DateTimePicker from "@react-native-community/datetimepicker";
+import AppDatePicker from "@/components/AppDatePicker";
 import { BlurView } from "expo-blur";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
@@ -36,6 +36,15 @@ export function OccurrenceLogModal({
   const [editDate, setEditDate] = useState<string>("");
   const [editCount, setEditCount] = useState(0);
   const [saving, setSaving] = useState(false);
+  const [showEditDatePicker, setShowEditDatePicker] = useState(false);
+
+  const getTodayDateString = () => {
+    const d = new Date();
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  };
 
   const filteredOccurrences = useMemo(() => {
     let filtered = [...occurrences];
@@ -199,7 +208,7 @@ export function OccurrenceLogModal({
   return (
     <>
     <Modal
-      visible={visible}
+      visible={visible && !showEditDatePicker}
       transparent
       animationType="slide"
       onRequestClose={onClose}
@@ -258,22 +267,13 @@ export function OccurrenceLogModal({
             <View style={[styles.editSheet, { backgroundColor: theme.backgroundRoot }]}>
               <ThemedText style={[styles.editTitle, { color: theme.text }]}>Edit log entries</ThemedText>
               <ThemedText style={[styles.editLabel, { color: theme.textSecondary }]}>Date</ThemedText>
-              <View style={styles.editDateRow}>
-                <DateTimePicker
-                  value={new Date(editDate + "T12:00:00")}
-                  mode="date"
-                  maximumDate={new Date()}
-                  onChange={(_, selectedDate) => {
-                    if (selectedDate) {
-                      const y = selectedDate.getFullYear();
-                      const m = String(selectedDate.getMonth() + 1).padStart(2, "0");
-                      const d = String(selectedDate.getDate()).padStart(2, "0");
-                      setEditDate(`${y}-${m}-${d}`);
-                    }
-                  }}
-                  display={Platform.OS === "ios" ? "spinner" : "default"}
-                />
-              </View>
+              <Pressable
+                style={[styles.editDateRow, { borderColor: theme.border }]}
+                onPress={() => setShowEditDatePicker(true)}
+              >
+                <ThemedText style={{ color: theme.text }}>{formatDate(editDate)}</ThemedText>
+                <Feather name="chevron-right" size={18} color={theme.textSecondary} />
+              </Pressable>
               <ThemedText style={[styles.editLabel, { color: theme.textSecondary }]}>
                 Number of occurrences
               </ThemedText>
@@ -313,6 +313,18 @@ export function OccurrenceLogModal({
         ) : null}
       </BlurView>
     </Modal>
+
+    <AppDatePicker
+      visible={showEditDatePicker && editingGroup !== null}
+      value={editDate}
+      title="Log date"
+      maxDate={getTodayDateString()}
+      onConfirm={(dateStr) => {
+        setEditDate(dateStr);
+        setShowEditDatePicker(false);
+      }}
+      onCancel={() => setShowEditDatePicker(false)}
+    />
     </>
   );
 }
@@ -433,8 +445,14 @@ const styles = StyleSheet.create({
     marginBottom: Spacing.xs,
   },
   editDateRow: {
-    marginBottom: Spacing.md,
+    flexDirection: "row",
     alignItems: "center",
+    justifyContent: "space-between",
+    marginBottom: Spacing.md,
+    paddingVertical: Spacing.sm,
+    paddingHorizontal: Spacing.md,
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
   },
   countStepper: {
     flexDirection: "row",

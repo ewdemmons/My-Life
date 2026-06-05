@@ -10,6 +10,7 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { PeopleSelector } from "@/components/PeopleSelector";
+import MarkdownPreview from "@/components/MarkdownPreview";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { TaskType, TASK_TYPES, Task } from "@/types";
@@ -158,19 +159,12 @@ export default function AddTaskScreen() {
 
         <View style={styles.section}>
           <ThemedText style={styles.label}>Description (Optional)</ThemedText>
-          <TextInput
-            style={[
-              styles.input,
-              styles.textArea,
-              { backgroundColor: theme.backgroundDefault, color: theme.text, borderColor: theme.border },
-            ]}
-            placeholder="Add more details..."
-            placeholderTextColor={theme.textSecondary}
+          <MarkdownPreview
             value={description}
-            onChangeText={setDescription}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
+            onChange={(text) => setDescription(text)}
+            placeholder="Add description, notes, or details..."
+            editorTitle="Description"
+            maxLines={4}
           />
         </View>
 

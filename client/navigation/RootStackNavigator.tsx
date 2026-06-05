@@ -13,10 +13,13 @@ import NotificationsScreen from "@/screens/NotificationsScreen";
 import CentralDashboardScreen from "@/screens/CentralDashboardScreen";
 import ProfileScreen from "@/screens/ProfileScreen";
 import AssistantChatScreen from "@/screens/AssistantChatScreen";
+import DailyPlanGeneratorScreen from "@/screens/DailyPlanGeneratorScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
 import { LifeCategory, Task } from "@/types";
+import { NavigatorScreenParams } from "@react-navigation/native";
+import { MainTabParamList } from "@/navigation/MainTabNavigator";
 
 const PENDING_ONBOARDING_KEY = "@pending_onboarding";
 
@@ -33,7 +36,7 @@ export type EntryContext = {
 };
 
 export type RootStackParamList = {
-  Main: undefined;
+  Main: NavigatorScreenParams<MainTabParamList> | undefined;
   CategoryDetail: { category?: LifeCategory; categoryId?: string; initialTaskId?: string; initialEventId?: string };
   AddCategory: { category?: LifeCategory; scrollToPreferredTimes?: boolean };
   AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
@@ -41,6 +44,7 @@ export type RootStackParamList = {
   CentralDashboard: undefined;
   Profile: undefined;
   AssistantChat: { entryContext?: EntryContext };
+  DailyPlanGenerator: { initialDate?: string };
 };
 
 export type PostSignUpStackParamList = {
@@ -109,6 +113,13 @@ function MainAppNavigator() {
         component={AssistantChatScreen}
         options={{
           headerTitle: "Life Coach",
+        }}
+      />
+      <Stack.Screen
+        name="DailyPlanGenerator"
+        component={DailyPlanGeneratorScreen}
+        options={{
+          headerShown: false,
         }}
       />
     </Stack.Navigator>
