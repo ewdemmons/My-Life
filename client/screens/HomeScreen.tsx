@@ -43,6 +43,8 @@ import { AgendaMasterListView } from "@/components/agenda/AgendaMasterListView";
 import { DailyPlanView } from "@/components/agenda/DailyPlanView";
 import { NoPlanBanner } from "@/components/agenda/NoPlanBanner";
 import { BriefToast } from "@/components/BriefToast";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import {
   checkAndReopenCompleteUntilEntries,
   formatCompleteUntilReopenMessage,
@@ -97,6 +99,8 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
   const route = useRoute<RouteProp<MainTabParamList, "HomeTab">>();
   const { user } = useAuth();
   const { categories, tasks, deleteCategory, isLoading, updateTask, events, addEvent, updateEvent, deleteEvent } = useApp();
+  const { toastState: saveToastState, toastMessage: saveToastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500 });
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
   const [tipIndex, setTipIndex] = useState(0);
@@ -437,8 +441,15 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
             text: "Delete",
             style: "destructive",
             onPress: () => {
-              deleteCategory(selectedCategory.id);
-              setSelectedCategory(null);
+              const categoryId = selectedCategory.id;
+              const performDelete = async () => {
+                await deleteCategory(categoryId);
+                setSelectedCategory(null);
+              };
+              setRetry(() => {
+                void performDelete();
+              });
+              void withSaveIndicator(performDelete, { showSuccess: false });
             },
           },
         ],
@@ -744,6 +755,12 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
         </Pressable>
       </Modal>
       <BriefToast message={toastMessage} visible={toastVisible} />
+      <SaveToast
+        state={saveToastState}
+        message={saveToastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </SafeAreaView>
   );
 }

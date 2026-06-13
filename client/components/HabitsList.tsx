@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, FlatList, Alert, Modal, Platform } from "react-native";
+import { View, StyleSheet, Pressable, FlatList, Modal, Platform } from "react-native";
 import AppDatePicker from "@/components/AppDatePicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -16,6 +16,8 @@ import { HabitProgressChart } from "@/components/HabitProgressChart";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
 import { HabitCardActions } from "@/components/HabitCardActions";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
 interface HabitsListProps {
   categoryId: string;
@@ -28,6 +30,8 @@ export function HabitsList({ categoryId }: HabitsListProps) {
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { habits, categories, addOccurrence, getOccurrencesForItem, deleteOccurrence, updateOccurrence } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300, successMessage: "Habit logged" });
 
   const getTodayDateString = () => {
     const now = new Date();
@@ -69,7 +73,7 @@ export function HabitsList({ categoryId }: HabitsListProps) {
   };
 
   const handleQuickLog = async (habit: Habit) => {
-    try {
+    const performLog = async () => {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const baseTime = new Date(logDate + "T12:00:00").getTime();
       await addOccurrence({
@@ -78,9 +82,12 @@ export function HabitsList({ categoryId }: HabitsListProps) {
         occurredAt: baseTime,
         occurredDate: logDate,
       });
-    } catch (error) {
-      Alert.alert("Error", "Failed to log occurrence. Please try again.");
-    }
+    };
+
+    setRetry(() => {
+      void handleQuickLog(habit);
+    });
+    await withSaveIndicator(performLog);
   };
 
   const handleHabitPress = (habit: Habit) => {
@@ -188,12 +195,15 @@ export function HabitsList({ categoryId }: HabitsListProps) {
     
     const lastOccurrence = periodOccurrences.sort((a, b) => b.occurredAt - a.occurredAt)[0];
     
-    try {
+    const performDecrement = async () => {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await deleteOccurrence(lastOccurrence.id);
-    } catch (error) {
-      Alert.alert("Error", "Failed to remove occurrence. Please try again.");
-    }
+    };
+
+    setRetry(() => {
+      void handleDecrement(habit);
+    });
+    await withSaveIndicator(performDecrement, { showSuccess: false });
   };
 
   const handleBarPress = (habit: Habit, dateKey: string, count: number) => {
@@ -497,6 +507,13 @@ export function HabitsList({ categoryId }: HabitsListProps) {
           setShowDatePickerModal(false);
         }}
         onCancel={() => setShowDatePickerModal(false)}
+      />
+
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
       />
     </View>
   );

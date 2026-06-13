@@ -24,6 +24,8 @@ import { Colors } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import type { PostSignUpStackParamList } from "@/navigation/RootStackNavigator";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { createDefaultLifeWheel } from "@/lib/defaultLifeWheel";
 import {
   autoSelectLifeArea,
@@ -386,6 +388,8 @@ export default function OnboardingScreen() {
   const theme = systemTheme;
   const navigation = useNavigation<NavigationProp>();
   const { addCategory, addTask, addEvent, addHabit, categories } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
   const [currentStep, setCurrentStep] = useState(1);
   const [checkingStorage, setCheckingStorage] = useState(true);
@@ -917,7 +921,7 @@ export default function OnboardingScreen() {
         if (!canContinueStep1) return;
         setStep1Loading(true);
         setStep1Error(null);
-        try {
+        const performSave = async () => {
           const ids: string[] = [];
           for (const d of DEFAULT_LIFE_AREAS) {
             const created = await addCategory({
@@ -1013,29 +1017,31 @@ export default function OnboardingScreen() {
           }
 
           goToNextStep();
-        } catch (e) {
-          setStep1Error(e instanceof Error ? e.message : "Something went wrong. Please try again.");
-        } finally {
-          setStep1Loading(false);
+        };
+        setRetry(() => { void performSave(); });
+        const result = await withSaveIndicator(performSave);
+        if (result === null) {
+          setStep1Error("Something went wrong. Please try again.");
         }
+        setStep1Loading(false);
         return;
       }
       if (currentStep === 2) {
-        let pinnedOrder = 0;
-        const createdIndices: number[] = [];
-        for (let i = 0; i < step3Tasks.length; i++) {
-          const t = step3Tasks[i];
-          if (!t.title.trim()) continue;
-          if (t.created) continue;
-          const taskCategoryId = resolveOnboardingLifeAreaId(
-            t.categoryId,
-            t.title.trim(),
-            createdCategories,
-            createdCategoryIds
-          );
-          if (!taskCategoryId) continue;
-          const entryType = autoSelectEntryType(t.title);
-          try {
+        const performSave = async () => {
+          let pinnedOrder = 0;
+          const createdIndices: number[] = [];
+          for (let i = 0; i < step3Tasks.length; i++) {
+            const t = step3Tasks[i];
+            if (!t.title.trim()) continue;
+            if (t.created) continue;
+            const taskCategoryId = resolveOnboardingLifeAreaId(
+              t.categoryId,
+              t.title.trim(),
+              createdCategories,
+              createdCategoryIds
+            );
+            if (!taskCategoryId) continue;
+            const entryType = autoSelectEntryType(t.title);
             await addTask({
               title: t.title.trim(),
               description: "",
@@ -1049,35 +1055,35 @@ export default function OnboardingScreen() {
               pinnedOrder: pinnedOrder++,
             });
             createdIndices.push(i);
-          } catch (err) {
-            console.error("[Onboarding] Failed to create pinned task:", t.title.trim(), err);
           }
-        }
-        setStep3Tasks((prev) => prev.map((task, j) => (createdIndices.includes(j) ? { ...task, created: true } : task)));
-        goToNextStep();
+          setStep3Tasks((prev) => prev.map((task, j) => (createdIndices.includes(j) ? { ...task, created: true } : task)));
+          goToNextStep();
+        };
+        setRetry(() => { void performSave(); });
+        await withSaveIndicator(performSave);
         return;
       }
       if (currentStep === 3) {
-        const createdIndices: number[] = [];
-        for (let i = 0; i < step4Events.length; i++) {
-          const e = step4Events[i];
-          if (!e.title.trim()) continue;
-          if (e.created) continue;
-          const eventCategoryId = resolveOnboardingLifeAreaId(
-            e.categoryId,
-            e.title.trim(),
-            createdCategories,
-            createdCategoryIds
-          );
-          const startDate = toYYYYMMDD(e.date);
-          const startTime = e.time ? toHHMM(e.time) : "09:00";
-          const startDt = e.time
-            ? new Date(e.date.getFullYear(), e.date.getMonth(), e.date.getDate(), e.time.getHours(), e.time.getMinutes())
-            : new Date(e.date.getFullYear(), e.date.getMonth(), e.date.getDate(), 9, 0);
-          const endDt = new Date(startDt.getTime() + 60 * 60 * 1000);
-          const endDate = toYYYYMMDD(endDt);
-          const endTime = toHHMM(endDt);
-          try {
+        const performSave = async () => {
+          const createdIndices: number[] = [];
+          for (let i = 0; i < step4Events.length; i++) {
+            const e = step4Events[i];
+            if (!e.title.trim()) continue;
+            if (e.created) continue;
+            const eventCategoryId = resolveOnboardingLifeAreaId(
+              e.categoryId,
+              e.title.trim(),
+              createdCategories,
+              createdCategoryIds
+            );
+            const startDate = toYYYYMMDD(e.date);
+            const startTime = e.time ? toHHMM(e.time) : "09:00";
+            const startDt = e.time
+              ? new Date(e.date.getFullYear(), e.date.getMonth(), e.date.getDate(), e.time.getHours(), e.time.getMinutes())
+              : new Date(e.date.getFullYear(), e.date.getMonth(), e.date.getDate(), 9, 0);
+            const endDt = new Date(startDt.getTime() + 60 * 60 * 1000);
+            const endDate = toYYYYMMDD(endDt);
+            const endTime = toHHMM(endDt);
             await addEvent({
               title: e.title.trim(),
               description: "",
@@ -1091,33 +1097,28 @@ export default function OnboardingScreen() {
               categoryId: eventCategoryId,
             });
             createdIndices.push(i);
-          } catch (err) {
-            console.error(
-              "[Onboarding] Failed to create event:",
-              e.title.trim(),
-              { startDate, startTime, endDate, endTime, categoryId: eventCategoryId },
-              err
-            );
           }
-        }
-        setStep4Events((prev) => prev.map((ev, j) => (createdIndices.includes(j) ? { ...ev, created: true } : ev)));
-        goToNextStep();
+          setStep4Events((prev) => prev.map((ev, j) => (createdIndices.includes(j) ? { ...ev, created: true } : ev)));
+          goToNextStep();
+        };
+        setRetry(() => { void performSave(); });
+        await withSaveIndicator(performSave);
         return;
       }
       if (currentStep === 4) {
-        const createdGoalIndices: number[] = [];
-        for (let i = 0; i < step5Goals.length; i++) {
-          const g = step5Goals[i];
-          if (!g.title.trim()) continue;
-          if (g.created) continue;
-          const goalCategoryId = resolveOnboardingLifeAreaId(
-            g.categoryId,
-            g.title.trim(),
-            createdCategories,
-            createdCategoryIds
-          );
-          if (!goalCategoryId) continue;
-          try {
+        const performSave = async () => {
+          const createdGoalIndices: number[] = [];
+          for (let i = 0; i < step5Goals.length; i++) {
+            const g = step5Goals[i];
+            if (!g.title.trim()) continue;
+            if (g.created) continue;
+            const goalCategoryId = resolveOnboardingLifeAreaId(
+              g.categoryId,
+              g.title.trim(),
+              createdCategories,
+              createdCategoryIds
+            );
+            if (!goalCategoryId) continue;
             await addTask({
               title: g.title.trim(),
               description: g.details.trim() || "",
@@ -1129,33 +1130,33 @@ export default function OnboardingScreen() {
               assigneeIds: [],
             });
             createdGoalIndices.push(i);
-          } catch (err) {
-            console.error("[Onboarding] Failed to create goal:", g.title.trim(), err);
           }
-        }
-        setStep5Goals((prev) =>
-          prev.map((goal, j) => (createdGoalIndices.includes(j) ? { ...goal, created: true } : goal))
-        );
-        goToNextStep();
+          setStep5Goals((prev) =>
+            prev.map((goal, j) => (createdGoalIndices.includes(j) ? { ...goal, created: true } : goal))
+          );
+          goToNextStep();
+        };
+        setRetry(() => { void performSave(); });
+        await withSaveIndicator(performSave);
         return;
       }
       if (currentStep === 5) {
-        const createdHabitIndices: number[] = [];
-        for (let i = 0; i < step6Habits.length; i++) {
-          const h = step6Habits[i];
-          if (!h.name.trim()) continue;
-          if (h.created) continue;
-          const count = Math.max(1, Math.floor(Number(h.goalCount)) || 0) || 1;
-          const habitCategoryId = resolveOnboardingLifeAreaId(
-            h.categoryId,
-            h.name.trim(),
-            createdCategories,
-            createdCategoryIds
-          );
-          const habitType: HabitType = h.habitType === "negative" ? "negative" : "positive";
-          const goalFrequency: GoalFrequency =
-            h.goalFrequency === "weekly" || h.goalFrequency === "monthly" ? h.goalFrequency : "daily";
-          try {
+        const performSave = async () => {
+          const createdHabitIndices: number[] = [];
+          for (let i = 0; i < step6Habits.length; i++) {
+            const h = step6Habits[i];
+            if (!h.name.trim()) continue;
+            if (h.created) continue;
+            const count = Math.max(1, Math.floor(Number(h.goalCount)) || 0) || 1;
+            const habitCategoryId = resolveOnboardingLifeAreaId(
+              h.categoryId,
+              h.name.trim(),
+              createdCategories,
+              createdCategoryIds
+            );
+            const habitType: HabitType = h.habitType === "negative" ? "negative" : "positive";
+            const goalFrequency: GoalFrequency =
+              h.goalFrequency === "weekly" || h.goalFrequency === "monthly" ? h.goalFrequency : "daily";
             await addHabit({
               name: h.name.trim(),
               habitType,
@@ -1166,19 +1167,14 @@ export default function OnboardingScreen() {
               isActive: true,
             });
             createdHabitIndices.push(i);
-          } catch (err) {
-            console.error(
-              "[Onboarding] Failed to create habit:",
-              h.name.trim(),
-              { habitType, goalFrequency, goalCount: count, categoryId: habitCategoryId },
-              err
-            );
           }
-        }
-        setStep6Habits((prev) =>
-          prev.map((habit, j) => (createdHabitIndices.includes(j) ? { ...habit, created: true } : habit))
-        );
-        goToNextStep();
+          setStep6Habits((prev) =>
+            prev.map((habit, j) => (createdHabitIndices.includes(j) ? { ...habit, created: true } : habit))
+          );
+          goToNextStep();
+        };
+        setRetry(() => { void performSave(); });
+        await withSaveIndicator(performSave);
         return;
       }
       if (currentStep === 6) {
@@ -1847,6 +1843,12 @@ export default function OnboardingScreen() {
           setStep4Picker(null);
         }}
         onCancel={() => setStep4Picker(null)}
+      />
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
       />
     </View>
   );

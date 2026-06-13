@@ -27,6 +27,8 @@ import {
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { getRecurrenceDescription } from "@/utils/recurrence";
 import { scheduleEventReminder, calculateReminderTime } from "@/utils/notifications";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
 interface SchedulingModalProps {
   visible: boolean;
@@ -38,6 +40,8 @@ interface SchedulingModalProps {
   linkedHabit?: Habit | null;
   editingEvent?: CalendarEvent | null;
   preselectedCategoryId?: string;
+  initialCategoryId?: string;
+  initialPeopleIds?: string[];
   lockedCategoryId?: string;
   editingAsInstance?: boolean;
   readOnly?: boolean;
@@ -54,6 +58,8 @@ export function SchedulingModal({
   linkedHabit,
   editingEvent,
   preselectedCategoryId,
+  initialCategoryId,
+  initialPeopleIds,
   lockedCategoryId,
   editingAsInstance = false,
   readOnly = false,
@@ -62,6 +68,8 @@ export function SchedulingModal({
   const { theme } = useTheme();
   const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories, events } = useApp();
   const { preferences } = useNotifications();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Event scheduled" });
 
   const getInitialStartDate = () => {
     if (editingEvent) return new Date(editingEvent.startDate + "T" + editingEvent.startTime);
@@ -130,10 +138,11 @@ export function SchedulingModal({
         editingEvent?.categoryId ||
         linkedTask?.categoryId ||
         linkedHabit?.categoryId ||
+        initialCategoryId ||
         preselectedCategoryId ||
         (linkedHabit ? null : categories.length > 0 ? categories[0].id : null);
       setSelectedCategoryId(initialCategory);
-      setAttendeeIds(editingEvent?.attendeeIds || []);
+      setAttendeeIds(editingEvent?.attendeeIds || initialPeopleIds || []);
     }
   }, [
     visible,
@@ -143,6 +152,8 @@ export function SchedulingModal({
     initialDate,
     initialStartTime,
     initialEndTime,
+    initialCategoryId,
+    initialPeopleIds,
     preselectedCategoryId,
     lockedCategoryId,
     categories,
@@ -273,53 +284,66 @@ export function SchedulingModal({
       attendeeIds,
     };
 
-    try {
+    const performSave = async () => {
       setIsSaving(true);
+      try {
+        if (editingEvent) {
+          const isPartOfSeries = editingEvent.seriesId != null && editingEvent.seriesId !== "";
 
-      if (editingEvent) {
-        const isPartOfSeries = editingEvent.seriesId != null && editingEvent.seriesId !== "";
-        
-        if (isPartOfSeries && editingEvent.seriesId) {
-          if (editingAsInstance) {
-            await updateEventInstance(editingEvent.id, eventData);
+          if (isPartOfSeries && editingEvent.seriesId) {
+            if (editingAsInstance) {
+              await updateEventInstance(editingEvent.id, eventData);
+            } else {
+              setIsUpdatingSeries(true);
+              await updateEventSeries(editingEvent.seriesId, eventData, editingEvent.id);
+              setIsUpdatingSeries(false);
+            }
           } else {
-            setIsUpdatingSeries(true);
-            await updateEventSeries(editingEvent.seriesId, eventData, editingEvent.id);
-            setIsUpdatingSeries(false);
+            await updateEvent(editingEvent.id, eventData);
           }
         } else {
-          await updateEvent(editingEvent.id, eventData);
+          await addEvent(eventData);
+
+          if (preferences.enabled && preferences.eventReminders) {
+            const reminderTime = calculateReminderTime(
+              eventData.startDate,
+              eventData.startTime,
+              preferences.reminderMinutesBefore
+            );
+            const notificationEventId = `${eventData.startDate}-${eventData.startTime}-${Date.now()}`;
+            await scheduleEventReminder(
+              notificationEventId,
+              eventData.title,
+              `Reminder: "${eventData.title}" starts in ${preferences.reminderMinutesBefore} minutes`,
+              reminderTime
+            );
+          }
         }
-      } else {
-        await addEvent(eventData);
-        
-        if (preferences.enabled && preferences.eventReminders) {
-          const reminderTime = calculateReminderTime(
-            eventData.startDate,
-            eventData.startTime,
-            preferences.reminderMinutesBefore
-          );
-          const notificationEventId = `${eventData.startDate}-${eventData.startTime}-${Date.now()}`;
-          await scheduleEventReminder(
-            notificationEventId,
-            eventData.title,
-            `Reminder: "${eventData.title}" starts in ${preferences.reminderMinutesBefore} minutes`,
-            reminderTime
-          );
-        }
+        onClose();
+      } finally {
+        setIsSaving(false);
+        setIsUpdatingSeries(false);
       }
-      onClose();
-    } finally {
-      setIsSaving(false);
-      setIsUpdatingSeries(false);
-    }
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
   };
 
   const handleDelete = async () => {
-    if (editingEvent) {
+    if (!editingEvent) return;
+
+    const performDelete = async () => {
       await deleteEvent(editingEvent.id);
       onClose();
-    }
+    };
+
+    setRetry(() => {
+      void performDelete();
+    });
+    await withSaveIndicator(performDelete, { showSuccess: false });
   };
 
   const selectedTask = selectedTaskId ? tasks.find((t) => t.id === selectedTaskId) : null;
@@ -651,6 +675,13 @@ export function SchedulingModal({
           </ScrollView>
 
         </View>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
 
       <Modal

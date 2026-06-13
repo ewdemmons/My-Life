@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from "react";
+import React, { useState, useCallback } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import { Feather } from "@expo/vector-icons";
 
@@ -7,7 +7,8 @@ import { useApp } from "@/context/AppContext";
 import { Habit } from "@/types";
 import { ThemedText } from "@/components/ThemedText";
 import { SchedulingModal } from "@/components/SchedulingModal";
-import { BriefToast } from "@/components/BriefToast";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { Spacing, BorderRadius } from "@/constants/theme";
 
 interface HabitCardActionsProps {
@@ -27,38 +28,30 @@ export function HabitCardActions({
 }: HabitCardActionsProps) {
   const { theme } = useTheme();
   const { pinHabit, unpinHabit } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300 });
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
-  const [toastMessage, setToastMessage] = useState<string | null>(null);
-  const [toastVisible, setToastVisible] = useState(false);
-  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pinColor = categoryColor || theme.primary;
 
-  useEffect(() => {
-    return () => {
-      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    };
-  }, []);
-
-  const showToast = useCallback((message: string) => {
-    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
-    setToastMessage(message);
-    setToastVisible(true);
-    toastTimerRef.current = setTimeout(() => {
-      setToastVisible(false);
-      setToastMessage(null);
-    }, 2500);
-  }, []);
-
   const handlePinToggle = useCallback(async () => {
     const wasPinned = habit.isPinned;
-    const success = wasPinned ? await unpinHabit(habit.id) : await pinHabit(habit.id);
-    if (success) {
-      showToast(wasPinned ? "Removed from Master List" : "Pinned to Master List");
-    } else {
-      showToast("Failed to update pin. Please try again.");
-    }
-  }, [habit.id, habit.isPinned, pinHabit, unpinHabit, showToast]);
+
+    const performPinToggle = async () => {
+      if (wasPinned) {
+        await unpinHabit(habit.id);
+      } else {
+        await pinHabit(habit.id);
+      }
+    };
+
+    setRetry(() => {
+      void handlePinToggle();
+    });
+    await withSaveIndicator(performPinToggle, {
+      successMessage: wasPinned ? "Removed from Master List" : "Pinned to Master List",
+    });
+  }, [habit.id, habit.isPinned, pinHabit, unpinHabit, withSaveIndicator, setRetry]);
 
   const handleSchedule = useCallback(() => {
     setShowSchedulingModal(true);
@@ -142,7 +135,12 @@ export function HabitCardActions({
         linkedHabit={habit}
       />
 
-      <BriefToast message={toastMessage} visible={toastVisible} />
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </>
   );
 }

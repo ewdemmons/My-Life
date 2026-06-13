@@ -8,6 +8,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { Habit, Occurrence } from "@/types";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
 interface OccurrenceLogModalProps {
   visible: boolean;
@@ -32,6 +34,8 @@ export function OccurrenceLogModal({
 }: OccurrenceLogModalProps) {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useTheme();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300, successMessage: "Saved" });
   const [editingGroup, setEditingGroup] = useState<{ date: string; items: Occurrence[] } | null>(null);
   const [editDate, setEditDate] = useState<string>("");
   const [editCount, setEditCount] = useState(0);
@@ -101,44 +105,50 @@ export function OccurrenceLogModal({
 
   const handleSaveEdit = async () => {
     if (!editingGroup || !habit || !onUpdateOccurrence || !onAddOccurrence) return;
-    setSaving(true);
-    try {
-      const newDate = editDate;
-      const currentCount = editingGroup.items.length;
-      const baseTime = new Date(newDate + "T12:00:00").getTime();
 
-      if (newDate !== editingGroup.date) {
-        for (let i = 0; i < editingGroup.items.length; i++) {
-          await onUpdateOccurrence(editingGroup.items[i].id, {
-            occurredDate: newDate,
-            occurredAt: baseTime + i * 60000,
-          });
+    const performSaveEdit = async () => {
+      setSaving(true);
+      try {
+        const newDate = editDate;
+        const currentCount = editingGroup.items.length;
+        const baseTime = new Date(newDate + "T12:00:00").getTime();
+
+        if (newDate !== editingGroup.date) {
+          for (let i = 0; i < editingGroup.items.length; i++) {
+            await onUpdateOccurrence(editingGroup.items[i].id, {
+              occurredDate: newDate,
+              occurredAt: baseTime + i * 60000,
+            });
+          }
         }
+
+        if (editCount > currentCount) {
+          for (let i = 0; i < editCount - currentCount; i++) {
+            await onAddOccurrence({
+              itemId: habit.id,
+              itemType: "habit",
+              occurredAt: baseTime + (currentCount + i) * 60000,
+              occurredDate: newDate,
+            });
+          }
+        } else if (editCount < currentCount) {
+          const toDelete = currentCount - editCount;
+          const sorted = [...editingGroup.items].sort((a, b) => b.occurredAt - a.occurredAt);
+          for (let i = 0; i < toDelete && i < sorted.length; i++) {
+            await onDeleteOccurrence?.(sorted[i].id);
+          }
+        }
+
+        setEditingGroup(null);
+      } finally {
+        setSaving(false);
       }
+    };
 
-      if (editCount > currentCount) {
-        for (let i = 0; i < editCount - currentCount; i++) {
-          await onAddOccurrence({
-            itemId: habit.id,
-            itemType: "habit",
-            occurredAt: baseTime + (currentCount + i) * 60000,
-            occurredDate: newDate,
-          });
-        }
-      } else if (editCount < currentCount) {
-        const toDelete = currentCount - editCount;
-        const sorted = [...editingGroup.items].sort((a, b) => b.occurredAt - a.occurredAt);
-        for (let i = 0; i < toDelete && i < sorted.length; i++) {
-          await onDeleteOccurrence?.(sorted[i].id);
-        }
-      }
-
-      setEditingGroup(null);
-    } catch (e) {
-      Alert.alert("Error", "Failed to save changes. Please try again.");
-    } finally {
-      setSaving(false);
-    }
+    setRetry(() => {
+      void performSaveEdit();
+    });
+    await withSaveIndicator(performSaveEdit);
   };
 
   const groupedByDate = useMemo(() => {
@@ -311,6 +321,13 @@ export function OccurrenceLogModal({
             </View>
           </View>
         ) : null}
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </BlurView>
     </Modal>
 

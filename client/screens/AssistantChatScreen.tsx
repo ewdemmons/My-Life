@@ -27,6 +27,8 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { buildSchedulePreferences } from "@/utils/schedulePreferences";
 import { buildAppContext } from "@/utils/appContextBuilder";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
@@ -131,6 +133,8 @@ export default function AssistantChatScreen() {
     addHabit,
     lifeAreaSchedules,
   } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
   const schedulePreferences = useMemo(
     () => buildSchedulePreferences(lifeAreaSchedules, categories),
@@ -888,9 +892,10 @@ Be conversational and helpful.`;
 
   const implementPlan = async (messageId: string, plan: Plan) => {
     setImplementingPlanId(messageId);
-    const createdTaskIds: string[] = [];
 
-    try {
+    const performImplement = async () => {
+      const createdTaskIds: string[] = [];
+
       let categoryId: string | undefined;
       let parentEntryId: string | null = null;
       
@@ -1068,13 +1073,15 @@ Be conversational and helpful.`;
       };
 
       setMessages(prev => [...prev, refinementMessage]);
+    };
+
+    setRetry(() => {
+      void implementPlan(messageId, plan);
+    });
+    try {
+      await withSaveIndicator(performImplement);
     } catch (error) {
       console.error("Failed to implement plan:", error);
-      Alert.alert(
-        "Error",
-        "Failed to create the plan. Please try again.",
-        [{ text: "OK", style: "default" }]
-      );
     } finally {
       setImplementingPlanId(null);
     }
@@ -1082,8 +1089,8 @@ Be conversational and helpful.`;
 
   const implementScheduleProposal = async (messageId: string, proposal: ScheduleProposal) => {
     setImplementingProposalId(messageId);
-    
-    try {
+
+    const performImplement = async () => {
       let eventCount = 0;
 
       for (const taskSchedule of proposal.tasks) {
@@ -1136,9 +1143,15 @@ Be conversational and helpful.`;
       };
 
       setMessages(prev => [...prev, followUpMessage]);
+    };
+
+    setRetry(() => {
+      void implementScheduleProposal(messageId, proposal);
+    });
+    try {
+      await withSaveIndicator(performImplement);
     } catch (error) {
       console.error("Failed to implement schedule:", error);
-      Alert.alert("Error", "Failed to apply scheduling. Please try again.");
     } finally {
       setImplementingProposalId(null);
     }
@@ -1146,8 +1159,8 @@ Be conversational and helpful.`;
 
   const implementHabitProposal = async (messageId: string, proposal: HabitProposal) => {
     setImplementingProposalId(messageId);
-    
-    try {
+
+    const performImplement = async () => {
       let createdCount = 0;
 
       for (const suggestion of proposal.suggestions) {
@@ -1177,9 +1190,15 @@ Be conversational and helpful.`;
       };
 
       setMessages(prev => [...prev, followUpMessage]);
+    };
+
+    setRetry(() => {
+      void implementHabitProposal(messageId, proposal);
+    });
+    try {
+      await withSaveIndicator(performImplement);
     } catch (error) {
       console.error("Failed to create habits:", error);
-      Alert.alert("Error", "Failed to create habits. Please try again.");
     } finally {
       setImplementingProposalId(null);
     }
@@ -1187,8 +1206,8 @@ Be conversational and helpful.`;
 
   const implementAssignmentProposal = async (messageId: string, proposal: AssignmentProposal) => {
     setImplementingProposalId(messageId);
-    
-    try {
+
+    const performImplement = async () => {
       let assignedCount = 0;
 
       for (const suggestion of proposal.suggestions) {
@@ -1212,9 +1231,15 @@ Be conversational and helpful.`;
       };
 
       setMessages(prev => [...prev, followUpMessage]);
+    };
+
+    setRetry(() => {
+      void implementAssignmentProposal(messageId, proposal);
+    });
+    try {
+      await withSaveIndicator(performImplement);
     } catch (error) {
       console.error("Failed to assign tasks:", error);
-      Alert.alert("Error", "Failed to assign tasks. Please try again.");
     } finally {
       setImplementingProposalId(null);
     }
@@ -1637,6 +1662,12 @@ Be conversational and helpful.`;
           />
         );
       })()}
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </KeyboardAvoidingView>
   );
 }

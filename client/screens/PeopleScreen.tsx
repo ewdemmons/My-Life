@@ -14,6 +14,8 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
+import { useNavigation } from "@react-navigation/native";
+import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import * as ImagePicker from "expo-image-picker";
 import * as MailComposer from "expo-mail-composer";
 import * as SMS from "expo-sms";
@@ -28,14 +30,23 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { InviteModal } from "@/components/InviteModal";
 import { supabase } from "@/lib/supabase";
 import { useAuth } from "@/context/AuthContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
+import AppDatePicker from "@/components/AppDatePicker";
+import { birthdayToFullDate, formatBirthdayDisplay, syncBirthdayReminders } from "@/utils/birthdayUtils";
+import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { SchedulingModal } from "@/components/SchedulingModal";
 
 export default function PeopleScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
+  const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { theme } = useTheme();
-  const { people, addPerson, updatePerson, deletePerson, categories } = useApp();
+  const { people, addPerson, updatePerson, deletePerson, categories, events, addEvent, deleteEvent, deleteEventSeries, refreshData } = useApp();
   const { user } = useAuth();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
   const [searchQuery, setSearchQuery] = useState("");
   const [modalVisible, setModalVisible] = useState(false);
@@ -47,6 +58,10 @@ export default function PeopleScreen() {
   const [phone, setPhone] = useState("");
   const [photoUri, setPhotoUri] = useState("");
   const [notes, setNotes] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [showBirthdayPicker, setShowBirthdayPicker] = useState(false);
+  const [showSchedulingModal, setShowSchedulingModal] = useState(false);
+  const [schedulingPersonId, setSchedulingPersonId] = useState<string | null>(null);
   const [showRelationshipPicker, setShowRelationshipPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
@@ -116,7 +131,7 @@ export default function PeopleScreen() {
       return;
     }
 
-    try {
+    const performLink = async () => {
       await updatePerson(personToLink.id, {
         linkedUserId: matchedUser.userId,
         linkedConsentStatus: "pending",
@@ -130,7 +145,7 @@ export default function PeopleScreen() {
 
       const senderName = profileData?.display_name || user.email?.split("@")[0] || "Someone";
 
-      await supabase.from("notifications").insert({
+      const { error } = await supabase.from("notifications").insert({
         user_id: matchedUser.userId,
         type: "connection_request",
         title: "Connection Request",
@@ -143,19 +158,23 @@ export default function PeopleScreen() {
         },
         is_read: false,
       });
+      if (error) {
+        throw new Error(error.message);
+      }
 
       Alert.alert(
         "Link Request Sent",
         `A connection request has been sent to ${matchedUser.displayName}. They'll need to approve it before you can notify them.`
       );
-    } catch (error) {
-      console.error("Error linking person:", error);
-      Alert.alert("Error", "Failed to send link request. Please try again.");
-    }
+      setShowLinkPrompt(false);
+      setPersonToLink(null);
+      setMatchedUser(null);
+    };
 
-    setShowLinkPrompt(false);
-    setPersonToLink(null);
-    setMatchedUser(null);
+    setRetry(() => {
+      void performLink();
+    });
+    await withSaveIndicator(performLink);
   };
 
   const generateInviteCode = () => {
@@ -197,12 +216,19 @@ export default function PeopleScreen() {
         body: `Hi ${editingPerson.name},\n\nI'd like to share my life organization with you using the My Life app!\n\nDownload the app and use this invite code to connect with me:\n\n${inviteCode}\n\nLooking forward to organizing together!`,
       });
 
-      await updatePerson(editingPerson.id, {
-        inviteCode,
-        inviteSentAt: Date.now(),
+      const performUpdate = async () => {
+        await updatePerson(editingPerson.id, {
+          inviteCode,
+          inviteSentAt: Date.now(),
+        });
+      };
+      setRetry(() => {
+        void performUpdate();
       });
-
-      Alert.alert("Invite Sent", `An invite has been sent to ${editingPerson.name}.`);
+      const result = await withSaveIndicator(performUpdate);
+      if (result !== null) {
+        Alert.alert("Invite Sent", `An invite has been sent to ${editingPerson.name}.`);
+      }
     } catch (error) {
       Alert.alert("Error", "Failed to send invite. Please try again.");
     }
@@ -240,17 +266,26 @@ export default function PeopleScreen() {
         `Hi ${editingPerson.name}! I'd like to share my life organization with you using the My Life app. Download it and use invite code: ${inviteCode} to connect with me!`
       );
 
-      await updatePerson(editingPerson.id, {
-        inviteCode,
-        inviteSentAt: Date.now(),
+      const performUpdate = async () => {
+        await updatePerson(editingPerson.id, {
+          inviteCode,
+          inviteSentAt: Date.now(),
+        });
+      };
+      setRetry(() => {
+        void performUpdate();
       });
-
-      Alert.alert("Invite Sent", `An SMS invite has been sent to ${editingPerson.name}.`);
+      const result = await withSaveIndicator(performUpdate);
+      if (result !== null) {
+        Alert.alert("Invite Sent", `An SMS invite has been sent to ${editingPerson.name}.`);
+      }
     } catch (error) {
       Alert.alert("Error", "Failed to send SMS. Please try again.");
     }
     setShowInviteModal(false);
   };
+
+  const schedulingPerson = people.find((p) => p.id === schedulingPersonId);
 
   const filteredPeople = useMemo(() => {
     if (!searchQuery.trim()) return people;
@@ -271,6 +306,8 @@ export default function PeopleScreen() {
     setPhone("");
     setPhotoUri("");
     setNotes("");
+    setBirthday("");
+    setShowBirthdayPicker(false);
     setSelectedCategoryIds([]);
     setEditingPerson(null);
   };
@@ -288,6 +325,7 @@ export default function PeopleScreen() {
     setPhone(person.phone || "");
     setPhotoUri(person.photoUri || "");
     setNotes(person.notes || "");
+    setBirthday(person.birthday ?? "");
     setSelectedCategoryIds(person.categoryIds || []);
     setModalVisible(true);
   };
@@ -314,16 +352,40 @@ export default function PeopleScreen() {
       photoUri: photoUri || undefined,
       notes: notes.trim() || undefined,
       categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
+      birthday: birthday || null,
     };
 
-    if (editingPerson) {
-      await updatePerson(editingPerson.id, personData);
-    } else {
-      await addPerson(personData);
-    }
+    const syncParams = {
+      birthday: birthday || null,
+      events,
+      addEvent,
+      deleteEvent,
+      deleteEventSeries,
+    };
 
-    setModalVisible(false);
-    resetForm();
+    const performSave = async () => {
+      if (editingPerson) {
+        await updatePerson(editingPerson.id, personData);
+        const updatedPerson = { ...editingPerson, ...personData };
+        await syncBirthdayReminders({ person: updatedPerson, ...syncParams });
+      } else {
+        const newPerson = await addPerson(personData);
+        if (!newPerson) {
+          setModalVisible(false);
+          resetForm();
+          return;
+        }
+        await syncBirthdayReminders({ person: newPerson, ...syncParams });
+      }
+      await refreshData();
+      setModalVisible(false);
+      resetForm();
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
   };
 
   const handleDelete = (person: Person) => {
@@ -335,7 +397,15 @@ export default function PeopleScreen() {
         {
           text: "Delete",
           style: "destructive",
-          onPress: () => deletePerson(person.id),
+          onPress: () => {
+            const performDelete = async () => {
+              await deletePerson(person.id);
+            };
+            setRetry(() => {
+              void performDelete();
+            });
+            void withSaveIndicator(performDelete, { showSuccess: false });
+          },
         },
       ]
     );
@@ -455,6 +525,42 @@ export default function PeopleScreen() {
             <Feather name="chevron-right" size={20} color={theme.textSecondary} />
           </View>
         </View>
+        <View style={styles.personCardActions}>
+          <Pressable
+            style={[
+              styles.personActionBtn,
+              { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              navigation.navigate("AddTask", {
+                initialPeopleIds: [item.id],
+                initialCategoryId: item.categoryIds?.[0],
+              });
+            }}
+          >
+            <Feather name="plus" size={16} color={theme.primary} />
+            <ThemedText style={[styles.personActionBtnText, { color: theme.primary }]}>
+              Entry
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.personActionBtn,
+              { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={(e) => {
+              e.stopPropagation();
+              setSchedulingPersonId(item.id);
+              setShowSchedulingModal(true);
+            }}
+          >
+            <Feather name="calendar" size={16} color={theme.primary} />
+            <ThemedText style={[styles.personActionBtnText, { color: theme.primary }]}>
+              Event
+            </ThemedText>
+          </Pressable>
+        </View>
       </Pressable>
     );
   };
@@ -511,7 +617,7 @@ export default function PeopleScreen() {
       </View>
 
       <Modal
-        visible={modalVisible}
+        visible={modalVisible && !showBirthdayPicker}
         animationType="slide"
         presentationStyle="pageSheet"
         onRequestClose={() => {
@@ -603,6 +709,34 @@ export default function PeopleScreen() {
             </View>
 
             <View style={styles.formGroup}>
+              <ThemedText style={styles.label}>Birthday (optional)</ThemedText>
+              <View style={styles.birthdayRow}>
+                <Pressable
+                  style={[styles.pickerButton, { backgroundColor: theme.backgroundDefault, borderColor: theme.border, flex: 1 }]}
+                  onPress={() => setShowBirthdayPicker(true)}
+                >
+                  <ThemedText
+                    style={[
+                      styles.pickerText,
+                      !birthday && { color: theme.textSecondary },
+                    ]}
+                  >
+                    {formatBirthdayDisplay(birthday)}
+                  </ThemedText>
+                  <Feather name="calendar" size={18} color={theme.textSecondary} />
+                </Pressable>
+                {birthday ? (
+                  <Pressable
+                    style={[styles.birthdayClearButton, { borderColor: theme.border }]}
+                    onPress={() => setBirthday("")}
+                  >
+                    <Feather name="x" size={18} color={theme.textSecondary} />
+                  </Pressable>
+                ) : null}
+              </View>
+            </View>
+
+            <View style={styles.formGroup}>
               <ThemedText style={styles.label}>Notes</ThemedText>
               <TextInput
                 style={[styles.textArea, { backgroundColor: theme.backgroundDefault, color: theme.text, borderColor: theme.border }]}
@@ -653,6 +787,45 @@ export default function PeopleScreen() {
                 </View>
               ) : null}
             </View>
+
+            {editingPerson ? (
+              <View style={styles.personDetailActions}>
+                <Pressable
+                  style={[
+                    styles.personDetailActionBtn,
+                    { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
+                  ]}
+                  onPress={() => {
+                    setModalVisible(false);
+                    navigation.navigate("AddTask", {
+                      initialPeopleIds: [editingPerson.id],
+                      initialCategoryId: editingPerson.categoryIds?.[0],
+                    });
+                  }}
+                >
+                  <Feather name="file-text" size={26} color={theme.primary} />
+                  <ThemedText style={[styles.personDetailActionText, { color: theme.primary }]}>
+                    Add Entry
+                  </ThemedText>
+                </Pressable>
+                <Pressable
+                  style={[
+                    styles.personDetailActionBtn,
+                    { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
+                  ]}
+                  onPress={() => {
+                    setModalVisible(false);
+                    setSchedulingPersonId(editingPerson.id);
+                    setShowSchedulingModal(true);
+                  }}
+                >
+                  <Feather name="calendar" size={26} color={theme.primary} />
+                  <ThemedText style={[styles.personDetailActionText, { color: theme.primary }]}>
+                    Schedule Event
+                  </ThemedText>
+                </Pressable>
+              </View>
+            ) : null}
 
             {editingPerson ? (
               <View style={styles.actionButtons}>
@@ -899,6 +1072,35 @@ export default function PeopleScreen() {
           </View>
         </View>
       ) : null}
+
+      <SchedulingModal
+        visible={showSchedulingModal}
+        onClose={() => {
+          setShowSchedulingModal(false);
+          setSchedulingPersonId(null);
+        }}
+        initialPeopleIds={schedulingPersonId ? [schedulingPersonId] : []}
+        initialCategoryId={schedulingPerson?.categoryIds?.[0]}
+      />
+
+      <AppDatePicker
+        visible={showBirthdayPicker}
+        value={birthdayToFullDate(birthday)}
+        title="Birthday"
+        onConfirm={(dateStr) => {
+          const parts = dateStr.split("-");
+          setBirthday(`${parts[1]}-${parts[2]}`);
+          setShowBirthdayPicker(false);
+        }}
+        onCancel={() => setShowBirthdayPicker(false)}
+      />
+
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </View>
   );
 }
@@ -932,6 +1134,43 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.sm,
     padding: Spacing.md,
     marginBottom: Spacing.sm,
+  },
+  personCardActions: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    paddingTop: 4,
+  },
+  personActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+  },
+  personActionBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  personDetailActions: {
+    flexDirection: "row",
+    gap: 8,
+    padding: 12,
+  },
+  personDetailActionBtn: {
+    flex: 1,
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+    padding: 16,
+  },
+  personDetailActionText: {
+    fontSize: 17,
+    fontWeight: "600",
   },
   personRow: {
     flexDirection: "row",
@@ -1101,6 +1340,19 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
+  },
+  birthdayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  birthdayClearButton: {
+    height: Spacing.inputHeight,
+    width: Spacing.inputHeight,
+    borderRadius: BorderRadius.xs,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pickerContent: {
     flexDirection: "row",

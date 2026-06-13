@@ -43,6 +43,8 @@ import {
 import { formatLocalDateYYYYMMDD, getLocalTodayDate } from "@/utils/masterListUtils";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { CalendarEvent, Habit, LifeAreaSchedule, LifeCategory, Task } from "@/types";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
 const PLAN_GRADIENT_START = "#6B7FFF";
 const PLAN_GRADIENT_END = "#8B6FFF";
@@ -263,10 +265,15 @@ function buildPlanRequestMessage(
     .join("\n");
 
   const pinnedEntryDetails = pinnedTasks
-    .filter((t) => t.isPinned !== false && t.status !== "completed")
+    .filter((t) => t.isPinned && t.status !== "completed" && !t.excludeFromPlan)
     .map((t) => {
       const category = categories.find((c) => c.id === t.categoryId);
-      return `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Type: ${t.type} | Priority: ${t.priority}`;
+      const timeStr = t.estimatedMinutes
+        ? ` | Estimated: ${t.estimatedMinutes} minutes`
+        : " | Estimated: 30 minutes (default)";
+      return (
+        `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Type: ${t.type} | Priority: ${t.priority}${timeStr}`
+      );
     })
     .join("\n");
 
@@ -279,11 +286,16 @@ function buildPlanRequestMessage(
     .join("\n");
 
   const suggestedTasksDetails = tasks
-    .filter((t) => !t.isPinned && t.type === "task" && t.status !== "completed")
+    .filter((t) => !t.isPinned && t.type === "task" && t.status !== "completed" && !t.excludeFromPlan)
     .slice(0, 10)
     .map((t) => {
       const category = categories.find((c) => c.id === t.categoryId);
-      return `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Priority: ${t.priority}`;
+      const timeStr = t.estimatedMinutes
+        ? ` | Estimated: ${t.estimatedMinutes} minutes`
+        : " | Estimated: 30 minutes (default)";
+      return (
+        `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Priority: ${t.priority}${timeStr}`
+      );
     })
     .join("\n");
 
@@ -380,6 +392,14 @@ Place in free gaps from Step 2 respecting
 Life Area preferred windows. Order by
 priority: high → medium → low.
 
+DURATION RULE:
+Every entry in PINNED ENTRIES and SUGGESTED
+TASKS includes an "Estimated:" time. Use that
+exact value as durationMinutes in the timeBlock
+JSON — always. The default of 30 minutes has
+already been applied to entries without a
+user-set estimate. Never use a duration other
+than what is listed in the Estimated field.
 
 STEP 5 — PLACE PINNED HABITS:
 Add active Build Habits from ACTIVE BUILD
@@ -423,6 +443,15 @@ Never suggest or add Break (negative)
 habits to the plan under any circumstances.
 Build Habits only.
 
+DURATION RULE:
+Every entry in PINNED ENTRIES and SUGGESTED
+TASKS includes an "Estimated:" time. Use that
+exact value as durationMinutes in the timeBlock
+JSON — always. The default of 30 minutes has
+already been applied to entries without a
+user-set estimate. Never use a duration other
+than what is listed in the Estimated field.
+
 STEP 7 — FINAL VERIFICATION:
 Before outputting the JSON, check:
 - Every Appointment and Meeting from Step 1
@@ -458,6 +487,7 @@ HABIT RULES:
 
 Please generate a structured daily plan and include the dailyPlan JSON block in your response.
 IMPORTANT: You MUST include the dailyPlan JSON block in your response wrapped in triple backticks with json tag. The JSON must start with {"dailyPlan": {"date": and include timeBlocks array. This is required for the plan to be saved to the app.
+For durationMinutes: always use the exact Estimated time shown for each entry in the PINNED ENTRIES and SUGGESTED TASKS sections. The default is already set to 30 minutes for entries without a user estimate — never use a duration less than 30 minutes for task-type entries unless the user has explicitly set a shorter estimate.
 Keep your conversational response brief (2-3 sentences max) before the JSON block. The JSON block is the most important part of your response.
 CRITICAL: When assigning lifeArea values in the JSON timeBlocks, you MUST use ONLY these exact Life Area names from the user's account: ${lifeAreaNames}. Do not use any other Life Area names. If an item doesn't clearly belong to one of these areas, use the closest match from this list.
 `.trim();
@@ -479,6 +509,8 @@ export default function DailyPlanGeneratorScreen() {
     lifeAreaSchedules,
     addEvent,
   } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 800, successMessage: "Plan applied" });
 
   const schedulePreferences = useMemo(
     () => buildSchedulePreferences(lifeAreaSchedules, categories),
@@ -781,47 +813,54 @@ export default function DailyPlanGeneratorScreen() {
       timeBlocks: draftPlan.timeBlocks.map((b) => ({ ...b, completed: false })),
     };
 
-    try {
-      await savePlan(planToSave);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : "";
-      if (message.includes("3-plan limit")) {
-        Alert.alert(
-          "Plan limit reached",
-          "You already have 3 active plans. Please remove one before creating a new plan.",
-          [{ text: "OK" }],
-        );
-        return;
+    const performApply = async () => {
+      try {
+        await savePlan(planToSave);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : "";
+        if (message.includes("3-plan limit")) {
+          Alert.alert(
+            "Plan limit reached",
+            "You already have 3 active plans. Please remove one before creating a new plan.",
+            [{ text: "OK" }],
+          );
+          return;
+        }
+        throw error;
       }
-      throw error;
-    }
 
-    let created = 0;
-    for (const block of planToSave.timeBlocks) {
-      if ((block.source === "suggested" || block.source === "coach") && block.id === null) {
-        const categoryId =
-          categories.find((c) => c.name === block.lifeArea)?.id ??
-          categories[0]?.id ??
-          null;
-        await addEvent({
-          title: block.title,
-          description: "",
-          startDate: planToSave.date,
-          startTime: block.time,
-          endDate: planToSave.date,
-          endTime: addMinutesToTime(block.time, block.durationMinutes || 30),
-          eventType: "appointment",
-          recurrence: "none",
-          linkedTaskId: null,
-          categoryId,
-        });
-        created += 1;
+      let created = 0;
+      for (const block of planToSave.timeBlocks) {
+        if ((block.source === "suggested" || block.source === "coach") && block.id === null) {
+          const categoryId =
+            categories.find((c) => c.name === block.lifeArea)?.id ??
+            categories[0]?.id ??
+            null;
+          await addEvent({
+            title: block.title,
+            description: "",
+            startDate: planToSave.date,
+            startTime: block.time,
+            endDate: planToSave.date,
+            endTime: addMinutesToTime(block.time, block.durationMinutes || 30),
+            eventType: "appointment",
+            recurrence: "none",
+            linkedTaskId: null,
+            categoryId,
+          });
+          created += 1;
+        }
       }
-    }
 
-    setEventsCreatedCount(created);
-    setApplySubPhase("complete");
-  }, [draftPlan, form.selectedDate, existingPlanDates, categories, addEvent, checkScale]);
+      setEventsCreatedCount(created);
+      setApplySubPhase("complete");
+    };
+
+    setRetry(() => {
+      void performApply();
+    });
+    await withSaveIndicator(performApply);
+  }, [draftPlan, form.selectedDate, existingPlanDates, categories, addEvent, checkScale, withSaveIndicator, setRetry]);
 
   const handleLetsGo = useCallback(() => {
     navigation.navigate("Main", {
@@ -1460,6 +1499,12 @@ export default function DailyPlanGeneratorScreen() {
           setLifeAreaPickerTarget(null);
         }}
         onCancel={() => setLifeAreaPickerTarget(null)}
+      />
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
       />
     </SafeAreaView>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { View, StyleSheet, Pressable, FlatList, Alert, SectionList, Modal, Platform } from "react-native";
+import { View, StyleSheet, Pressable, FlatList, SectionList, Modal, Platform } from "react-native";
 import AppDatePicker from "@/components/AppDatePicker";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
@@ -17,6 +17,8 @@ import { HabitProgressChart } from "@/components/HabitProgressChart";
 import { OccurrenceLogModal } from "@/components/OccurrenceLogModal";
 import { HabitCardActions } from "@/components/HabitCardActions";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
 type SortMode = "bubble" | "streak" | "completion";
 type ViewMode = "week" | "month" | "year";
@@ -34,6 +36,8 @@ export default function HabitsScreen() {
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { habits, categories, addOccurrence, getOccurrencesForItem, deleteOccurrence, updateOccurrence } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300, successMessage: "Habit logged" });
 
   const getTodayDateString = () => {
     const now = new Date();
@@ -170,7 +174,7 @@ export default function HabitsScreen() {
   }, [activeHabits, categories, sortMode]);
 
   const handleQuickLog = async (habit: Habit) => {
-    try {
+    const performLog = async () => {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       const baseTime = new Date(logDate + "T12:00:00").getTime();
       await addOccurrence({
@@ -179,9 +183,12 @@ export default function HabitsScreen() {
         occurredAt: baseTime,
         occurredDate: logDate,
       });
-    } catch (error) {
-      Alert.alert("Error", "Failed to log occurrence. Please try again.");
-    }
+    };
+
+    setRetry(() => {
+      void handleQuickLog(habit);
+    });
+    await withSaveIndicator(performLog);
   };
 
   const handleHabitPress = (habit: Habit) => {
@@ -542,6 +549,13 @@ export default function HabitsScreen() {
           setShowDatePickerModal(false);
         }}
         onCancel={() => setShowDatePickerModal(false)}
+      />
+
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
       />
     </View>
   );

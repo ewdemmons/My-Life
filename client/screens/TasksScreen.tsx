@@ -1,6 +1,5 @@
 import React, { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { View, StyleSheet, Pressable, TextInput, ScrollView } from "react-native";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useHeaderHeight } from "@react-navigation/elements";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
 import { Feather } from "@expo/vector-icons";
@@ -15,7 +14,6 @@ import { BriefToast } from "@/components/BriefToast";
 import { TASK_TYPES, TaskType, Task } from "@/types";
 
 export default function TasksScreen() {
-  const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
@@ -211,21 +209,17 @@ export default function TasksScreen() {
         </Pressable>
       ) : null}
 
-      <ScrollView
+      <HierarchicalTaskList
         style={styles.content}
         contentContainerStyle={{
           paddingHorizontal: Spacing.lg,
           paddingBottom: tabBarHeight + Spacing.xxl + Spacing.fabSize,
         }}
-        scrollIndicatorInsets={{ bottom: insets.bottom }}
-      >
-        <HierarchicalTaskList
-          tasks={filteredTasks}
-          showCategory
-          filterType={selectedType}
-          onQuickList={handleQuickList}
-        />
-      </ScrollView>
+        tasks={filteredTasks}
+        showCategory
+        filterType={selectedType}
+        onQuickList={handleQuickList}
+      />
 
       {quickListEntry ? (
         <QuickListModal

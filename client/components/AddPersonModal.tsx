@@ -24,6 +24,10 @@ import { useAuth } from "@/context/AuthContext";
 import { RelationshipType, RELATIONSHIP_TYPES, LifeCategory, LinkedConsentStatus } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { supabase } from "@/lib/supabase";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
+import AppDatePicker from "@/components/AppDatePicker";
+import { birthdayToFullDate, formatBirthdayDisplay, syncBirthdayReminders } from "@/utils/birthdayUtils";
 
 interface AddPersonModalProps {
   visible: boolean;
@@ -37,13 +41,16 @@ interface ContactItem {
   email?: string;
   phone?: string;
   imageUri?: string;
+  birthday?: string;
 }
 
 export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddPersonModalProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
-  const { addPerson, categories, updatePerson } = useApp();
+  const { addPerson, categories, updatePerson, events, addEvent, deleteEvent, deleteEventSeries, refreshData } = useApp();
   const { user } = useAuth();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
   const [name, setName] = useState("");
   const [relationship, setRelationship] = useState<RelationshipType>("friend");
@@ -51,6 +58,8 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
   const [phone, setPhone] = useState("");
   const [photoUri, setPhotoUri] = useState("");
   const [notes, setNotes] = useState("");
+  const [birthday, setBirthday] = useState("");
+  const [showBirthdayPicker, setShowBirthdayPicker] = useState(false);
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [showRelationshipPicker, setShowRelationshipPicker] = useState(false);
   const [showCategoryPicker, setShowCategoryPicker] = useState(false);
@@ -100,6 +109,8 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
     setPhone("");
     setPhotoUri("");
     setNotes("");
+    setBirthday("");
+    setShowBirthdayPicker(false);
     setSelectedCategoryIds([]);
     setShowLinkPrompt(false);
     setMatchedUser(null);
@@ -121,6 +132,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
       photoUri: photoUri || undefined,
       notes: notes.trim() || undefined,
       categoryIds: selectedCategoryIds.length > 0 ? selectedCategoryIds : undefined,
+      birthday: birthday || null,
     };
 
     // Check for matching user by email
@@ -137,9 +149,27 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
       }
     }
 
-    await addPerson(personData);
-    resetForm();
-    onClose();
+    const performSave = async () => {
+      const newPerson = await addPerson(personData);
+      if (newPerson) {
+        await syncBirthdayReminders({
+          person: newPerson,
+          birthday: birthday || null,
+          events,
+          addEvent,
+          deleteEvent,
+          deleteEventSeries,
+        });
+        await refreshData();
+      }
+      resetForm();
+      onClose();
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
   };
 
   const handleLinkConfirm = async (shouldLink: boolean) => {
@@ -155,12 +185,24 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
         }
       : pendingPersonData;
 
-    const newPerson = await addPerson(dataToSave);
+    const performSave = async () => {
+      const newPerson = await addPerson(dataToSave);
 
-    if (shouldLink && matchedUser && newPerson && user) {
-      const requesterName = user.email?.split("@")[0] || "Someone";
-      try {
-        await supabase.from("notifications").insert({
+      if (newPerson) {
+        await syncBirthdayReminders({
+          person: newPerson,
+          birthday: birthday || null,
+          events,
+          addEvent,
+          deleteEvent,
+          deleteEventSeries,
+        });
+        await refreshData();
+      }
+
+      if (shouldLink && matchedUser && newPerson && user) {
+        const requesterName = user.email?.split("@")[0] || "Someone";
+        const { error } = await supabase.from("notifications").insert({
           user_id: matchedUser.userId,
           type: "connection_request",
           title: "Connection Request",
@@ -173,13 +215,19 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
           },
           is_read: false,
         });
-      } catch (error) {
-        console.error("Error sending connection request notification:", error);
+        if (error) {
+          throw new Error(error.message);
+        }
       }
-    }
 
-    resetForm();
-    onClose();
+      resetForm();
+      onClose();
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
   };
 
   const toggleCategorySelection = (categoryId: string) => {
@@ -263,18 +311,28 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
           Contacts.Fields.Emails,
           Contacts.Fields.PhoneNumbers,
           Contacts.Fields.Image,
+          Contacts.Fields.Birthday,
         ],
       });
 
       const formattedContacts: ContactItem[] = data
         .filter((c) => c.name)
-        .map((contact) => ({
-          id: contact.id || Math.random().toString(),
-          name: contact.name || "",
-          email: contact.emails?.[0]?.email,
-          phone: contact.phoneNumbers?.[0]?.number,
-          imageUri: contact.image?.uri,
-        }))
+        .map((contact) => {
+          let contactBirthday: string | undefined;
+          if (contact.birthday) {
+            const month = String(contact.birthday.month).padStart(2, "0");
+            const day = String(contact.birthday.day).padStart(2, "0");
+            contactBirthday = `${month}-${day}`;
+          }
+          return {
+            id: contact.id || Math.random().toString(),
+            name: contact.name || "",
+            email: contact.emails?.[0]?.email,
+            phone: contact.phoneNumbers?.[0]?.number,
+            imageUri: contact.image?.uri,
+            birthday: contactBirthday,
+          };
+        })
         .sort((a, b) => a.name.localeCompare(b.name));
 
       setContacts(formattedContacts);
@@ -290,6 +348,7 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
     if (contact.email) setEmail(contact.email);
     if (contact.phone) setPhone(contact.phone);
     if (contact.imageUri) setPhotoUri(contact.imageUri);
+    if (contact.birthday) setBirthday(contact.birthday);
     setShowContactPicker(false);
     setContactSearch("");
   };
@@ -337,8 +396,9 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
   );
 
   return (
+    <>
     <Modal
-      visible={visible}
+      visible={visible && !showBirthdayPicker}
       animationType="slide"
       presentationStyle="pageSheet"
       onRequestClose={handleClose}
@@ -461,6 +521,37 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
               placeholderTextColor={theme.textSecondary}
               keyboardType="phone-pad"
             />
+          </View>
+
+          <View style={styles.inputGroup}>
+            <ThemedText style={styles.label}>Birthday (optional)</ThemedText>
+            <View style={styles.birthdayRow}>
+              <Pressable
+                style={[
+                  styles.selector,
+                  { backgroundColor: theme.backgroundRoot, borderColor: theme.border, flex: 1 },
+                ]}
+                onPress={() => setShowBirthdayPicker(true)}
+              >
+                <ThemedText
+                  style={[
+                    styles.selectorText,
+                    { color: birthday ? theme.text : theme.textSecondary },
+                  ]}
+                >
+                  {formatBirthdayDisplay(birthday)}
+                </ThemedText>
+                <Feather name="calendar" size={18} color={theme.textSecondary} />
+              </Pressable>
+              {birthday ? (
+                <Pressable
+                  style={[styles.birthdayClearButton, { borderColor: theme.border }]}
+                  onPress={() => setBirthday("")}
+                >
+                  <Feather name="x" size={18} color={theme.textSecondary} />
+                </Pressable>
+              ) : null}
+            </View>
           </View>
 
           <View style={styles.inputGroup}>
@@ -765,8 +856,28 @@ export function AddPersonModal({ visible, onClose, preSelectedCategoryId }: AddP
             </View>
           </View>
         ) : null}
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
+
+    <AppDatePicker
+      visible={showBirthdayPicker}
+      value={birthdayToFullDate(birthday)}
+      title="Birthday"
+      onConfirm={(dateStr) => {
+        const parts = dateStr.split("-");
+        setBirthday(`${parts[1]}-${parts[2]}`);
+        setShowBirthdayPicker(false);
+      }}
+      onCancel={() => setShowBirthdayPicker(false)}
+    />
+    </>
   );
 }
 
@@ -879,6 +990,19 @@ const styles = StyleSheet.create({
   selectorText: {
     flex: 1,
     fontSize: 16,
+  },
+  birthdayRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: Spacing.sm,
+  },
+  birthdayClearButton: {
+    height: 48,
+    width: 48,
+    borderRadius: BorderRadius.md,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
   },
   pickerOverlay: {
     flex: 1,

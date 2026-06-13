@@ -16,6 +16,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { Person, LifeCategory, SharePermission, SHARE_PERMISSIONS, CategoryInvite } from "@/types";
 
 interface InviteModalProps {
@@ -29,6 +31,8 @@ export function InviteModal({ visible, onClose, person, preSelectedCategoryIds }
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { categories, updatePerson } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>([]);
   const [accessRight, setAccessRight] = useState<SharePermission>("view");
@@ -108,14 +112,19 @@ export function InviteModal({ visible, onClose, person, preSelectedCategoryIds }
         ...newInvites,
       ];
 
-      await updatePerson(person.id, {
-        categoryInvites: updatedInvites,
-        inviteCode,
-        inviteSentAt: Date.now(),
-      });
+      const performSave = async () => {
+        await updatePerson(person.id, {
+          categoryInvites: updatedInvites,
+          inviteCode,
+          inviteSentAt: Date.now(),
+        });
+        onClose();
+      };
 
-      Alert.alert("Invite Sent", `Invitation sent to ${person.name} via ${method === "email" ? "email" : "SMS"}.`);
-      onClose();
+      setRetry(() => {
+        void performSave();
+      });
+      await withSaveIndicator(performSave);
     } catch (error) {
       console.error("Error sending invite:", error);
       Alert.alert("Error", "Failed to send invitation. Please try again.");
@@ -270,6 +279,13 @@ export function InviteModal({ visible, onClose, person, preSelectedCategoryIds }
             </View>
           </Pressable>
         </Modal>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
   );

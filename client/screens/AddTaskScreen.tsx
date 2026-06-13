@@ -12,12 +12,45 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { PeopleSelector } from "@/components/PeopleSelector";
 import MarkdownPreview from "@/components/MarkdownPreview";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { TaskType, TASK_TYPES, Task } from "@/types";
 
 type RouteParams = RouteProp<RootStackParamList, "AddTask">;
 
 const PRIORITIES = ["low", "medium", "high"] as const;
+
+const ESTIMATED_TIME_TYPES: TaskType[] = ["task", "goal", "project", "objective", "subtask"];
+
+const TIME_OPTIONS: { label: string; value: number | null }[] = [
+  { label: "None", value: null },
+  { label: "15m", value: 15 },
+  { label: "30m", value: 30 },
+  { label: "45m", value: 45 },
+  { label: "1h", value: 60 },
+  { label: "1.5h", value: 90 },
+  { label: "2h", value: 120 },
+  { label: "3h", value: 180 },
+  { label: "4h+", value: 240 },
+];
+
+const PILL_VALUES = [15, 30, 45, 60, 90, 120, 180, 240];
+
+function getInitialEstimatedMinutes(task?: Task): number | null {
+  const m = task?.estimatedMinutes;
+  if (m == null) return null;
+  if (PILL_VALUES.includes(m)) return m;
+  if (m >= 240) return 240;
+  return null;
+}
+
+function getSelectedPillValue(minutes: number | null): number | null {
+  if (minutes == null) return null;
+  if (PILL_VALUES.includes(minutes)) return minutes;
+  if (minutes >= 240) return 240;
+  return null;
+}
 
 export default function AddTaskScreen() {
   const insets = useSafeAreaInsets();
@@ -26,8 +59,10 @@ export default function AddTaskScreen() {
   const navigation = useNavigation();
   const route = useRoute<RouteParams>();
   const { categories, tasks, addTask, updateTask } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Entry saved" });
 
-  const preselectedCategoryId = route.params?.categoryId;
+  const preselectedCategoryId = route.params?.categoryId ?? route.params?.initialCategoryId;
   const preselectedParentId = route.params?.parentTaskId;
   const editingTask = route.params?.task;
   const isEditing = !!editingTask;
@@ -35,10 +70,17 @@ export default function AddTaskScreen() {
   const [title, setTitle] = useState(editingTask?.title || "");
   const [description, setDescription] = useState(editingTask?.description || "");
   const [taskType, setTaskType] = useState<TaskType>(editingTask?.type || "task");
-  const [categoryId, setCategoryId] = useState(editingTask?.categoryId || preselectedCategoryId || categories[0]?.id || "");
+  const [categoryId, setCategoryId] = useState(
+    editingTask?.categoryId || preselectedCategoryId || categories[0]?.id || "",
+  );
   const [parentId, setParentId] = useState<string | null>(editingTask?.parentId || preselectedParentId || null);
   const [priority, setPriority] = useState<"low" | "medium" | "high">(editingTask?.priority || "medium");
-  const [assigneeIds, setAssigneeIds] = useState<string[]>(editingTask?.assigneeIds || []);
+  const [assigneeIds, setAssigneeIds] = useState<string[]>(
+    editingTask?.assigneeIds || route.params?.initialPeopleIds || [],
+  );
+  const [estimatedMinutes, setEstimatedMinutes] = useState<number | null>(
+    isEditing ? getInitialEstimatedMinutes(editingTask) : 30
+  );
   const [showParentPicker, setShowParentPicker] = useState(false);
 
   const isValid = title.trim().length > 0 && categoryId;
@@ -55,31 +97,49 @@ export default function AddTaskScreen() {
 
   const handleSave = useCallback(async () => {
     if (!title.trim() || !categoryId) return;
-    
-    if (isEditing && editingTask) {
-      await updateTask(editingTask.id, {
-        title: title.trim(),
-        description: description.trim(),
-        type: taskType,
-        categoryId,
-        parentId,
-        priority,
-        assigneeIds,
-      });
-    } else {
-      await addTask({
-        title: title.trim(),
-        description: description.trim(),
-        type: taskType,
-        categoryId,
-        parentId,
-        priority,
-        assigneeIds,
-        status: "pending",
-      });
-    }
-    navigation.goBack();
-  }, [title, description, taskType, categoryId, parentId, priority, assigneeIds, isEditing, editingTask, addTask, updateTask, navigation]);
+
+    const performSave = async () => {
+      const excludeFromPlan = priority === "low";
+      if (isEditing && editingTask) {
+        const currentIsPinned = editingTask.isPinned ?? false;
+        const newIsPinned = priority === "high" ? true : currentIsPinned;
+        await updateTask(editingTask.id, {
+          title: title.trim(),
+          description: description.trim(),
+          type: taskType,
+          categoryId,
+          parentId,
+          priority,
+          assigneeIds,
+          estimatedMinutes,
+          isPinned: newIsPinned,
+          excludeFromPlan,
+        });
+      } else {
+        const currentIsPinned = false;
+        const shouldAutoPin = priority === "high" && !currentIsPinned;
+        await addTask({
+          title: title.trim(),
+          description: description.trim(),
+          type: taskType,
+          categoryId,
+          parentId,
+          priority,
+          assigneeIds,
+          estimatedMinutes,
+          status: "pending",
+          isPinned: shouldAutoPin ? true : false,
+          excludeFromPlan,
+        });
+      }
+      navigation.goBack();
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
+  }, [title, description, taskType, categoryId, parentId, priority, assigneeIds, estimatedMinutes, isEditing, editingTask, addTask, updateTask, navigation, withSaveIndicator, setRetry]);
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -271,6 +331,45 @@ export default function AddTaskScreen() {
           </View>
         </View>
 
+        {ESTIMATED_TIME_TYPES.includes(taskType) ? (
+          <View style={styles.section}>
+            <ThemedText style={styles.label}>Estimated Time</ThemedText>
+            <ThemedText style={[styles.sublabel, { color: theme.textSecondary }]}>
+              How long will this take?
+            </ThemedText>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.typeScroll}>
+              <View style={styles.timePillRow}>
+                {TIME_OPTIONS.map((option) => {
+                  const isSelected = getSelectedPillValue(estimatedMinutes) === option.value;
+                  return (
+                    <Pressable
+                      key={option.label}
+                      style={[
+                        styles.timePill,
+                        isSelected
+                          ? styles.timePillSelected
+                          : { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+                      ]}
+                      onPress={() => setEstimatedMinutes(option.value)}
+                    >
+                      <ThemedText
+                        style={[
+                          styles.timePillText,
+                          isSelected
+                            ? styles.timePillTextSelected
+                            : { color: theme.textSecondary },
+                        ]}
+                      >
+                        {option.label}
+                      </ThemedText>
+                    </Pressable>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        ) : null}
+
         <PeopleSelector
           selectedIds={assigneeIds}
           onSelectionChange={setAssigneeIds}
@@ -334,6 +433,13 @@ export default function AddTaskScreen() {
           </View>
         </View>
       </Modal>
+
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </>
   );
 }
@@ -346,6 +452,11 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: "600",
     marginBottom: Spacing.sm,
+  },
+  sublabel: {
+    fontSize: 12,
+    marginBottom: Spacing.sm,
+    marginTop: -Spacing.xs,
   },
   input: {
     borderRadius: BorderRadius.xs,
@@ -433,6 +544,28 @@ const styles = StyleSheet.create({
   },
   priorityText: {
     fontSize: 13,
+  },
+  timePillRow: {
+    flexDirection: "row",
+    gap: Spacing.sm,
+    paddingRight: Spacing.lg,
+  },
+  timePill: {
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    borderRadius: 16,
+    borderWidth: 1,
+  },
+  timePillSelected: {
+    backgroundColor: "#6B7FFF",
+    borderColor: "#6B7FFF",
+  },
+  timePillText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  timePillTextSelected: {
+    color: "#FFFFFF",
   },
   modalOverlay: {
     flex: 1,

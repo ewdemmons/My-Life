@@ -21,6 +21,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabase";
 import {
@@ -69,6 +71,8 @@ export function BubbleShareModal({
   const { theme } = useTheme();
   const { people, addPerson } = useApp();
   const { user } = useAuth();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
   const [contactInput, setContactInput] = useState("");
   const [permission, setPermission] = useState<SharePermission>("view");
@@ -227,14 +231,21 @@ export function BubbleShareModal({
     if (existingPerson) {
       setSelectedPerson(existingPerson);
     } else {
-      await addPerson({
-        name: contact.name,
-        relationship: "other",
-        email: contact.email || undefined,
-        phone: contact.phone || undefined,
-        photoUri: contact.imageUri || undefined,
-        categoryIds: [category.id],
+      const performAdd = async () => {
+        await addPerson({
+          name: contact.name,
+          relationship: "other",
+          email: contact.email || undefined,
+          phone: contact.phone || undefined,
+          photoUri: contact.imageUri || undefined,
+          categoryIds: [category.id],
+        });
+      };
+      setRetry(() => {
+        void performAdd();
       });
+      const result = await withSaveIndicator(performAdd);
+      if (result === null) return;
     }
   };
 
@@ -280,7 +291,7 @@ export function BubbleShareModal({
 
     if (error) {
       console.error("Error creating pending share:", error);
-      throw error;
+      throw new Error(error.message);
     }
 
     return { inviteCode, senderName };
@@ -299,7 +310,7 @@ export function BubbleShareModal({
 
     if (error) {
       console.error("Error creating direct share:", error);
-      throw error;
+      throw new Error(error.message);
     }
 
     const { data: profileData } = await supabase
@@ -311,13 +322,16 @@ export function BubbleShareModal({
     const senderName = profileData?.display_name || profileData?.email?.split("@")[0] || "Someone";
     const permissionInfo = SHARE_PERMISSIONS.find((p) => p.value === permission);
     
-    await supabase.from("notifications").insert({
+    const { error: notifError } = await supabase.from("notifications").insert({
       user_id: sharedWithId,
       type: "bubble_shared",
       title: "Bubble Shared With You",
       body: `${senderName} shared "${category.name}" with you (${permissionInfo?.label || permission})`,
       data: { bubbleId: category.id, permission },
     });
+    if (notifError) {
+      throw new Error(notifError.message);
+    }
   };
 
   const getInviteUrl = (inviteCode: string): string => {
@@ -381,7 +395,7 @@ export function BubbleShareModal({
 
     setIsSending(true);
 
-    try {
+    const performSendInvite = async () => {
       if (contactType === "email") {
         const existingUserId = await checkExistingAppUser(trimmedInput);
         if (existingUserId) {
@@ -412,16 +426,18 @@ export function BubbleShareModal({
         await sendSMSInvite(trimmedInput, inviteCode, senderName);
       }
 
-      const inviteUrl = getInviteUrl(inviteCode);
       Alert.alert(
         "Invite Sent!",
         `Invitation sent via ${contactType === "email" ? "email" : "SMS"}. They can tap the link to join automatically.`
       );
       onClose();
-    } catch (error) {
-      console.error("Error sending invite:", error);
-      Alert.alert("Error", "Failed to send invitation. Please try again.");
-    } finally {
+    };
+
+    setRetry(() => {
+      void performSendInvite();
+    });
+    const result = await withSaveIndicator(performSendInvite);
+    if (result === null) {
       setIsSending(false);
     }
   };
@@ -716,6 +732,13 @@ export function BubbleShareModal({
             />
           </View>
         </Modal>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
   );

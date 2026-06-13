@@ -13,6 +13,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import {
   Person,
   ShareRecord,
@@ -38,6 +40,8 @@ export function SharePeopleModal({
 }: SharePeopleModalProps) {
   const { theme } = useTheme();
   const { people } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Saved" });
   const [localShares, setLocalShares] = useState<ShareRecord[]>(sharedWith);
   const [showAddPerson, setShowAddPerson] = useState(false);
   const [showPermissionPicker, setShowPermissionPicker] = useState(false);
@@ -126,12 +130,17 @@ export function SharePeopleModal({
   const handleSave = async () => {
     if (isSaving) return;
     setIsSaving(true);
-    try {
+
+    const performSave = async () => {
       await onUpdateSharing(localShares);
       onClose();
-    } catch (error) {
-      Alert.alert("Error", "Failed to save sharing settings. Please try again.");
-    } finally {
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    const result = await withSaveIndicator(performSave);
+    if (result === null) {
       setIsSaving(false);
     }
   };
@@ -343,6 +352,13 @@ export function SharePeopleModal({
             </View>
           </Pressable>
         </Modal>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
   );

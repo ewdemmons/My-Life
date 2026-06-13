@@ -11,6 +11,8 @@ import { MasterListPinnedTaskCard } from "@/components/MasterListPinnedTaskCard"
 import { MasterListPinnedHabitCard } from "@/components/MasterListPinnedHabitCard";
 import { MasterListSectionHeader } from "@/components/MasterListSectionHeader";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { useAuth } from "@/context/AuthContext";
 import { canModifyEntryInLifeArea } from "@/lib/permissions";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
@@ -22,6 +24,8 @@ export function AgendaMasterListView() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { user } = useAuth();
   const { pinnedTasks, pinnedHabits, categories, unpinTask, unpinHabit, updateTask } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300 });
 
   const visiblePinnedTasks = useMemo(
     () => pinnedTasks.filter((task) => task.status !== "completed"),
@@ -68,15 +72,48 @@ export function AgendaMasterListView() {
   );
 
   const handleToggleComplete = useCallback(
-    (task: Task) => {
+    async (task: Task) => {
       if (!canModifyTask(task)) return;
       const newStatus = task.status === "completed" ? "pending" : "completed";
-      updateTask(task.id, { status: newStatus });
+      const performToggle = async () => {
+        await updateTask(task.id, { status: newStatus });
+      };
+      setRetry(() => {
+        void performToggle();
+      });
+      await withSaveIndicator(performToggle);
     },
-    [canModifyTask, updateTask],
+    [canModifyTask, updateTask, withSaveIndicator, setRetry],
+  );
+
+  const handleUnpinTask = useCallback(
+    async (taskId: string) => {
+      const performUnpin = async () => {
+        await unpinTask(taskId);
+      };
+      setRetry(() => {
+        void performUnpin();
+      });
+      await withSaveIndicator(performUnpin, { showSuccess: false });
+    },
+    [unpinTask, withSaveIndicator, setRetry],
+  );
+
+  const handleUnpinHabit = useCallback(
+    async (habitId: string) => {
+      const performUnpin = async () => {
+        await unpinHabit(habitId);
+      };
+      setRetry(() => {
+        void performUnpin();
+      });
+      await withSaveIndicator(performUnpin, { showSuccess: false });
+    },
+    [unpinHabit, withSaveIndicator, setRetry],
   );
 
   return (
+    <>
     <View style={styles.container}>
       {!hasAnyPinned ? (
         <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
@@ -100,7 +137,7 @@ export function AgendaMasterListView() {
                   category={categories.find((c) => c.id === task.categoryId)}
                   onPress={() => navigateToTask(task)}
                   onToggleComplete={() => handleToggleComplete(task)}
-                  onUnpin={() => unpinTask(task.id)}
+                  onUnpin={() => handleUnpinTask(task.id)}
                   canModify={canModifyTask(task)}
                 />
               ))}
@@ -116,7 +153,7 @@ export function AgendaMasterListView() {
                   habit={habit}
                   category={categories.find((c) => c.id === habit.categoryId)}
                   onPress={() => navigateToHabit(habit)}
-                  onUnpin={() => unpinHabit(habit.id)}
+                  onUnpin={() => handleUnpinHabit(habit.id)}
                 />
               ))}
             </View>
@@ -124,6 +161,13 @@ export function AgendaMasterListView() {
         </View>
       )}
     </View>
+    <SaveToast
+      state={toastState}
+      message={toastMessage}
+      onRetry={retryFn ?? undefined}
+      onDismiss={dismiss}
+    />
+    </>
   );
 }
 

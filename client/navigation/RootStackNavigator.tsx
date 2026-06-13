@@ -39,7 +39,13 @@ export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList> | undefined;
   CategoryDetail: { category?: LifeCategory; categoryId?: string; initialTaskId?: string; initialEventId?: string };
   AddCategory: { category?: LifeCategory; scrollToPreferredTimes?: boolean };
-  AddTask: { categoryId?: string; parentTaskId?: string; task?: Task };
+  AddTask: {
+    categoryId?: string;
+    parentTaskId?: string;
+    task?: Task;
+    initialPeopleIds?: string[];
+    initialCategoryId?: string;
+  };
   Notifications: undefined;
   CentralDashboard: undefined;
   Profile: undefined;

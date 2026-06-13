@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   is_recurring BOOLEAN DEFAULT FALSE,
   is_pinned BOOLEAN DEFAULT FALSE, -- Master To Do List pinning
   pinned_order INTEGER DEFAULT 0, -- Sort order for pinned tasks
+  exclude_from_plan BOOLEAN DEFAULT FALSE, -- Low-priority entries excluded from daily plan suggestions
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -53,6 +54,7 @@ CREATE TABLE IF NOT EXISTS events (
   user_id UUID NOT NULL REFERENCES auth.users(id) ON DELETE CASCADE,
   bubble_id UUID REFERENCES life_bubbles(id) ON DELETE SET NULL,
   linked_task_id UUID REFERENCES tasks(id) ON DELETE SET NULL,
+  linked_person_id UUID REFERENCES people(id) ON DELETE SET NULL,
   event_type TEXT NOT NULL DEFAULT 'reminder', -- 'reminder', 'appointment', 'meeting', 'due_date'
   title TEXT NOT NULL,
   description TEXT,
@@ -85,6 +87,7 @@ CREATE TABLE IF NOT EXISTS people (
   linked_user_id UUID REFERENCES auth.users(id) ON DELETE SET NULL,
   linked_consent_status TEXT DEFAULT NULL, -- 'pending', 'approved', 'declined', or null
   linked_user_display_name TEXT,
+  birthday VARCHAR(5), -- MM-DD format e.g. "06-15"
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

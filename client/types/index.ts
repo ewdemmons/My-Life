@@ -38,6 +38,7 @@ export interface Person {
   linkedUserId?: string | null;
   linkedConsentStatus?: LinkedConsentStatus;
   linkedUserDisplayName?: string | null;
+  birthday?: string | null;
 }
 
 export const RELATIONSHIP_TYPES: { value: RelationshipType; label: string; icon: string }[] = [
@@ -89,6 +90,7 @@ export interface Task {
   status: "pending" | "in_progress" | "completed";
   createdAt: number;
   orderIndex?: number;
+  sortOrder?: number;
   assigneeIds?: string[];
   sharedWith?: ShareRecord[];
   completionType?: CompletionType;
@@ -96,7 +98,9 @@ export interface Task {
   isRecurring?: boolean;
   isPinned?: boolean;
   pinnedOrder?: number;
+  excludeFromPlan?: boolean;
   deadline?: string;
+  estimatedMinutes?: number | null;
 }
 
 export interface DeletedItem {
@@ -144,6 +148,7 @@ export interface CalendarEvent {
   eventType: EventType;
   recurrence: RecurrenceType;
   linkedTaskId: string | null;
+  linkedPersonId?: string | null;
   categoryId: string | null;
   createdAt: number;
   seriesId?: string | null;

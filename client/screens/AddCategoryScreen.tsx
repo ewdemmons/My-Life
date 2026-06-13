@@ -13,6 +13,8 @@ import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollV
 import { PeopleSelector } from "@/components/PeopleSelector";
 import { PreferredTimesSection } from "@/components/PreferredTimesSection";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { LifeAreaSchedule, PendingScheduleBlock } from "@/types";
 import { isEndAfterStart } from "@/utils/scheduleTimeUtils";
@@ -60,6 +62,8 @@ export default function AddCategoryScreen() {
     updateLifeAreaSchedule,
     deleteLifeAreaSchedule,
   } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Life Area saved" });
 
   const editingCategory = route.params?.category;
   const isEditing = !!editingCategory;
@@ -137,36 +141,49 @@ export default function AddCategoryScreen() {
     const toDelete = originalBlockIds.filter((id) => !currentIds.has(id));
 
     for (const id of toDelete) {
-      await deleteLifeAreaSchedule(id);
+      const performDelete = async () => {
+        await deleteLifeAreaSchedule(id);
+      };
+      setRetry(() => {
+        void performDelete();
+      });
+      const result = await withSaveIndicator(performDelete, { showSuccess: false });
+      if (result === null) return false;
     }
 
     for (const block of pendingBlocks) {
       if (!block.id) {
-        const created = await addLifeAreaSchedule({
-          categoryId,
-          label: block.label,
-          daysOfWeek: block.daysOfWeek,
-          startTime: block.startTime,
-          endTime: block.endTime,
-          isActive: true,
-        });
-        if (!created) {
-          setSaveError("Failed to save a time block. Please try again.");
-          return false;
-        }
-      } else {
-        const original = initialSnapshotRef.current.get(block.id);
-        if (original && !blocksEqual(block, original)) {
-          const updated = await updateLifeAreaSchedule(block.id, {
+        const performAdd = async () => {
+          await addLifeAreaSchedule({
+            categoryId,
             label: block.label,
             daysOfWeek: block.daysOfWeek,
             startTime: block.startTime,
             endTime: block.endTime,
+            isActive: true,
           });
-          if (!updated) {
-            setSaveError("Failed to update a time block. Please try again.");
-            return false;
-          }
+        };
+        setRetry(() => {
+          void performAdd();
+        });
+        const result = await withSaveIndicator(performAdd);
+        if (result === null) return false;
+      } else {
+        const original = initialSnapshotRef.current.get(block.id);
+        if (original && !blocksEqual(block, original)) {
+          const performUpdate = async () => {
+            await updateLifeAreaSchedule(block.id!, {
+              label: block.label,
+              daysOfWeek: block.daysOfWeek,
+              startTime: block.startTime,
+              endTime: block.endTime,
+            });
+          };
+          setRetry(() => {
+            void performUpdate();
+          });
+          const result = await withSaveIndicator(performUpdate);
+          if (result === null) return false;
         }
       }
     }
@@ -180,6 +197,8 @@ export default function AddCategoryScreen() {
     addLifeAreaSchedule,
     updateLifeAreaSchedule,
     getLifeAreaSchedules,
+    withSaveIndicator,
+    setRetry,
   ]);
 
   const handleSave = useCallback(async () => {
@@ -188,8 +207,8 @@ export default function AddCategoryScreen() {
     setIsSaving(true);
     setSaveError(null);
 
-    try {
-      if (isEditing && editingCategory) {
+    if (isEditing && editingCategory) {
+      const performUpdate = async () => {
         await updateCategory(editingCategory.id, {
           name: name.trim(),
           description: description.trim(),
@@ -197,13 +216,24 @@ export default function AddCategoryScreen() {
           icon,
           peopleIds,
         });
+      };
+      setRetry(() => {
+        void performUpdate();
+      });
+      const catResult = await withSaveIndicator(performUpdate);
+      if (catResult === null) {
+        setIsSaving(false);
+        return;
+      }
 
-        const schedulesOk = await saveSchedules(editingCategory.id);
-        if (!schedulesOk) {
-          setIsSaving(false);
-          return;
-        }
-      } else {
+      const schedulesOk = await saveSchedules(editingCategory.id);
+      if (!schedulesOk) {
+        setIsSaving(false);
+        return;
+      }
+      navigation.goBack();
+    } else {
+      const performAdd = async () => {
         await addCategory({
           name: name.trim(),
           description: description.trim(),
@@ -211,12 +241,15 @@ export default function AddCategoryScreen() {
           icon,
           peopleIds,
         });
+        navigation.goBack();
+      };
+      setRetry(() => {
+        void performAdd();
+      });
+      const result = await withSaveIndicator(performAdd);
+      if (result === null) {
+        setIsSaving(false);
       }
-      navigation.goBack();
-    } catch (error) {
-      console.error("Error saving category:", error);
-      setSaveError("Failed to save. Please try again.");
-      setIsSaving(false);
     }
   }, [
     name,
@@ -231,6 +264,8 @@ export default function AddCategoryScreen() {
     addCategory,
     saveSchedules,
     navigation,
+    withSaveIndicator,
+    setRetry,
   ]);
 
   useLayoutEffect(() => {
@@ -261,6 +296,7 @@ export default function AddCategoryScreen() {
   }, [navigation, isEditing, isValid, isSaving, theme, handleSave]);
 
   return (
+    <>
     <KeyboardAwareScrollViewCompat
       ref={scrollRef}
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
@@ -385,6 +421,13 @@ export default function AddCategoryScreen() {
         </View>
       </View>
     </KeyboardAwareScrollViewCompat>
+    <SaveToast
+      state={toastState}
+      message={toastMessage}
+      onRetry={retryFn ?? undefined}
+      onDismiss={dismiss}
+    />
+    </>
   );
 }
 

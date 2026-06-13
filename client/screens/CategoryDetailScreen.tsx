@@ -19,6 +19,8 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
 import QuickListModal from "@/components/QuickListModal";
 import { BriefToast } from "@/components/BriefToast";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { SharePeopleModal } from "@/components/SharePeopleModal";
@@ -61,6 +63,8 @@ export default function CategoryDetailScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
   const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem, lifeAreaSchedules } = useApp();
+  const { toastState, toastMessage: saveToastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500 });
 
   const categoryId = route.params.category?.id ?? route.params.categoryId;
   const categoryFromState = categories.find(c => c.id === categoryId);
@@ -94,6 +98,7 @@ export default function CategoryDetailScreen() {
   const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
   const [editingAsInstance, setEditingAsInstance] = useState(false);
   const [expandedPersonId, setExpandedPersonId] = useState<string | null>(null);
+  const [schedulingPersonId, setSchedulingPersonId] = useState<string | null>(null);
   const [highlightedTaskId, setHighlightedTaskId] = useState<string | null>(initialTaskId || null);
   const [quickListEntry, setQuickListEntry] = useState<Task | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -125,7 +130,14 @@ export default function CategoryDetailScreen() {
   const preferredTimesCount = lifeAreaSchedules.filter((s) => s.categoryId === category.id).length;
 
   const handleUpdateSharing = async (shares: ShareRecord[]) => {
-    await updateCategory(category.id, { sharedWith: shares });
+    const performUpdate = async () => {
+      await updateCategory(category.id, { sharedWith: shares });
+    };
+
+    setRetry(() => {
+      void handleUpdateSharing(shares);
+    });
+    await withSaveIndicator(performUpdate);
   };
 
   const getEventTypeInfo = (type: string) => {
@@ -142,6 +154,7 @@ export default function CategoryDetailScreen() {
 
   const handleEventPress = (event: CalendarEvent) => {
     if (!canModifyEntries) return;
+    setSchedulingPersonId(null);
     setEditingEvent(event);
     if (isRecurringEvent(event)) {
       setShowRecurringModal(true);
@@ -152,34 +165,51 @@ export default function CategoryDetailScreen() {
 
   const handleEditInstance = () => {
     setShowRecurringModal(false);
+    setSchedulingPersonId(null);
     setEditingAsInstance(true);
     setShowSchedulingModal(true);
   };
 
   const handleEditSeries = () => {
     setShowRecurringModal(false);
+    setSchedulingPersonId(null);
     setEditingAsInstance(false);
     setShowSchedulingModal(true);
   };
 
   const handleDeleteInstance = async () => {
-    if (editingEvent) {
+    if (!editingEvent) return;
+
+    const performDelete = async () => {
       await deleteEvent(editingEvent.id);
       setShowRecurringModal(false);
       setEditingEvent(null);
-    }
+    };
+
+    setRetry(() => {
+      void handleDeleteInstance();
+    });
+    await withSaveIndicator(performDelete, { showSuccess: false });
   };
 
   const handleDeleteSeriesEvent = async () => {
-    if (editingEvent?.seriesId) {
-      await deleteEventSeries(editingEvent.seriesId);
+    if (!editingEvent?.seriesId) return;
+
+    const performDelete = async () => {
+      await deleteEventSeries(editingEvent.seriesId!);
       setShowRecurringModal(false);
       setEditingEvent(null);
-    }
+    };
+
+    setRetry(() => {
+      void handleDeleteSeriesEvent();
+    });
+    await withSaveIndicator(performDelete, { showSuccess: false });
   };
 
   const handleAddEvent = () => {
     setEditingEvent(null);
+    setSchedulingPersonId(null);
     setShowSchedulingModal(true);
   };
 
@@ -297,59 +327,56 @@ export default function CategoryDetailScreen() {
   };
 
   const renderEntriesTab = () => (
-    <>
-      <ScrollView
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        style={styles.typeFilters}
-        contentContainerStyle={styles.typeFiltersContent}
-      >
-        <Pressable
-          style={[
-            styles.typeChip,
-            { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
-            !selectedType && { borderColor: category.color },
-          ]}
-          onPress={() => setSelectedType(null)}
+    <HierarchicalTaskList
+      style={styles.taskList}
+      contentContainerStyle={{
+        paddingHorizontal: Spacing.lg,
+        paddingBottom: insets.bottom + Spacing.xl,
+      }}
+      headerComponent={
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.typeFilters}
+          contentContainerStyle={styles.typeFiltersContent}
         >
-          <ThemedText style={[styles.typeChipText, !selectedType && { color: category.color }]}>
-            All
-          </ThemedText>
-        </Pressable>
-        {TASK_TYPES.map((t) => (
           <Pressable
-            key={t.value}
             style={[
               styles.typeChip,
               { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
-              selectedType === t.value && { borderColor: category.color, backgroundColor: category.color + "15" },
+              !selectedType && { borderColor: category.color },
             ]}
-            onPress={() => setSelectedType(selectedType === t.value ? null : t.value)}
+            onPress={() => setSelectedType(null)}
           >
-            <Feather name={t.icon as any} size={14} color={selectedType === t.value ? category.color : theme.textSecondary} />
-            <ThemedText style={[styles.typeChipText, selectedType === t.value && { color: category.color }]}>
-              {t.label}
+            <ThemedText style={[styles.typeChipText, !selectedType && { color: category.color }]}>
+              All
             </ThemedText>
           </Pressable>
-        ))}
-      </ScrollView>
-      <ScrollView
-        style={styles.taskList}
-        contentContainerStyle={{
-          paddingHorizontal: Spacing.lg,
-          paddingBottom: insets.bottom + Spacing.xl,
-        }}
-      >
-        <HierarchicalTaskList 
-          tasks={categoryTasks} 
-          filterType={selectedType}
-          highlightedTaskId={highlightedTaskId}
-          onHighlightCleared={() => setHighlightedTaskId(null)}
-          canModifyEntries={canModifyEntries}
-          onQuickList={canModifyEntries ? handleQuickList : undefined}
-        />
-      </ScrollView>
-    </>
+          {TASK_TYPES.map((t) => (
+            <Pressable
+              key={t.value}
+              style={[
+                styles.typeChip,
+                { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
+                selectedType === t.value && { borderColor: category.color, backgroundColor: category.color + "15" },
+              ]}
+              onPress={() => setSelectedType(selectedType === t.value ? null : t.value)}
+            >
+              <Feather name={t.icon as any} size={14} color={selectedType === t.value ? category.color : theme.textSecondary} />
+              <ThemedText style={[styles.typeChipText, selectedType === t.value && { color: category.color }]}>
+                {t.label}
+              </ThemedText>
+            </Pressable>
+          ))}
+        </ScrollView>
+      }
+      tasks={categoryTasks}
+      filterType={selectedType}
+      highlightedTaskId={highlightedTaskId}
+      onHighlightCleared={() => setHighlightedTaskId(null)}
+      canModifyEntries={canModifyEntries}
+      onQuickList={canModifyEntries ? handleQuickList : undefined}
+    />
   );
 
   const now = new Date();
@@ -797,13 +824,50 @@ export default function CategoryDetailScreen() {
           </Animated.View>
         ) : null}
 
+        <View style={styles.personCardActions}>
+          <Pressable
+            style={[
+              styles.personActionBtn,
+              { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={() => {
+              navigation.navigate("AddTask", {
+                initialPeopleIds: [item.id],
+                initialCategoryId: item.categoryIds?.[0] ?? category.id,
+              });
+            }}
+          >
+            <Feather name="plus" size={16} color={theme.primary} />
+            <ThemedText style={[styles.personActionBtnText, { color: theme.primary }]}>
+              Entry
+            </ThemedText>
+          </Pressable>
+          <Pressable
+            style={[
+              styles.personActionBtn,
+              { borderColor: theme.border, backgroundColor: theme.backgroundDefault },
+            ]}
+            onPress={() => {
+              setEditingEvent(null);
+              setEditingAsInstance(false);
+              setSchedulingPersonId(item.id);
+              setShowSchedulingModal(true);
+            }}
+          >
+            <Feather name="calendar" size={16} color={theme.primary} />
+            <ThemedText style={[styles.personActionBtnText, { color: theme.primary }]}>
+              Event
+            </ThemedText>
+          </Pressable>
+        </View>
+
         <View style={styles.personActions}>
           <Pressable
-            style={[styles.personActionBtn, { backgroundColor: theme.primary + "15" }]}
+            style={[styles.personManageBtn, { backgroundColor: theme.primary + "15" }]}
             onPress={() => setShowShareModal(true)}
           >
             <Feather name="share" size={14} color={theme.primary} />
-            <ThemedText style={[styles.personActionText, { color: theme.primary }]}>
+            <ThemedText style={[styles.personManageText, { color: theme.primary }]}>
               Manage Access
             </ThemedText>
           </Pressable>
@@ -942,11 +1006,18 @@ export default function CategoryDetailScreen() {
           setShowSchedulingModal(false);
           setEditingEvent(null);
           setEditingAsInstance(false);
+          setSchedulingPersonId(null);
         }}
         initialDate={selectedDate || undefined}
         lockedCategoryId={category.id}
         editingEvent={editingEvent}
         editingAsInstance={editingAsInstance}
+        initialPeopleIds={schedulingPersonId ? [schedulingPersonId] : undefined}
+        initialCategoryId={
+          schedulingPersonId
+            ? people.find((p) => p.id === schedulingPersonId)?.categoryIds?.[0] ?? category.id
+            : category.id
+        }
         readOnly={!canModifyEntries}
         canDelete={canModifyEntries}
       />
@@ -1108,6 +1179,13 @@ export default function CategoryDetailScreen() {
       ) : null}
 
       <BriefToast message={toastMessage} visible={toastVisible} />
+
+      <SaveToast
+        state={toastState}
+        message={saveToastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </View>
   );
 }
@@ -1487,13 +1565,33 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 4,
   },
+  personCardActions: {
+    flexDirection: "row",
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    paddingTop: 4,
+  },
+  personActionBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    borderWidth: 1,
+    borderRadius: 14,
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+  },
+  personActionBtnText: {
+    fontSize: 14,
+    fontWeight: "600",
+  },
   personActions: {
     flexDirection: "row",
     paddingHorizontal: Spacing.md,
     paddingBottom: Spacing.md,
     gap: Spacing.sm,
   },
-  personActionBtn: {
+  personManageBtn: {
     flexDirection: "row",
     alignItems: "center",
     paddingVertical: Spacing.xs,
@@ -1501,7 +1599,7 @@ const styles = StyleSheet.create({
     borderRadius: BorderRadius.full,
     gap: Spacing.xs,
   },
-  personActionText: {
+  personManageText: {
     fontSize: 12,
     fontWeight: "500",
   },

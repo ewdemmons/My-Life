@@ -33,7 +33,7 @@ export interface BuildAppContextParams {
 
 function buildSuggestedTasksSection(tasks: Task[], categories: LifeCategory[]): string {
   const lines = tasks
-    .filter((t) => !t.isPinned && t.type === "task" && t.status !== "completed")
+    .filter((t) => !t.isPinned && t.type === "task" && t.status !== "completed" && !t.excludeFromPlan)
     .slice(0, 10)
     .map((t) => {
       const category = categories.find((c) => c.id === t.categoryId);
@@ -159,7 +159,7 @@ Current time: ${now.toLocaleTimeString("en-US", {
           .join(", ")
       : "None created yet";
 
-  const pinnedEntries = tasks.filter((t) => t.isPinned);
+  const pinnedEntries = tasks.filter((t) => t.isPinned && !t.excludeFromPlan);
   const masterListSection =
     pinnedEntries.length > 0
       ? pinnedEntries

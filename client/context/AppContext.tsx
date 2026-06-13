@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
+import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES, LifeAreaSchedule, LifeAreaScheduleInput, LifeAreaScheduleWithCategory } from "@/types";
 import {
@@ -17,6 +18,7 @@ import {
   findCompleteUntilReminder,
   syncCompleteUntilReminder,
 } from "@/utils/completeUntilUtils";
+import { syncBirthdayReminders } from "@/utils/birthdayUtils";
 import { useNotifications } from "./NotificationContext";
 
 const TASKS_KEY = "@mylife_tasks";
@@ -36,6 +38,8 @@ interface AppContextType {
   recycleBin: DeletedItem[];
   lifeAreaSchedules: LifeAreaSchedule[];
   isLoading: boolean;
+  globalSaveState: "idle" | "saving" | "error";
+  globalSaveError: string | null;
   addCategory: (category: Omit<LifeCategory, "id" | "createdAt">) => Promise<LifeCategory | void>;
   updateCategory: (id: string, updates: Partial<LifeCategory>) => Promise<void>;
   deleteCategory: (id: string) => Promise<void>;
@@ -129,13 +133,16 @@ function mapSupabaseTaskToTask(task: any): Task {
     status: task.status || "pending",
     createdAt: new Date(task.created_at).getTime(),
     orderIndex: task.order_index || 0,
+    sortOrder: task.sort_order ?? 0,
     assigneeIds: task.assignee_ids || [],
     completionType: task.completion_type || null,
     completionDate: task.completion_date || undefined,
     isRecurring: task.is_recurring || false,
     isPinned: task.is_pinned || false,
     pinnedOrder: task.pinned_order || 0,
+    excludeFromPlan: task.exclude_from_plan ?? false,
     deadline: task.deadline || undefined,
+    estimatedMinutes: task.estimated_minutes ?? null,
   };
 }
 
@@ -178,13 +185,16 @@ function mapTaskToSupabase(task: Partial<Task>, userId: string) {
   if (task.priority !== undefined) result.priority = task.priority;
   if (task.status !== undefined) result.status = task.status;
   if (task.orderIndex !== undefined) result.order_index = task.orderIndex;
+  if (task.sortOrder !== undefined) result.sort_order = task.sortOrder;
   if (task.assigneeIds !== undefined) result.assignee_ids = task.assigneeIds;
   if (task.completionType !== undefined) result.completion_type = task.completionType;
   if (task.completionDate !== undefined) result.completion_date = task.completionDate || null;
-  if (task.isRecurring !== undefined) result.is_recurring = task.isRecurring;
+  if (task.isRecurring === true) result.is_recurring = true;
   if (task.isPinned !== undefined) result.is_pinned = task.isPinned;
   if (task.pinnedOrder !== undefined) result.pinned_order = task.pinnedOrder;
+  if (task.excludeFromPlan !== undefined) result.exclude_from_plan = task.excludeFromPlan ?? false;
   if (task.deadline !== undefined) result.deadline = task.deadline || null;
+  if (task.estimatedMinutes !== undefined) result.estimated_minutes = task.estimatedMinutes ?? null;
   return result;
 }
 
@@ -263,6 +273,7 @@ function mapSupabaseEventToEvent(event: any): CalendarEvent {
     eventType: event.event_type || "reminder",
     recurrence: event.recurrence || "none",
     linkedTaskId: event.linked_task_id || null,
+    linkedPersonId: event.linked_person_id ?? null,
     categoryId: event.bubble_id || null,
     createdAt: new Date(event.created_at).getTime(),
     seriesId: event.series_id || null,
@@ -302,6 +313,7 @@ function mapEventToSupabase(event: Partial<CalendarEvent>, userId: string, exist
   if (event.eventType !== undefined) result.event_type = event.eventType;
   if (event.recurrence !== undefined) result.recurrence = event.recurrence;
   if (event.linkedTaskId !== undefined) result.linked_task_id = event.linkedTaskId;
+  if (event.linkedPersonId !== undefined) result.linked_person_id = event.linkedPersonId;
   if (event.categoryId !== undefined) result.bubble_id = event.categoryId;
   if (event.seriesId !== undefined) result.series_id = event.seriesId;
   if (event.isException !== undefined) result.is_exception = event.isException;
@@ -326,6 +338,7 @@ function mapSupabasePersonToPerson(person: any): Person {
     linkedUserId: person.linked_user_id || null,
     linkedConsentStatus: person.linked_consent_status || null,
     linkedUserDisplayName: person.linked_user_display_name || null,
+    birthday: person.birthday ?? null,
   };
 }
 
@@ -353,6 +366,7 @@ function mapPersonToSupabase(person: Partial<Person>, userId: string) {
   if (person.linkedUserId !== undefined) result.linked_user_id = person.linkedUserId;
   if (person.linkedConsentStatus !== undefined) result.linked_consent_status = person.linkedConsentStatus;
   if (person.linkedUserDisplayName !== undefined) result.linked_user_display_name = person.linkedUserDisplayName;
+  if (person.birthday !== undefined) result.birthday = person.birthday ?? null;
   return result;
 }
 
@@ -455,6 +469,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [lifeAreaSchedules, setLifeAreaSchedules] = useState<LifeAreaSchedule[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [globalSaveState, setGlobalSaveState] = useState<"idle" | "saving" | "error">("idle");
+  const [globalSaveError, setGlobalSaveError] = useState<string | null>(null);
   const subscriptionRef = useRef<any>(null);
   const sharedBubbleIdsRef = useRef<Set<string>>(new Set());
   const ownedBubbleIdsRef = useRef<Set<string>>(new Set());
@@ -872,10 +888,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes, habitsRes, occurrencesRes, schedulesRes] = await Promise.all([
         // Fetch all tasks in bubbles the user owns or is shared with
         allRelevantBubbleIds.length > 0
-          ? supabase.from("tasks").select("*").in("bubble_id", allRelevantBubbleIds).order("created_at", { ascending: true })
+          ? supabase.from("tasks").select("*").in("bubble_id", allRelevantBubbleIds).order("sort_order", { ascending: true }).order("created_at", { ascending: true })
           : Promise.resolve({ data: [], error: null }),
         // Fetch user's uncategorized tasks (null bubble_id)
-        supabase.from("tasks").select("*").eq("user_id", user.id).is("bubble_id", null).order("created_at", { ascending: true }),
+        supabase.from("tasks").select("*").eq("user_id", user.id).is("bubble_id", null).order("sort_order", { ascending: true }).order("created_at", { ascending: true }),
         // Fetch all events in bubbles the user owns or is shared with
         allRelevantBubbleIds.length > 0
           ? supabase.from("events").select("*").in("bubble_id", allRelevantBubbleIds).order("start_time", { ascending: true })
@@ -973,8 +989,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error adding category:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     const newCategory = mapSupabaseBubbleToCategory(data);
@@ -998,8 +1013,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error updating category:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setCategories((prev) =>
@@ -1022,8 +1036,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error deleting category:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     const { data, error: insertError } = await supabase.from("recycle_bin").insert({
@@ -1065,8 +1078,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error adding task:", error.message);
-      return null;
+      throw new Error(error.message);
     }
 
     const newTask = mapSupabaseTaskToTask(data);
@@ -1123,8 +1135,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { error } = await query;
 
     if (error) {
-      console.error("Error updating task:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setTasks((prev) => prev.map((task) => (task.id === id ? { ...task, ...updates } : task)));
@@ -1302,8 +1313,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select();
 
       if (error) {
-        console.error("Error adding recurring events:", error.message, { seriesId, instances: supabaseInstances });
-        return;
+        throw new Error(error.message);
       }
 
       if (data) {
@@ -1345,8 +1355,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const { data, error } = await supabase.from("events").insert(supabaseEvent).select().single();
       
       if (error) {
-        console.error("Error adding event:", error.message);
-        return;
+        throw new Error(error.message);
       }
 
       const newEvent = mapSupabaseEventToEvent(data);
@@ -1472,8 +1481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { error } = await updateQuery;
 
     if (error) {
-      console.error("Error updating event:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setEvents((prev) => prev.map((event) => (event.id === id ? { 
@@ -1512,8 +1520,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { error } = await deleteQuery;
 
     if (error) {
-      console.error("Error deleting event:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setEvents((prev) => prev.filter((event) => event.id !== id));
@@ -1568,7 +1575,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const rowCategoryId = row?.categoryId || taskToDelete.categoryId || null;
       let query = supabase.from("tasks").delete().eq("id", taskId);
       query = applyEntryOwnerFilter(query, rowUserId, rowCategoryId, user.id, categories);
-      await query;
+      const { error: deleteError } = await query;
+      if (deleteError) {
+        throw new Error(deleteError.message);
+      }
     }
 
     setTasks((prev) => prev.filter((task) => !idsToDelete.includes(task.id)));
@@ -2022,8 +2032,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { error } = await seriesDeleteQuery;
 
     if (error) {
-      console.error("Error deleting event series:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setEvents((prev) => prev.filter((event) => event.seriesId !== seriesId));
@@ -2056,8 +2065,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const { error } = await instanceQuery;
 
     if (error) {
-      console.error("Error updating event instance:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     const updatedEvent = { ...existingEvent, ...updates };
@@ -2090,8 +2098,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error adding person:", error.message);
-      return null;
+      throw new Error(error.message);
     }
 
     const newPerson = mapSupabasePersonToPerson(data);
@@ -2112,8 +2119,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error updating person:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setPeople((prev) => prev.map((person) => (person.id === id ? { ...person, ...updates } : person)));
@@ -2122,6 +2128,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const deletePerson = useCallback(async (id: string) => {
     if (!user) return;
 
+    const person = people.find((p) => p.id === id);
+    if (person) {
+      await syncBirthdayReminders({
+        person,
+        birthday: null,
+        events,
+        addEvent,
+        deleteEvent,
+        deleteEventSeries,
+      });
+    }
+
     const { error } = await supabase
       .from("people")
       .delete()
@@ -2129,8 +2147,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error deleting person:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setPeople((prev) => prev.filter((person) => person.id !== id));
@@ -2167,7 +2184,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         attendeeIds: event.attendeeIds?.filter((pid) => pid !== id),
       }))
     );
-  }, [user, tasks, events]);
+  }, [user, tasks, events, people, addEvent, deleteEvent, deleteEventSeries]);
 
   const getPersonById = useCallback(
     (id: string) => people.find((person) => person.id === id),
@@ -2184,8 +2201,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error adding habit:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     const newHabit = mapSupabaseHabitToHabit(data);
@@ -2205,8 +2221,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error updating habit:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setHabits((prev) => prev.map((habit) => (habit.id === id ? { ...habit, ...updates } : habit)));
@@ -2222,8 +2237,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error deleting habit:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setHabits((prev) => prev.filter((habit) => habit.id !== id));
@@ -2258,13 +2272,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error pinning habit:", error.message);
       setHabits((prev) =>
         prev.map((h) =>
           h.id === habitId ? { ...h, ...previousState } : h,
         ),
       );
-      return false;
+      throw new Error(error.message);
     }
     return true;
   }, [user, habits]);
@@ -2289,13 +2302,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error unpinning habit:", error.message);
       setHabits((prev) =>
         prev.map((h) =>
           h.id === habitId ? { ...h, ...previousState } : h,
         ),
       );
-      return false;
+      throw new Error(error.message);
     }
     return true;
   }, [user, habits]);
@@ -2310,7 +2322,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error adding occurrence:", error.message);
       throw new Error(error.message);
     }
 
@@ -2338,8 +2349,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error updating occurrence:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setOccurrences((prev) =>
@@ -2359,8 +2369,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error deleting occurrence:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setOccurrences((prev) => prev.filter((occurrence) => occurrence.id !== id));
@@ -2395,17 +2404,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (error) {
-        console.error("Error restoring category:", error.message);
-        return;
+        throw new Error(error.message);
       }
 
       const restoredCategory = mapSupabaseBubbleToCategory(data);
 
       for (const task of relatedTasks) {
-        await supabase.from("tasks").insert({
+        const { error: taskError } = await supabase.from("tasks").insert({
           ...mapTaskToSupabase(task, user.id),
           bubble_id: restoredCategory.id,
         });
+        if (taskError) {
+          throw new Error(taskError.message);
+        }
       }
 
       await supabase.from("recycle_bin").delete().eq("id", id).eq("user_id", user.id);
@@ -2423,17 +2434,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (error) {
-        console.error("Error restoring task:", error.message);
-        return;
+        throw new Error(error.message);
       }
 
       const restoredTask = mapSupabaseTaskToTask(data);
 
       for (const related of relatedTasks) {
-        await supabase.from("tasks").insert({
+        const { error: relatedError } = await supabase.from("tasks").insert({
           ...mapTaskToSupabase(related, user.id),
           parent_id: related.parentId === task.id ? restoredTask.id : related.parentId,
         });
+        if (relatedError) {
+          throw new Error(relatedError.message);
+        }
       }
 
       await supabase.from("recycle_bin").delete().eq("id", id).eq("user_id", user.id);
@@ -2453,8 +2466,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error permanently deleting:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setRecycleBin((prev) => prev.filter((i) => i.id !== id));
@@ -2469,8 +2481,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error emptying recycle bin:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setRecycleBin([]);
@@ -2509,8 +2520,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     const { error } = await pinQuery;
     if (error) {
-      console.error("Error pinning task:", error.message);
-      return;
+      throw new Error(error.message);
     }
     setTasks((prev) =>
       prev.map((t) =>
@@ -2540,8 +2550,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     );
     const { error } = await unpinQuery;
     if (error) {
-      console.error("Error unpinning task:", error.message);
-      return;
+      throw new Error(error.message);
     }
     setTasks((prev) =>
       prev.map((t) =>
@@ -2647,8 +2656,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error adding life area schedule:", error.message);
-      return null;
+      throw new Error(error.message);
     }
 
     const newSchedule = mapSupabaseScheduleToSchedule(data);
@@ -2674,8 +2682,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .single();
 
     if (error) {
-      console.error("Error updating life area schedule:", error.message);
-      return null;
+      throw new Error(error.message);
     }
 
     const updatedSchedule = mapSupabaseScheduleToSchedule(data);
@@ -2695,8 +2702,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       .eq("user_id", user.id);
 
     if (error) {
-      console.error("Error deleting life area schedule:", error.message);
-      return;
+      throw new Error(error.message);
     }
 
     setLifeAreaSchedules((prev) => prev.filter((schedule) => schedule.id !== id));
@@ -2765,6 +2771,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         recycleBin,
         lifeAreaSchedules,
         isLoading,
+        globalSaveState,
+        globalSaveError,
         addCategory,
         updateCategory,
         deleteCategory,

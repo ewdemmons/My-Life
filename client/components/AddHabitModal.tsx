@@ -15,6 +15,8 @@ import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
 import { Habit, HabitType, GoalFrequency, HABIT_TYPES, GOAL_FREQUENCIES, Task } from "@/types";
 import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
 interface AddHabitModalProps {
   visible: boolean;
@@ -28,6 +30,8 @@ export function AddHabitModal({ visible, onClose, categoryId, editingHabit, link
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { addHabit, updateHabit, deleteHabit } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Habit saved" });
 
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -77,32 +81,37 @@ export function AddHabitModal({ visible, onClose, categoryId, editingHabit, link
       return;
     }
 
-    setIsSaving(true);
-    try {
-      const habitData = {
-        name: name.trim(),
-        description: description.trim() || undefined,
-        habitType,
-        goalFrequency,
-        goalCount: count,
-        categoryId,
-        linkedTaskId: linkedTask?.id || null,
-        isActive: true,
-      };
+    const performSave = async () => {
+      setIsSaving(true);
+      try {
+        const habitData = {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          habitType,
+          goalFrequency,
+          goalCount: count,
+          categoryId,
+          linkedTaskId: linkedTask?.id || null,
+          isActive: true,
+        };
 
-      if (editingHabit) {
-        await updateHabit(editingHabit.id, habitData);
-      } else {
-        await addHabit(habitData);
+        if (editingHabit) {
+          await updateHabit(editingHabit.id, habitData);
+        } else {
+          await addHabit(habitData);
+        }
+
+        resetForm();
+        onClose();
+      } finally {
+        setIsSaving(false);
       }
+    };
 
-      resetForm();
-      onClose();
-    } catch (error) {
-      Alert.alert("Error", "Failed to save habit. Please try again.");
-    } finally {
-      setIsSaving(false);
-    }
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
   };
 
   const handleDelete = () => {
@@ -117,13 +126,16 @@ export function AddHabitModal({ visible, onClose, categoryId, editingHabit, link
           text: "Delete",
           style: "destructive",
           onPress: async () => {
-            try {
+            const performDelete = async () => {
               await deleteHabit(editingHabit.id);
               resetForm();
               onClose();
-            } catch (error) {
-              Alert.alert("Error", "Failed to delete habit. Please try again.");
-            }
+            };
+
+            setRetry(() => {
+              void performDelete();
+            });
+            await withSaveIndicator(performDelete, { showSuccess: false });
           },
         },
       ]
@@ -340,6 +352,13 @@ export function AddHabitModal({ visible, onClose, categoryId, editingHabit, link
             </View>
           </Pressable>
         </Modal>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
   );

@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, createContext, useContext, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput, Animated as RNAnimated } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput, Text, Animated as RNAnimated, FlatList, StyleProp, ViewStyle } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -14,19 +14,26 @@ import {
   Gesture, 
   GestureDetector,
   GestureHandlerRootView,
+  TouchableOpacity,
 } from "react-native-gesture-handler";
 import * as Haptics from "expo-haptics";
+import DraggableFlatList, {
+  ScaleDecorator,
+  RenderItemParams,
+} from "react-native-draggable-flatlist";
 import AppDatePicker from "@/components/AppDatePicker";
 
 import { useTheme } from "@/hooks/useTheme";
+import useDisplayDensity from "@/hooks/useDisplayDensity";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
-import { ClickableDescription } from "@/components/ClickableDescription";
 import { SchedulingModal } from "@/components/SchedulingModal";
 import { TaskCompletionModal } from "@/components/TaskCompletionModal";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
@@ -46,6 +53,51 @@ function formatShortDate(dateStr: string): string {
   const day = date.getDate();
   const year = date.getFullYear().toString().slice(-2);
   return `${month}/${day}/${year}`;
+}
+
+const ESTIMATED_TIME_ENTRY_TYPES: TaskType[] = ["task", "goal", "project", "objective", "subtask"];
+
+function formatEstimatedTime(minutes: number): string {
+  if (minutes >= 240) return "4h+";
+  if (minutes < 60) return `${minutes}m`;
+  if (minutes === 90) return "1.5h";
+  if (minutes % 60 === 0) return `${minutes / 60}h`;
+  return `${(minutes / 60).toFixed(1)}h`;
+}
+
+function showsEstimatedTime(task: Task): boolean {
+  return (
+    task.estimatedMinutes != null &&
+    ESTIMATED_TIME_ENTRY_TYPES.includes(task.type)
+  );
+}
+
+function formatScheduleDate(dateStr: string): string {
+  const date = new Date(dateStr + "T12:00:00");
+  const today = new Date();
+  const tomorrow = new Date();
+  tomorrow.setDate(today.getDate() + 1);
+
+  const isToday = date.toDateString() === today.toDateString();
+  const isTomorrow = date.toDateString() === tomorrow.toDateString();
+  const daysAway = Math.round(
+    (date.getTime() - today.getTime()) / (1000 * 60 * 60 * 24),
+  );
+
+  if (isToday) return "Today";
+  if (isTomorrow) return "Tomorrow";
+  if (daysAway > 0 && daysAway <= 7) {
+    return date.toLocaleDateString("en-US", { weekday: "short" });
+  }
+  return date.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+
+function isScheduleDatePastDue(dateStr: string): boolean {
+  const date = new Date(dateStr + "T12:00:00");
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  date.setHours(0, 0, 0, 0);
+  return date < today;
 }
 
 function formatDateForStorage(date: Date): string {
@@ -108,6 +160,369 @@ const DragContext = createContext<DragContextType>({
   clearHighlight: () => {},
 });
 
+interface SaveIndicatorContextType {
+  withSaveIndicator: ReturnType<typeof useSaveIndicator>["withSaveIndicator"];
+  setRetry: ReturnType<typeof useSaveIndicator>["setRetry"];
+}
+
+const SaveIndicatorContext = createContext<SaveIndicatorContextType | null>(null);
+
+function sortSiblings(a: TaskHierarchy, b: TaskHierarchy, parentId: string | null): number {
+  if (parentId === null) {
+    const orderDiff = (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+    if (orderDiff !== 0) return orderDiff;
+    return a.createdAt - b.createdAt;
+  }
+  if (a.orderIndex !== undefined && b.orderIndex !== undefined) {
+    return a.orderIndex - b.orderIndex;
+  }
+  const typeOrder =
+    TASK_TYPES.findIndex((t) => t.value === a.type) -
+    TASK_TYPES.findIndex((t) => t.value === b.type);
+  if (typeOrder !== 0) return typeOrder;
+  return a.createdAt - b.createdAt;
+}
+
+interface FlatListItem {
+  id: string;
+  task: TaskHierarchy;
+  depth: number;
+  parentId: string | null;
+  isHeader: boolean;
+  siblingGroup: string;
+  siblingIndex: number;
+}
+
+function buildFlatList(
+  tasks: TaskHierarchy[],
+  expandedIds: Set<string>,
+  depth: number = 0,
+  parentId: string | null = null,
+): FlatListItem[] {
+  const result: FlatListItem[] = [];
+  const siblingGroup = parentId ?? "root";
+
+  tasks.forEach((task, index) => {
+    const hasVisibleChildren =
+      expandedIds.has(task.id) && task.children.length > 0;
+
+    result.push({
+      id: task.id,
+      task,
+      depth,
+      parentId,
+      isHeader: hasVisibleChildren,
+      siblingGroup,
+      siblingIndex: index,
+    });
+
+    if (hasVisibleChildren) {
+      result.push(
+        ...buildFlatList(task.children, expandedIds, depth + 1, task.id),
+      );
+    }
+  });
+
+  return result;
+}
+
+function getGroupLeaves(data: FlatListItem[], siblingGroup: string): FlatListItem[] {
+  return data.filter((item) => !item.isHeader && item.siblingGroup === siblingGroup);
+}
+
+function isSameIdSet(a: FlatListItem[], b: FlatListItem[]): boolean {
+  if (a.length !== b.length) return false;
+  const idsA = new Set(a.map((i) => i.id));
+  return b.every((i) => idsA.has(i.id));
+}
+
+function isContiguousGroup(data: FlatListItem[], leaves: FlatListItem[]): boolean {
+  if (leaves.length === 0) return false;
+  const indices = leaves.map((leaf) => data.findIndex((d) => d.id === leaf.id));
+  return indices.every((idx, i) => i === 0 || idx === indices[i - 1] + 1);
+}
+
+function inferNewParentId(
+  data: FlatListItem[],
+  draggedIndex: number,
+  draggedDepth: number,
+  draggedOriginalParentId: string | null,
+): string | null {
+  const itemAbove = draggedIndex > 0 ? data[draggedIndex - 1] : null;
+  const itemBelow =
+    draggedIndex < data.length - 1 ? data[draggedIndex + 1] : null;
+
+  if (
+    itemAbove &&
+    itemAbove.id === draggedOriginalParentId &&
+    itemBelow &&
+    itemBelow.depth === 0 &&
+    itemBelow.parentId === null
+  ) {
+    return null;
+  }
+
+  if (itemAbove && itemAbove.id === draggedOriginalParentId && !itemBelow) {
+    return null;
+  }
+
+  if (
+    itemAbove &&
+    itemAbove.id === draggedOriginalParentId &&
+    itemBelow &&
+    itemBelow.depth < draggedDepth &&
+    itemBelow.parentId === null
+  ) {
+    return null;
+  }
+
+  if (
+    itemAbove?.isHeader &&
+    itemBelow &&
+    itemBelow.parentId === itemAbove.id
+  ) {
+    return itemAbove.id;
+  }
+
+  if (
+    itemAbove?.isHeader &&
+    itemBelow &&
+    itemBelow.depth > itemAbove.depth + 1
+  ) {
+    return itemAbove.id;
+  }
+
+  if (itemAbove?.isHeader) {
+    if (
+      itemBelow?.parentId === itemAbove.id ||
+      !itemBelow ||
+      itemBelow.depth <= itemAbove.depth
+    ) {
+      return itemAbove.id;
+    }
+  }
+
+  if (
+    itemAbove &&
+    itemAbove.depth > draggedDepth &&
+    itemAbove.parentId !== null
+  ) {
+    const targetDepth = draggedDepth;
+    for (let i = draggedIndex - 1; i >= 0; i--) {
+      const row = data[i];
+      if (row.depth === targetDepth && row.isHeader) {
+        return row.id;
+      }
+      if (row.depth < targetDepth) {
+        break;
+      }
+    }
+    return itemAbove.parentId;
+  }
+
+  if (
+    itemBelow &&
+    itemBelow.depth > draggedDepth &&
+    itemBelow.parentId !== null
+  ) {
+    const targetDepth = draggedDepth;
+    for (let i = draggedIndex - 1; i >= 0; i--) {
+      const row = data[i];
+      if (row.depth === targetDepth && row.isHeader) {
+        return row.id;
+      }
+      if (row.depth < targetDepth) {
+        break;
+      }
+    }
+    return itemBelow.parentId;
+  }
+
+  if (
+    itemAbove &&
+    itemAbove.parentId === draggedOriginalParentId &&
+    itemBelow &&
+    itemBelow.depth < draggedDepth &&
+    itemBelow.parentId === null &&
+    draggedOriginalParentId !== null
+  ) {
+    return null;
+  }
+
+  if (
+    draggedDepth > 0 &&
+    itemAbove &&
+    itemAbove.parentId === draggedOriginalParentId &&
+    !itemBelow
+  ) {
+    return null;
+  }
+
+  if (
+    itemAbove &&
+    itemBelow &&
+    itemAbove.parentId !== null &&
+    itemAbove.parentId === itemBelow.parentId &&
+    itemAbove.parentId !== draggedOriginalParentId
+  ) {
+    return itemAbove.parentId;
+  }
+
+  if (
+    itemAbove &&
+    !itemAbove.isHeader &&
+    itemAbove.depth === draggedDepth &&
+    itemAbove.parentId !== null &&
+    itemAbove.parentId !== draggedOriginalParentId
+  ) {
+    if (
+      !itemBelow ||
+      itemBelow.parentId === itemAbove.parentId ||
+      itemBelow.depth < draggedDepth
+    ) {
+      return itemAbove.parentId;
+    }
+  }
+
+  if (
+    itemAbove &&
+    itemAbove.depth < draggedDepth &&
+    itemAbove.parentId === null &&
+    (!itemBelow ||
+      (itemBelow.depth < draggedDepth && itemBelow.parentId === null))
+  ) {
+    return null;
+  }
+
+  if (
+    itemAbove &&
+    itemAbove.depth < draggedDepth &&
+    itemAbove.parentId === null &&
+    !itemBelow
+  ) {
+    return null;
+  }
+
+  if (
+    itemAbove?.parentId === null &&
+    itemBelow?.parentId === null &&
+    draggedOriginalParentId !== null
+  ) {
+    return null;
+  }
+
+  if (
+    draggedDepth > 0 &&
+    (itemAbove?.depth === 0 || !itemAbove) &&
+    (itemBelow?.depth === 0 || !itemBelow) &&
+    draggedOriginalParentId !== null
+  ) {
+    return null;
+  }
+
+  return draggedOriginalParentId;
+}
+
+function computeCrossIndex(
+  data: FlatListItem[],
+  draggedIndex: number,
+  newParentId: string | null,
+  itemAbove: FlatListItem | null,
+  itemBelow: FlatListItem | null,
+): number {
+  if (itemAbove?.id === newParentId) {
+    return 0;
+  }
+
+  if (
+    itemAbove &&
+    itemAbove.parentId === newParentId &&
+    !itemAbove.isHeader
+  ) {
+    const existingGroup = data.filter(
+      (row) => row.parentId === newParentId && !row.isHeader,
+    );
+    const aboveIdx = existingGroup.findIndex((r) => r.id === itemAbove.id);
+    return aboveIdx >= 0 ? aboveIdx + 1 : 0;
+  }
+
+  if (
+    itemBelow &&
+    itemBelow.parentId === newParentId &&
+    !itemBelow.isHeader
+  ) {
+    const existingGroup = data.filter(
+      (row) => row.parentId === newParentId && !row.isHeader,
+    );
+    const belowIdx = existingGroup.findIndex((r) => r.id === itemBelow.id);
+    return belowIdx >= 0 ? belowIdx : 0;
+  }
+
+  if (
+    !itemBelow ||
+    (itemBelow.depth !== undefined &&
+      itemBelow.depth < (itemAbove?.depth ?? 0))
+  ) {
+    const existingGroup = data.filter(
+      (row) => row.parentId === newParentId && !row.isHeader,
+    );
+    return existingGroup.length;
+  }
+
+  return 0;
+}
+
+function isDescendant(
+  ancestorId: string,
+  targetId: string,
+  tasksMap: Map<string, Task>,
+): boolean {
+  let current = tasksMap.get(targetId);
+  while (current?.parentId) {
+    if (current.parentId === ancestorId) return true;
+    current = tasksMap.get(current.parentId);
+  }
+  return false;
+}
+
+function buildCrossMoveMessage(
+  draggedTask: Task,
+  oldParentId: string | null,
+  newParentId: string | null,
+  tasksMap: Map<string, Task>,
+): string {
+  const oldParentTask = oldParentId ? tasksMap.get(oldParentId) : null;
+  const newParentTask = newParentId ? tasksMap.get(newParentId) : null;
+
+  if (oldParentTask && newParentTask) {
+    return `Move "${draggedTask.title}" from "${oldParentTask.title}" to "${newParentTask.title}"?`;
+  }
+  if (!oldParentTask && newParentTask) {
+    return `Move "${draggedTask.title}" into "${newParentTask.title}" as a sub-entry?`;
+  }
+  if (oldParentTask && !newParentTask) {
+    return `Move "${draggedTask.title}" out of "${oldParentTask.title}" to the top level?`;
+  }
+  return `Move "${draggedTask.title}"?`;
+}
+
+function getTypeWarning(task: Task, newParentId: string | null): string {
+  if (
+    newParentId === null &&
+    (task.type === "item" || task.type === "subtask")
+  ) {
+    return "\n\nNote: This entry type is unusual at the top level.";
+  }
+  return "";
+}
+
+function sortTasksBySiblingOrder(a: Task, b: Task, parentId: string | null): number {
+  if (parentId === null) {
+    return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+  }
+  return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
+}
+
 interface HierarchicalTaskListProps {
   tasks: Task[];
   showCategory?: boolean;
@@ -116,25 +531,49 @@ interface HierarchicalTaskListProps {
   onHighlightCleared?: () => void;
   canModifyEntries?: boolean;
   onQuickList?: (entry: Task) => void;
+  headerComponent?: React.ReactNode;
+  contentContainerStyle?: StyleProp<ViewStyle>;
+  style?: StyleProp<ViewStyle>;
 }
 
-export function HierarchicalTaskList({ 
-  tasks, 
-  showCategory = false, 
+export function HierarchicalTaskList({
+  tasks,
+  showCategory = false,
   filterType = null,
   highlightedTaskId = null,
   onHighlightCleared,
   canModifyEntries = true,
   onQuickList,
+  headerComponent,
+  contentContainerStyle,
+  style,
 }: HierarchicalTaskListProps) {
-  const { categories, moveTaskToParent, reorderTasks } = useApp();
+  const { categories, moveTaskToParent, reorderTasks, updateTask } = useApp();
   const { theme } = useTheme();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300, successMessage: "Saved" });
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [targetTaskId, setTargetTaskId] = useState<string | null>(null);
   const [showMoveModal, setShowMoveModal] = useState(false);
   const [showReorderModal, setShowReorderModal] = useState(false);
   const [pendingMove, setPendingMove] = useState<{ taskId: string; targetId: string } | null>(null);
   const [pendingReorder, setPendingReorder] = useState<{ taskId: string; targetId: string } | null>(null);
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [dragKey, setDragKey] = useState(0);
+  const draggedItemRef = useRef<FlatListItem | null>(null);
+  const scrollRef = useRef<React.ComponentRef<typeof DraggableFlatList<FlatListItem>>>(null);
+
+  const toggleExpanded = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
 
   const hierarchy = useMemo(() => {
     const getDescendantIds = (taskId: string): Set<string> => {
@@ -168,15 +607,7 @@ export function HierarchicalTaskList({
           ...task,
           children: buildHierarchy(task.id),
         }))
-        .sort((a, b) => {
-          if (a.orderIndex !== undefined && b.orderIndex !== undefined) {
-            return a.orderIndex - b.orderIndex;
-          }
-          const typeOrder = TASK_TYPES.findIndex((t) => t.value === a.type) - 
-                           TASK_TYPES.findIndex((t) => t.value === b.type);
-          if (typeOrder !== 0) return typeOrder;
-          return a.createdAt - b.createdAt;
-        });
+        .sort((a, b) => sortSiblings(a, b, parentId));
     };
 
     if (filterType) {
@@ -203,6 +634,292 @@ export function HierarchicalTaskList({
     tasks.forEach((t) => map.set(t.id, t));
     return map;
   }, [tasks]);
+
+  const flatList = useMemo(
+    () => buildFlatList(hierarchy, expandedIds),
+    [hierarchy, expandedIds],
+  );
+
+  useEffect(() => {
+    if (!highlightedTaskId) return;
+    const ancestors: string[] = [];
+    let current = tasksMap.get(highlightedTaskId);
+    while (current?.parentId) {
+      ancestors.push(current.parentId);
+      current = tasksMap.get(current.parentId);
+    }
+    if (ancestors.length === 0) return;
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      ancestors.forEach((id) => next.add(id));
+      return next;
+    });
+  }, [highlightedTaskId, tasksMap]);
+
+  const confirmCrossMove = useCallback(
+    async (
+      draggedItem: FlatListItem,
+      newParentId: string | null,
+      newIndex: number,
+    ) => {
+      const performCrossMove = async () => {
+        const newParent = newParentId ? tasksMap.get(newParentId) : null;
+        const oldParentId = draggedItem.parentId;
+
+        if (newParentId === null) {
+          await updateTask(draggedItem.id, {
+            parentId: null,
+            orderIndex: 0,
+          });
+        } else {
+          await updateTask(draggedItem.id, {
+            parentId: newParentId,
+            ...(newParent?.categoryId ? { categoryId: newParent.categoryId } : {}),
+          });
+        }
+
+        const existingSiblings = tasks
+          .filter((t) => t.parentId === newParentId && t.id !== draggedItem.id)
+          .sort((a, b) => {
+            if (newParentId === null) {
+              return (a.sortOrder ?? 0) - (b.sortOrder ?? 0);
+            }
+            return (a.orderIndex ?? 0) - (b.orderIndex ?? 0);
+          });
+        const newOrder = [
+          ...existingSiblings.slice(0, newIndex),
+          draggedItem,
+          ...existingSiblings.slice(newIndex),
+        ];
+        for (let i = 0; i < newOrder.length; i++) {
+          if (newParentId === null) {
+            await updateTask(newOrder[i].id, { sortOrder: i * 10 });
+          } else {
+            await updateTask(newOrder[i].id, { orderIndex: i * 10 });
+          }
+        }
+
+        const oldSiblings = tasks
+          .filter((t) => t.parentId === oldParentId && t.id !== draggedItem.id)
+          .sort((a, b) => sortTasksBySiblingOrder(a, b, oldParentId));
+        for (let i = 0; i < oldSiblings.length; i++) {
+          if (oldParentId === null) {
+            await updateTask(oldSiblings[i].id, { sortOrder: i * 10 });
+          } else {
+            await updateTask(oldSiblings[i].id, { orderIndex: i * 10 });
+          }
+        }
+
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      };
+
+      setRetry(() => {
+        void performCrossMove();
+      });
+      await withSaveIndicator(performCrossMove, { successMessage: "Moved" });
+    },
+    [tasks, tasksMap, updateTask, withSaveIndicator, setRetry],
+  );
+
+  const handleFlatDragEnd = useCallback(
+    async ({ data }: { data: FlatListItem[] }) => {
+      const draggedItem = draggedItemRef.current;
+      if (!draggedItem) return;
+
+      const original = flatList.find((i) => i.id === draggedItem.id);
+      if (!original || original.isHeader) {
+        draggedItemRef.current = null;
+        return;
+      }
+      draggedItemRef.current = null;
+
+      const draggedIndex = data.findIndex((i) => i.id === draggedItem.id);
+      const oldParentId = original.parentId;
+      const itemAbove = draggedIndex > 0 ? data[draggedIndex - 1] : null;
+      const itemBelow =
+        draggedIndex < data.length - 1 ? data[draggedIndex + 1] : null;
+      const newParentId = inferNewParentId(
+        data,
+        draggedIndex,
+        original.depth,
+        original.parentId,
+      );
+
+      console.log(
+        "[DragEnd] draggedItem:",
+        original.task.title,
+        "depth:",
+        original.depth,
+        "oldParent:",
+        oldParentId,
+      );
+      console.log(
+        "[DragEnd] itemAbove:",
+        itemAbove?.task.title,
+        "depth:",
+        itemAbove?.depth,
+        "isHeader:",
+        itemAbove?.isHeader,
+        "parentId:",
+        itemAbove?.parentId,
+      );
+      console.log(
+        "[DragEnd] itemBelow:",
+        itemBelow?.task.title,
+        "depth:",
+        itemBelow?.depth,
+        "isHeader:",
+        itemBelow?.isHeader,
+        "parentId:",
+        itemBelow?.parentId,
+      );
+
+      const isCrossMove = newParentId !== oldParentId;
+      console.log(
+        "[DragEnd] newParentId:",
+        newParentId,
+        "isCrossMove:",
+        isCrossMove,
+      );
+
+      if (!isCrossMove) {
+        const newLeaves = getGroupLeaves(data, original.siblingGroup);
+        const oldLeaves = getGroupLeaves(flatList, original.siblingGroup);
+
+        if (
+          isSameIdSet(newLeaves, oldLeaves) &&
+          isContiguousGroup(data, newLeaves)
+        ) {
+          const performReorder = async () => {
+            for (let i = 0; i < newLeaves.length; i++) {
+              const item = newLeaves[i];
+              if (item.siblingGroup === "root") {
+                await updateTask(item.id, { sortOrder: i * 10 });
+              } else {
+                await updateTask(item.id, { orderIndex: i * 10 });
+              }
+            }
+          };
+
+          setRetry(() => {
+            void performReorder();
+          });
+          await withSaveIndicator(performReorder, { successMessage: "Order saved" });
+        }
+        return;
+      }
+
+      if (newParentId && isDescendant(original.id, newParentId, tasksMap)) {
+        return;
+      }
+
+      const draggedTask = original.task;
+      const oldParent = oldParentId ? tasksMap.get(oldParentId) : null;
+      const newParent = newParentId ? tasksMap.get(newParentId) : null;
+
+      let message = "";
+      if (oldParent && newParent) {
+        message =
+          `Move "${draggedTask.title}" ` +
+          `out of "${oldParent.title}" ` +
+          `and into "${newParent.title}"?`;
+      } else if (!oldParent && newParent) {
+        message = `Move "${draggedTask.title}" under "${newParent.title}"?`;
+      } else if (oldParent && !newParent) {
+        message = `Move "${draggedTask.title}" out of "${oldParent.title}"?`;
+      } else {
+        message = `Move "${draggedTask.title}" to the top level?`;
+      }
+
+      console.log("[DragEnd] message:", message);
+
+      const newIndex = computeCrossIndex(
+        data,
+        draggedIndex,
+        newParentId,
+        itemAbove,
+        itemBelow,
+      );
+
+      console.log(
+        "[DragEnd] computedCrossIndex:",
+        newIndex,
+        "itemAbove:",
+        itemAbove?.task.title,
+        "itemBelow:",
+        itemBelow?.task.title,
+      );
+
+      Alert.alert("Move Entry", message, [
+        {
+          text: "Cancel",
+          style: "cancel",
+          onPress: () => {
+            setDragKey((k) => k + 1);
+          },
+        },
+        {
+          text: "Move",
+          onPress: () => {
+            void confirmCrossMove(original, newParentId, newIndex);
+          },
+        },
+      ]);
+    },
+    [flatList, updateTask, tasksMap, confirmCrossMove, withSaveIndicator, setRetry],
+  );
+
+  const renderFlatItem = useCallback(
+    ({ item, drag, isActive }: RenderItemParams<FlatListItem>) => (
+      <ScaleDecorator>
+        <FlatTaskItem
+          flatItem={item}
+          drag={item.isHeader || !canModifyEntries ? undefined : drag}
+          isActive={isActive}
+          isExpanded={expandedIds.has(item.id)}
+          showCategory={showCategory}
+          categories={categories}
+          tasksMap={tasksMap}
+          canModifyEntries={canModifyEntries}
+          onQuickList={onQuickList}
+          onToggleExpand={toggleExpanded}
+        />
+      </ScaleDecorator>
+    ),
+    [showCategory, categories, tasksMap, canModifyEntries, onQuickList, toggleExpanded, expandedIds],
+  );
+
+  const renderStaticFlatItem = useCallback(
+    ({ item }: { item: FlatListItem }) => (
+      <FlatTaskItem
+        flatItem={item}
+        isExpanded={expandedIds.has(item.id)}
+        showCategory={showCategory}
+        categories={categories}
+        tasksMap={tasksMap}
+        canModifyEntries={canModifyEntries}
+        onQuickList={onQuickList}
+        onToggleExpand={toggleExpanded}
+      />
+    ),
+    [showCategory, categories, tasksMap, canModifyEntries, onQuickList, toggleExpanded, expandedIds],
+  );
+
+  const listEmptyComponent = useMemo(
+    () => (
+      <View style={styles.emptyContainer}>
+        <Feather name="inbox" size={56} color="rgba(128,128,128,0.25)" />
+        <ThemedText style={styles.emptyText}>No entries yet</ThemedText>
+        <ThemedText style={styles.emptyHint}>Tap + to add your first entry</ThemedText>
+      </View>
+    ),
+    [],
+  );
+
+  const mergedContentContainerStyle = useMemo(
+    () => [styles.listContent, contentContainerStyle],
+    [contentContainerStyle],
+  );
 
   const getDescendantIds = useCallback((taskId: string): Set<string> => {
     const descendants = new Set<string>();
@@ -326,21 +1043,12 @@ export function HierarchicalTaskList({
   const reorderDraggedTitle = pendingReorder ? tasksMap.get(pendingReorder.taskId)?.title : "";
   const reorderTargetTitle = pendingReorder ? tasksMap.get(pendingReorder.targetId)?.title : "";
 
-  if (hierarchy.length === 0) {
-    return (
-      <View style={styles.emptyContainer}>
-        <Feather name="inbox" size={56} color="rgba(128,128,128,0.25)" />
-        <ThemedText style={styles.emptyText}>No entries yet</ThemedText>
-        <ThemedText style={styles.emptyHint}>Tap + to add your first entry</ThemedText>
-      </View>
-    );
-  }
-
   const clearHighlight = useCallback(() => {
     onHighlightCleared?.();
   }, [onHighlightCleared]);
 
   return (
+    <SaveIndicatorContext.Provider value={{ withSaveIndicator, setRetry }}>
     <DragContext.Provider
       value={{
         draggedTaskId,
@@ -352,22 +1060,42 @@ export function HierarchicalTaskList({
         clearHighlight,
       }}
     >
-      <GestureHandlerRootView style={styles.gestureRoot}>
-        <View style={styles.container}>
-          {hierarchy.map((task) => (
-            <TaskItem
-              key={task.id}
-              task={task}
-              depth={0}
-              showCategory={showCategory}
-              categories={categories}
-              parentColor={null}
-              tasksMap={tasksMap}
-              canModifyEntries={canModifyEntries}
-              onQuickList={onQuickList}
-            />
-          ))}
-        </View>
+      <GestureHandlerRootView style={[styles.gestureRoot, style]}>
+        {!filterType ? (
+          <DraggableFlatList
+            key={dragKey}
+            ref={scrollRef}
+            data={flatList}
+            keyExtractor={(item) => item.id}
+            renderItem={renderFlatItem}
+            onDragBegin={(index) => {
+              draggedItemRef.current = flatList[index] ?? null;
+            }}
+            onDragEnd={handleFlatDragEnd}
+            ListHeaderComponent={headerComponent ? () => <>{headerComponent}</> : undefined}
+            ListEmptyComponent={listEmptyComponent}
+            scrollEnabled
+            showsVerticalScrollIndicator={false}
+            containerStyle={styles.container}
+            contentContainerStyle={mergedContentContainerStyle}
+            activationDistance={30}
+            autoscrollThreshold={80}
+            autoscrollSpeed={150}
+            dragItemOverflow
+            simultaneousHandlers={scrollRef}
+          />
+        ) : (
+          <FlatList
+            data={flatList}
+            keyExtractor={(item) => item.id}
+            renderItem={renderStaticFlatItem}
+            ListHeaderComponent={headerComponent ? () => <>{headerComponent}</> : undefined}
+            ListEmptyComponent={listEmptyComponent}
+            showsVerticalScrollIndicator={false}
+            style={styles.container}
+            contentContainerStyle={mergedContentContainerStyle}
+          />
+        )}
 
         <Modal
           visible={showMoveModal}
@@ -436,8 +1164,16 @@ export function HierarchicalTaskList({
             </View>
           </View>
         </Modal>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </GestureHandlerRootView>
     </DragContext.Provider>
+    </SaveIndicatorContext.Provider>
   );
 }
 
@@ -449,6 +1185,60 @@ function getActionLayout(type: TaskType): ActionLayout {
   return "default";
 }
 
+interface FlatTaskItemProps {
+  flatItem: FlatListItem;
+  showCategory: boolean;
+  categories: { id: string; name: string; color: string }[];
+  tasksMap: Map<string, Task>;
+  canModifyEntries: boolean;
+  onQuickList?: (entry: Task) => void;
+  onToggleExpand: (id: string) => void;
+  isExpanded: boolean;
+  drag?: () => void;
+  isActive?: boolean;
+}
+
+function FlatTaskItem({
+  flatItem,
+  showCategory,
+  categories,
+  tasksMap,
+  canModifyEntries,
+  onQuickList,
+  onToggleExpand,
+  isExpanded,
+  drag,
+  isActive,
+}: FlatTaskItemProps) {
+  const { task, depth, isHeader } = flatItem;
+  const parentTask = flatItem.parentId ? tasksMap.get(flatItem.parentId) : null;
+  const parentCategory = parentTask
+    ? categories.find((c) => c.id === parentTask.categoryId)
+    : null;
+  const parentColor = parentCategory?.color ?? null;
+
+  return (
+    <View style={{ paddingLeft: depth * 20 }}>
+      <TaskItem
+        task={task}
+        depth={depth}
+        suppressDepthMargin
+        showCategory={showCategory}
+        categories={categories}
+        parentColor={parentColor}
+        tasksMap={tasksMap}
+        canModifyEntries={canModifyEntries}
+        onQuickList={onQuickList}
+        drag={drag}
+        isActive={isActive}
+        isHeaderMode={isHeader}
+        isExpanded={isExpanded}
+        onToggleExpand={onToggleExpand}
+      />
+    </View>
+  );
+}
+
 interface TaskItemProps {
   task: TaskHierarchy;
   depth: number;
@@ -458,12 +1248,37 @@ interface TaskItemProps {
   tasksMap: Map<string, Task>;
   canModifyEntries: boolean;
   onQuickList?: (entry: Task) => void;
+  drag?: () => void;
+  isActive?: boolean;
+  suppressDepthMargin?: boolean;
+  isHeaderMode?: boolean;
+  isExpanded?: boolean;
+  onToggleExpand?: (id: string) => void;
 }
 
-function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap, canModifyEntries, onQuickList }: TaskItemProps) {
+function TaskItem({
+  task,
+  depth,
+  showCategory,
+  categories,
+  parentColor,
+  tasksMap,
+  canModifyEntries,
+  onQuickList,
+  drag,
+  isActive,
+  suppressDepthMargin = false,
+  isHeaderMode = false,
+  isExpanded = false,
+  onToggleExpand,
+}: TaskItemProps) {
   const { theme, isDark } = useTheme();
+  const { config } = useDisplayDensity();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { updateTask, deleteTask, getEventsByTask, getOccurrencesForItem, deleteOccurrence, updateOccurrence, habits, pinTask, unpinTask, events, addEvent, updateEvent, deleteEvent } = useApp();
+  const saveIndicator = useContext(SaveIndicatorContext);
+  const withSaveIndicator = saveIndicator?.withSaveIndicator;
+  const setRetry = saveIndicator?.setRetry;
   const [editingOccurrence, setEditingOccurrence] = useState<{ id: string; notes: string; date: Date } | null>(null);
   const [editCompleteUntilDate, setEditCompleteUntilDate] = useState<Date | null>(null);
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
@@ -474,7 +1289,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
   const taskOccurrences = getOccurrencesForItem(task.id, "task");
   const { draggedTaskId, targetTaskId, highlightedTaskId, setDraggedTaskId, handleTaskTap, cancelDrag, clearHighlight } = useContext(DragContext);
-  const [isExpanded, setIsExpanded] = useState(false);
   const [showDetails, setShowDetails] = useState(() => highlightedTaskId === task.id);
   const [showSchedulingModal, setShowSchedulingModal] = useState(false);
   const [showCompletionModal, setShowCompletionModal] = useState(false);
@@ -514,9 +1328,9 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   }, [task]);
 
   const handleSaveEditCompletion = useCallback(async () => {
-    if (!editingOccurrence) return;
+    if (!editingOccurrence || !withSaveIndicator || !setRetry) return;
 
-    try {
+    const performSave = async () => {
       const dateStr = formatDateForStorage(editingOccurrence.date);
       await updateOccurrence(editingOccurrence.id, {
         notes: editingOccurrence.notes || undefined,
@@ -554,9 +1368,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
       }
 
       closeEditCompletionModal();
-    } catch (error) {
-      Alert.alert("Error", "Failed to save changes. Please try again.");
-    }
+    };
+
+    setRetry(() => {
+      void performSave();
+    });
+    await withSaveIndicator(performSave);
   }, [
     editingOccurrence,
     editCompleteUntilDate,
@@ -568,12 +1385,16 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
     updateEvent,
     deleteEvent,
     closeEditCompletionModal,
+    withSaveIndicator,
+    setRetry,
   ]);
 
   const handleDeleteCompletionLog = useCallback(async (occurrenceId: string) => {
+    if (!withSaveIndicator || !setRetry) return;
+
     const remainingCount = taskOccurrences.filter((o) => o.id !== occurrenceId).length;
 
-    try {
+    const performDelete = async () => {
       await deleteOccurrence(occurrenceId);
 
       if (remainingCount === 0) {
@@ -600,9 +1421,12 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
           console.warn("Failed to delete Complete Until reminder:", reminderError);
         }
       }
-    } catch (error) {
-      Alert.alert("Error", "Failed to delete completion log. Please try again.");
-    }
+    };
+
+    setRetry(() => {
+      void performDelete();
+    });
+    await withSaveIndicator(performDelete, { showSuccess: false });
   }, [
     taskOccurrences,
     deleteOccurrence,
@@ -612,11 +1436,16 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
     addEvent,
     updateEvent,
     deleteEvent,
+    withSaveIndicator,
+    setRetry,
   ]);
 
-  const toggleExpand = useCallback(() => {
-    setIsExpanded(!isExpanded);
-    rotation.value = withTiming(isExpanded ? 0 : 90, { duration: 200 });
+  const handleChevronPress = useCallback(() => {
+    onToggleExpand?.(task.id);
+  }, [onToggleExpand, task.id]);
+
+  useEffect(() => {
+    rotation.value = withTiming(isExpanded ? 90 : 0, { duration: 200 });
   }, [isExpanded, rotation]);
 
   const chevronStyle = useAnimatedStyle(() => ({
@@ -629,28 +1458,46 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   }));
 
   const handleToggleComplete = useCallback(async () => {
-    if (task.status === "completed") {
-      await updateTask(task.id, {
-        status: "pending",
-        completionType: null,
-        completionDate: undefined,
-      });
-      try {
-        await syncCompleteUntilReminder({
-          task,
-          completeUntilDate: null,
-          events,
-          addEvent,
-          updateEvent,
-          deleteEvent,
-        });
-      } catch (reminderError) {
-        console.warn("Failed to clear Complete Until reminder:", reminderError);
-      }
-    } else {
+    if (task.status !== "completed" && task.type !== "item" && task.type !== "subtask") {
       setShowCompletionModal(true);
+      return;
     }
-  }, [task, events, addEvent, updateEvent, deleteEvent, updateTask]);
+
+    if (!withSaveIndicator || !setRetry) return;
+
+    const performToggle = async () => {
+      if (task.status === "completed") {
+        await updateTask(task.id, {
+          status: "pending",
+          completionType: null,
+          completionDate: undefined,
+        });
+        try {
+          await syncCompleteUntilReminder({
+            task,
+            completeUntilDate: null,
+            events,
+            addEvent,
+            updateEvent,
+            deleteEvent,
+          });
+        } catch (reminderError) {
+          console.warn("Failed to clear Complete Until reminder:", reminderError);
+        }
+      } else {
+        await updateTask(task.id, {
+          status: "completed",
+          completionType: "as_of",
+          completionDate: new Date().toISOString().split("T")[0],
+        });
+      }
+    };
+
+    setRetry(() => {
+      void performToggle();
+    });
+    await withSaveIndicator(performToggle);
+  }, [task, events, addEvent, updateEvent, deleteEvent, updateTask, withSaveIndicator, setRetry]);
 
   const handleEdit = useCallback(() => {
     navigation.navigate("AddTask", { task, categoryId: task.categoryId, parentTaskId: task.parentId || undefined });
@@ -672,13 +1519,39 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
           text: "Delete", 
           style: "destructive", 
           onPress: async () => {
-            await deleteTask(task.id);
-            setShowDetails(false);
+            if (!withSaveIndicator || !setRetry) return;
+
+            const performDelete = async () => {
+              await deleteTask(task.id);
+              setShowDetails(false);
+            };
+
+            setRetry(() => {
+              void performDelete();
+            });
+            await withSaveIndicator(performDelete, { showSuccess: false });
           }
         },
       ]
     );
-  }, [task, deleteTask]);
+  }, [task, deleteTask, withSaveIndicator, setRetry]);
+
+  const handleTogglePin = useCallback(async () => {
+    if (!withSaveIndicator || !setRetry) return;
+
+    const performPin = async () => {
+      if (task.isPinned) {
+        await unpinTask(task.id);
+      } else {
+        await pinTask(task.id);
+      }
+    };
+
+    setRetry(() => {
+      void performPin();
+    });
+    await withSaveIndicator(performPin);
+  }, [task.isPinned, task.id, pinTask, unpinTask, withSaveIndicator, setRetry]);
 
   const handleAddSubtask = useCallback(() => {
     navigation.navigate("AddTask", { categoryId: task.categoryId, parentTaskId: task.id });
@@ -713,8 +1586,19 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   }, [task, category, navigation, tasksMap]);
 
   const taskEvents = getEventsByTask(task.id);
-  const hasScheduledEvents = taskEvents.length > 0;
   const linkedEventType = taskEvents.length > 0 ? taskEvents[0].eventType : null;
+  const scheduleEvent = taskEvents.length > 0 ? taskEvents[0] : null;
+  const scheduleDateStr = scheduleEvent?.startDate;
+  const schedulePastDue = scheduleDateStr ? isScheduleDatePastDue(scheduleDateStr) : false;
+
+  const depthScale = config.useDepthScaling
+    ? Math.max(0.8, 1 - depth * 0.1)
+    : 1.0;
+  const titleFontSize = Math.round(config.titleFontSize * depthScale);
+  const metaFontSize = Math.round(config.metaFontSize * depthScale);
+  const headerPaddingVertical = Math.round(config.cardPaddingVertical * depthScale);
+  const headerPaddingHorizontal = config.cardPaddingHorizontal;
+  const titleLineHeight = Math.round(titleFontSize * (20 / 15));
 
   const priorityColor = task.priority === "high" ? theme.error : 
                         task.priority === "medium" ? theme.warning : theme.success;
@@ -749,12 +1633,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
     default: {},
   });
 
-  const startDrag = useCallback(() => {
-    if (!canModifyEntries) return;
-    setDraggedTaskId(task.id);
-    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-  }, [task.id, setDraggedTaskId, canModifyEntries]);
-
   const toggleDetails = useCallback(() => {
     setShowDetails(!showDetails);
     if (isHighlighted) {
@@ -787,11 +1665,16 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
     handleEdit();
   }, [pulseCardOpacity, handleEdit, canModifyEntries]);
 
+  const startDrag = useCallback(() => {
+    if (!canModifyEntries) return;
+    setDraggedTaskId(task.id);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+  }, [canModifyEntries, setDraggedTaskId, task.id]);
+
   const longPressGesture = Gesture.LongPress()
     .minDuration(400)
     .onEnd((_event, success) => {
       if (success) {
-        scale.value = withSpring(1.02);
         runOnJS(startDrag)();
       }
     });
@@ -812,6 +1695,178 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
   const tapGestures = Gesture.Exclusive(doubleTapGesture, tapGesture);
   const composed = Gesture.Race(longPressGesture, tapGestures);
 
+  const headerContent = (
+    <View
+      style={[
+        styles.itemHeader,
+        {
+          paddingVertical: headerPaddingVertical,
+          paddingHorizontal: headerPaddingHorizontal,
+        },
+      ]}
+    >
+      <View style={styles.leftSection}>
+        <View style={styles.leftColumn}>
+          <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
+            <Feather name={typeInfo.icon as any} size={12} color={typeColor} />
+            <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
+              {typeInfo.label}
+            </ThemedText>
+          </View>
+          {hasChildren ? (
+            <Pressable onPress={handleChevronPress} hitSlop={12} style={styles.expandButton}>
+              <Animated.View style={chevronStyle}>
+                <Feather name="chevron-right" size={24} color={theme.textSecondary} />
+              </Animated.View>
+            </Pressable>
+          ) : (
+            <View style={styles.chevronPlaceholder} />
+          )}
+        </View>
+      </View>
+
+      <View style={styles.itemContent}>
+        <View style={styles.titleRow}>
+          <ThemedText
+            style={[
+              styles.title,
+              {
+                color: isDark ? "#FFFFFF" : theme.text,
+                fontSize: titleFontSize,
+                lineHeight: titleLineHeight,
+              },
+              showAsComplete && styles.titleCompleted,
+            ]}
+            numberOfLines={2}
+          >
+            {task.title}
+          </ThemedText>
+          <Pressable
+            onPress={canModifyEntries ? handleToggleComplete : undefined}
+            disabled={!canModifyEntries}
+            hitSlop={14}
+            style={styles.checkboxButton}
+          >
+            <View style={styles.checkboxContainer}>
+              <View style={[
+                styles.checkbox,
+                { borderColor: showAsComplete ? theme.success : theme.textSecondary },
+                showAsComplete && { backgroundColor: theme.success }
+              ]}>
+                {showAsComplete ? (
+                  <Feather name="check" size={12} color="#FFFFFF" />
+                ) : null}
+              </View>
+              {tempComplete && task.completionDate ? (
+                <View style={styles.completeUntilIndicator}>
+                  <Feather name="refresh-cw" size={10} color={theme.warning} />
+                  <ThemedText style={[styles.completeUntilDate, { color: theme.warning }]}>
+                    {formatShortDate(task.completionDate)}
+                  </ThemedText>
+                </View>
+              ) : null}
+            </View>
+          </Pressable>
+        </View>
+        <View style={styles.bottomIndicatorRow}>
+          {hasChildren ? (
+            <View style={styles.childCountBadge}>
+              <Feather name="layers" size={13} color={theme.textSecondary} />
+              <ThemedText style={[styles.metaText, { color: theme.textSecondary, fontSize: metaFontSize }]}>
+                {task.children.length}
+              </ThemedText>
+            </View>
+          ) : null}
+
+          {task.priority === "high" ? (
+            <View style={styles.priorityIcon}>
+              <Feather name="alert-circle" size={16} color={theme.error} />
+            </View>
+          ) : task.priority === "low" ? (
+            <View style={styles.priorityIcon}>
+              <Feather name="arrow-down-circle" size={16} color={theme.success} />
+            </View>
+          ) : null}
+
+          {linkedEventType && scheduleDateStr ? (
+            <View style={styles.scheduleWithDate}>
+              {linkedEventType === "reminder" ? (
+                <Feather name="bell" size={16} color="#F59E0B" />
+              ) : linkedEventType === "appointment" ? (
+                <Feather name="calendar" size={16} color="#3B82F6" />
+              ) : linkedEventType === "meeting" ? (
+                <Feather name="users" size={16} color="#A855F7" />
+              ) : (
+                <Feather name="flag" size={16} color={theme.error} />
+              )}
+              <ThemedText
+                style={[
+                  styles.scheduleDateText,
+                  {
+                    color: schedulePastDue ? theme.error : theme.textSecondary,
+                    fontSize: metaFontSize,
+                  },
+                ]}
+              >
+                {formatScheduleDate(scheduleDateStr)}
+              </ThemedText>
+            </View>
+          ) : null}
+
+          {task.isPinned ? (
+            <View style={styles.scheduleIcon}>
+              <Feather name="star" size={16} color="#F59E0B" />
+            </View>
+          ) : null}
+
+          {linkedHabit ? (
+            <View style={styles.scheduleIcon}>
+              <Feather name="activity" size={16} color="#22C55E" />
+            </View>
+          ) : null}
+
+          {showsEstimatedTime(task) ? (
+            <View style={styles.inlineTimeBadge}>
+              <Feather name="clock" size={10} color={theme.textSecondary} />
+              <ThemedText
+                style={[
+                  styles.inlineTimeBadgeText,
+                  { color: theme.textSecondary, fontSize: metaFontSize },
+                ]}
+              >
+                {formatEstimatedTime(task.estimatedMinutes!)}
+              </ThemedText>
+            </View>
+          ) : null}
+
+          {task.assigneeIds && task.assigneeIds.length > 0 ? (
+            <View style={styles.assigneesContainer}>
+              <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
+            </View>
+          ) : null}
+
+          {task.sharedWith && task.sharedWith.length > 0 ? (
+            <View style={[styles.sharedBadge, { backgroundColor: theme.primary + "20" }]}>
+              <Feather name="share-2" size={10} color={theme.primary} />
+              <ThemedText style={[styles.sharedBadgeText, { color: theme.primary, fontSize: metaFontSize }]}>
+                {task.sharedWith.length}
+              </ThemedText>
+            </View>
+          ) : null}
+        </View>
+
+        {showCategory && category ? (
+          <View style={styles.categoryBadge}>
+            <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+            <ThemedText style={[styles.metaText, { color: theme.textSecondary, fontSize: metaFontSize }]}>
+              {category.name}
+            </ThemedText>
+          </View>
+        ) : null}
+      </View>
+    </View>
+  );
+
   return (
     <View style={styles.itemWrapper}>
       {depth > 0 && parentColor ? (
@@ -825,199 +1880,68 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
           ]} 
         />
       ) : null}
-      <View style={[styles.itemContainer, { marginLeft: depth * 20 }]}>
-        <GestureDetector gesture={composed}>
-          <RNAnimated.View style={{ opacity: cardOpacity }}>
-          <Animated.View
-            style={[
-              styles.item,
-              cardShadow,
-              itemAnimatedStyle,
-              { 
-                backgroundColor: isHighlighted 
-                  ? theme.primary + "10"
-                  : isDark ? theme.backgroundDefault : "#FFFFFF",
-                borderColor: isHighlighted
+      <View style={[styles.itemContainer, { marginLeft: suppressDepthMargin ? 0 : depth * 20 }]}>
+        <Animated.View
+          style={[
+            styles.item,
+            cardShadow,
+            itemAnimatedStyle,
+            {
+              backgroundColor: isHighlighted
+                ? theme.primary + "10"
+                : isDark ? theme.backgroundDefault : "#FFFFFF",
+              borderColor: isHighlighted
+                ? theme.primary
+                : isSelectedTarget
                   ? theme.primary
-                  : isSelectedTarget 
-                    ? theme.primary 
-                    : isValidDropTarget 
-                      ? theme.primary + "50" 
-                      : (isDark ? theme.border : "transparent"),
-                borderWidth: isHighlighted ? 2 : isSelectedTarget ? 2 : isValidDropTarget ? 1.5 : 1,
-              },
-              showAsComplete && styles.itemCompleted,
-            ]}
-          >
-            <View style={styles.itemHeader}>
-              <View style={styles.leftSection}>
-                <View style={styles.leftColumn}>
-                  <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
-                    <Feather name={typeInfo.icon as any} size={12} color={typeColor} />
-                    <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
-                      {typeInfo.label}
-                    </ThemedText>
-                  </View>
-                  {hasChildren ? (
-                    <Pressable onPress={toggleExpand} hitSlop={12} style={styles.expandButton}>
-                      <Animated.View style={chevronStyle}>
-                        <Feather name="chevron-right" size={24} color={theme.textSecondary} />
-                      </Animated.View>
-                    </Pressable>
-                  ) : (
-                    <View style={styles.chevronPlaceholder} />
-                  )}
-                </View>
-              </View>
+                  : isValidDropTarget
+                    ? theme.primary + "50"
+                    : (isDark ? theme.border : "transparent"),
+              borderWidth: isHighlighted ? 2 : isSelectedTarget ? 2 : isValidDropTarget ? 1.5 : 1,
+              opacity: isActive ? 0.95 : 1,
+            },
+            showAsComplete && styles.itemCompleted,
+          ]}
+        >
+          <View style={styles.cardHeaderRow}>
+            {drag ? (
+              <TouchableOpacity
+                onLongPress={drag}
+                delayLongPress={600}
+                hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+                style={styles.dragHandle}
+              >
+                <Feather
+                  name="menu"
+                  size={18}
+                  color={theme.textSecondary}
+                  style={{ opacity: 0.5 }}
+                />
+              </TouchableOpacity>
+            ) : null}
+            <GestureDetector gesture={composed}>
+              <RNAnimated.View style={[styles.cardBody, { opacity: cardOpacity }]}>
+                {headerContent}
+              </RNAnimated.View>
+            </GestureDetector>
+          </View>
+        </Animated.View>
 
-              <View style={styles.itemContent}>
-                <View style={styles.titleRow}>
-                  <ThemedText
-                    style={[
-                      styles.title,
-                      { color: isDark ? "#FFFFFF" : theme.text },
-                      showAsComplete && styles.titleCompleted,
-                    ]}
-                    numberOfLines={2}
-                  >
-                    {task.title}
-                  </ThemedText>
-                  <Pressable
-                    onPress={canModifyEntries ? handleToggleComplete : undefined}
-                    disabled={!canModifyEntries}
-                    hitSlop={14}
-                    style={styles.checkboxButton}
-                  >
-                    <View style={styles.checkboxContainer}>
-                      <View style={[
-                        styles.checkbox,
-                        { borderColor: showAsComplete ? theme.success : theme.textSecondary },
-                        showAsComplete && { backgroundColor: theme.success }
-                      ]}>
-                        {showAsComplete ? (
-                          <Feather name="check" size={12} color="#FFFFFF" />
-                        ) : null}
-                      </View>
-                      {tempComplete && task.completionDate ? (
-                        <View style={styles.completeUntilIndicator}>
-                          <Feather name="refresh-cw" size={10} color={theme.warning} />
-                          <ThemedText style={[styles.completeUntilDate, { color: theme.warning }]}>
-                            {formatShortDate(task.completionDate)}
-                          </ThemedText>
-                        </View>
-                      ) : null}
-                    </View>
-                  </Pressable>
-                </View>
-                <View style={styles.bottomIndicatorRow}>
-                  {hasChildren ? (
-                    <View style={styles.childCountBadge}>
-                      <Feather name="layers" size={13} color={theme.textSecondary} />
-                      <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                        {task.children.length}
-                      </ThemedText>
-                    </View>
-                  ) : null}
-
-                  {task.priority === "high" ? (
-                    <View style={styles.priorityIcon}>
-                      <Feather name="alert-circle" size={16} color={theme.error} />
-                    </View>
-                  ) : task.priority === "low" ? (
-                    <View style={styles.priorityIcon}>
-                      <Feather name="arrow-down-circle" size={16} color={theme.success} />
-                    </View>
-                  ) : null}
-
-                  {linkedEventType === "reminder" ? (
-                    <View style={styles.scheduleIcon}>
-                      <Feather name="bell" size={16} color="#F59E0B" />
-                    </View>
-                  ) : linkedEventType === "appointment" ? (
-                    <View style={styles.scheduleIcon}>
-                      <Feather name="calendar" size={16} color="#3B82F6" />
-                    </View>
-                  ) : linkedEventType === "meeting" ? (
-                    <View style={styles.scheduleIcon}>
-                      <Feather name="users" size={16} color="#A855F7" />
-                    </View>
-                  ) : linkedEventType === "due_date" ? (
-                    <View style={styles.scheduleIcon}>
-                      <Feather name="flag" size={16} color={theme.error} />
-                    </View>
-                  ) : null}
-
-                  {task.isPinned ? (
-                    <View style={styles.scheduleIcon}>
-                      <Feather name="star" size={16} color="#F59E0B" />
-                    </View>
-                  ) : null}
-
-                  {linkedHabit ? (
-                    <View style={styles.scheduleIcon}>
-                      <Feather name="activity" size={16} color="#22C55E" />
-                    </View>
-                  ) : null}
-
-                  {task.assigneeIds && task.assigneeIds.length > 0 ? (
-                    <View style={styles.assigneesContainer}>
-                      <PeopleAvatars personIds={task.assigneeIds} maxDisplay={3} size={20} />
-                    </View>
-                  ) : null}
-
-                  {task.sharedWith && task.sharedWith.length > 0 ? (
-                    <View style={[styles.sharedBadge, { backgroundColor: theme.primary + "20" }]}>
-                      <Feather name="share-2" size={10} color={theme.primary} />
-                      <ThemedText style={[styles.sharedBadgeText, { color: theme.primary }]}>
-                        {task.sharedWith.length}
-                      </ThemedText>
-                    </View>
-                  ) : null}
-                </View>
-
-                {showCategory && category ? (
-                  <View style={styles.categoryBadge}>
-                    <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
-                    <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                      {category.name}
-                    </ThemedText>
-                  </View>
-                ) : null}
-
-                {isDragging ? (
-                  <View style={styles.dragHint}>
-                    <Feather name="move" size={14} color={theme.primary} />
-                    <ThemedText style={[styles.dragHintText, { color: theme.primary }]}>
-                      Tap another entry to move under it
-                    </ThemedText>
-                  </View>
-                ) : null}
-              </View>
-            </View>
-
-          </Animated.View>
-          </RNAnimated.View>
-        </GestureDetector>
-        
         {showDetails ? (
           <View style={[styles.details, { borderTopColor: theme.border, backgroundColor: isDark ? theme.backgroundDefault : "#FFFFFF", marginTop: -1, borderBottomLeftRadius: 12, borderBottomRightRadius: 12 }]}>
             {task.description ? (
-              <ClickableDescription 
-                text={task.description} 
+              <Text
+                selectable
                 style={[styles.description, { color: isDark ? "#9CA3AF" : "#6B7280" }]}
-              />
+              >
+                {task.description}
+              </Text>
             ) : null}
             {canModifyEntries ? (
             <View style={styles.actions}>
               <Pressable
                 style={[styles.actionsMenuButton, styles.actionsRowButton, { backgroundColor: "#F59E0B" + "15" }]}
-                onPress={() => {
-                  if (task.isPinned) {
-                    unpinTask(task.id);
-                  } else {
-                    pinTask(task.id);
-                  }
-                }}
+                onPress={handleTogglePin}
               >
                 <Feather name="star" size={18} color="#F59E0B" />
                 {task.isPinned ? (
@@ -1205,11 +2129,7 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
                     style={styles.actionsMenuItem}
                     onPress={() => {
                       setShowActionsMenu(false);
-                      if (task.isPinned) {
-                        unpinTask(task.id);
-                      } else {
-                        pinTask(task.id);
-                      }
+                      void handleTogglePin();
                     }}
                   >
                     <View style={[styles.actionsMenuIconWrap, { backgroundColor: "#F59E0B" + "15" }]}>
@@ -1298,23 +2218,6 @@ function TaskItem({ task, depth, showCategory, categories, parentColor, tasksMap
           </View>
         ) : null}
 
-        {isExpanded && hasChildren ? (
-          <View style={styles.children}>
-            {task.children.map((child) => (
-              <TaskItem
-                key={child.id}
-                task={child}
-                depth={depth + 1}
-                showCategory={showCategory}
-                categories={categories}
-                parentColor={categoryColor}
-                tasksMap={tasksMap}
-                canModifyEntries={canModifyEntries}
-                onQuickList={onQuickList}
-              />
-            ))}
-          </View>
-        ) : null}
       </View>
 
       <SchedulingModal
@@ -1466,7 +2369,24 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   container: {
+    flex: 1,
+  },
+  listContent: {
     gap: Spacing.sm,
+  },
+  cardHeaderRow: {
+    flexDirection: "row",
+    alignItems: "stretch",
+  },
+  cardBody: {
+    flex: 1,
+  },
+  dragHandle: {
+    width: 24,
+    height: 44,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 6,
   },
   emptyContainer: {
     alignItems: "center",
@@ -1507,7 +2427,6 @@ const styles = StyleSheet.create({
   itemHeader: {
     flexDirection: "row",
     alignItems: "flex-start",
-    padding: Spacing.sm,
     gap: Spacing.xs,
   },
   leftSection: {
@@ -1548,9 +2467,9 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   title: {
-    fontSize: 16,
+    fontSize: 15,
     fontWeight: "600",
-    lineHeight: 22,
+    lineHeight: 20,
     flex: 1,
   },
   titleCompleted: {
@@ -1582,6 +2501,37 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 4,
   },
+  inlineTimeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 2,
+  },
+  inlineTimeBadgeText: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  scheduleWithDate: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+  },
+  scheduleDateText: {
+    fontSize: 10,
+    fontWeight: "500",
+  },
+  estimatedTimeBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginLeft: 4,
+  },
+  estimatedTimeBadgeText: {
+    fontSize: 10,
+  },
   categoryDot: {
     width: 12,
     height: 12,
@@ -1603,6 +2553,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: Spacing.sm,
     marginTop: Spacing.xs,
+    flexWrap: "nowrap",
   },
   priorityIcon: {
     width: 24,

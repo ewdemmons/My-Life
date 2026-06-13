@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Modal, TextInput, Alert } from "react-native";
+import { View, StyleSheet, Pressable, Modal, TextInput } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import AppDatePicker from "@/components/AppDatePicker";
 
@@ -8,6 +8,8 @@ import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { Task } from "@/types";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
 
 interface TaskCompletionModalProps {
@@ -20,6 +22,8 @@ interface TaskCompletionModalProps {
 export function TaskCompletionModal({ visible, task, onClose, onComplete }: TaskCompletionModalProps) {
   const { theme } = useTheme();
   const { updateTask, addOccurrence, deleteTask, deleteOccurrence, habits, events, addEvent, updateEvent, deleteEvent } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 300, successMessage: "Entry completed" });
   
   const linkedHabit = habits.find(h => h.linkedTaskId === task.id);
   
@@ -50,12 +54,13 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
   const handleComplete = async () => {
     if (isProcessing) return;
     setIsProcessing(true);
-    
+
     const completedOnStr = formatDateForStorage(completedOnDate);
     const createdOccurrenceIds: string[] = [];
-    
-    try {
-      // 1. Log Occurrence
+    const isRecycle =
+      mainOption === "complete" && completeSubOption === "recycle";
+
+    const performComplete = async () => {
       const taskOccurrence = await addOccurrence({
         itemId: task.id,
         itemType: "task",
@@ -66,7 +71,7 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
       if (taskOccurrence?.id) {
         createdOccurrenceIds.push(taskOccurrence.id);
       }
-      
+
       if (linkedHabit) {
         const habitOccurrence = await addOccurrence({
           itemId: linkedHabit.id,
@@ -79,8 +84,7 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
           createdOccurrenceIds.push(habitOccurrence.id);
         }
       }
-      
-      // 2. Handle Task Status/Update
+
       let completeUntilDateForReminder: string | null = null;
 
       if (mainOption === "for_now") {
@@ -89,10 +93,9 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
         await updateTask(task.id, {
           completionType: "until",
           completionDate: untilStr,
-          status: "pending" // Remains pending but with "until" constraint
+          status: "pending",
         });
       } else {
-        // Option is "complete"
         completeUntilDateForReminder = null;
         if (completeSubOption === "recycle") {
           await deleteTask(task.id);
@@ -100,7 +103,7 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
           await updateTask(task.id, {
             status: "completed",
             completionType: "as_of",
-            completionDate: completedOnStr
+            completionDate: completedOnStr,
           });
         }
       }
@@ -120,10 +123,20 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
         }
       }
 
-      setIsProcessing(false);
       onComplete();
       onClose();
-    } catch (error) {
+    };
+
+    setRetry(() => {
+      void handleComplete();
+    });
+
+    const result = await withSaveIndicator(performComplete, {
+      successMessage: "Entry completed",
+      showSuccess: !isRecycle,
+    });
+
+    if (result === null) {
       for (const occId of createdOccurrenceIds) {
         try {
           await deleteOccurrence(occId);
@@ -131,14 +144,9 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
           console.warn("Failed to cleanup occurrence:", cleanupError);
         }
       }
-      
-      setIsProcessing(false);
-      Alert.alert(
-        "Error",
-        "Failed to update task. Please try again.",
-        [{ text: "OK" }]
-      );
     }
+
+    setIsProcessing(false);
   };
 
   const getTodayDateString = () => formatDateForStorage(new Date());
@@ -310,6 +318,13 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
           setShowDatePicker(null);
         }}
         onCancel={() => setShowDatePicker(null)}
+      />
+
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
       />
     </>
   );

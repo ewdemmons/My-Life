@@ -17,6 +17,8 @@ import { Feather } from "@expo/vector-icons";
 
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { Task, TaskType, getTaskTypeInfo } from "@/types";
 import { generateUUID } from "@/utils/recurrence";
 import { Spacing } from "@/constants/theme";
@@ -53,6 +55,8 @@ function QuickListModal({
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const { addTask, categories } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500 });
 
   const [pendingItems, setPendingItems] = useState<PendingItem[]>([]);
   const [inputText, setInputText] = useState("");
@@ -123,9 +127,9 @@ function QuickListModal({
 
     setIsSaving(true);
 
-    try {
+    const performSave = async () => {
       for (const item of pendingItems) {
-        const created = await addTask({
+        await addTask({
           title: item.title,
           type: subType,
           categoryId: parentEntry.categoryId,
@@ -134,17 +138,23 @@ function QuickListModal({
           status: "pending",
           description: "",
         });
-        if (!created) {
-          throw new Error("addTask failed");
-        }
       }
 
       const count = pendingItems.length;
       onSaved(count);
       onClose();
-    } catch {
+    };
+
+    setRetry(() => {
+      void handleDone();
+    });
+
+    const result = await withSaveIndicator(performSave, {
+      errorMessage: "Failed to save some items.",
+    });
+
+    if (result === null) {
       setIsSaving(false);
-      Alert.alert("Failed to save some items.", "Please try again.");
     }
   }, [
     pendingItems,
@@ -155,6 +165,8 @@ function QuickListModal({
     parentEntry.id,
     onSaved,
     onClose,
+    withSaveIndicator,
+    setRetry,
   ]);
 
   const canAdd = inputText.trim().length > 0 && !isSaving;
@@ -324,6 +336,13 @@ function QuickListModal({
             </View>
           </View>
         </KeyboardAvoidingView>
+
+        <SaveToast
+          state={toastState}
+          message={toastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
   );

@@ -1,8 +1,6 @@
 import React, { useState } from "react";
 import { View, StyleSheet, Pressable, Alert, ScrollView, Switch, Platform, TextInput } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useHeaderHeight } from "@react-navigation/elements";
-import AsyncStorage from "@react-native-async-storage/async-storage";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 import useDisplayDensity, { DisplayDensity } from "@/hooks/useDisplayDensity";
@@ -29,9 +27,8 @@ const DENSITY_DESCRIPTIONS: Record<DisplayDensity, string> = {
   large: "Larger text and cards. Consistent size at all levels.",
 };
 
-export default function ProfileScreen() {
+export function ProfileTab() {
   const insets = useSafeAreaInsets();
-  const headerHeight = useHeaderHeight();
   const bottomPadding = insets.bottom + Spacing.xl;
   const { theme, isDark } = useTheme();
   const { categories, tasks, clearAllData, refreshData } = useApp();
@@ -144,7 +141,7 @@ export default function ProfileScreen() {
     <ScrollView
       style={{ flex: 1, backgroundColor: theme.backgroundRoot }}
       contentContainerStyle={{
-        paddingTop: headerHeight + Spacing.xl,
+        paddingTop: Spacing.xl,
         paddingBottom: bottomPadding,
         paddingHorizontal: Spacing.lg,
       }}

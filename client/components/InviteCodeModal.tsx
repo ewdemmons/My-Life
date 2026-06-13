@@ -6,12 +6,13 @@ import {
   Pressable,
   TextInput,
   ActivityIndicator,
-  Alert,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { redeemInviteCode } from "@/lib/pendingInvites";
 
 interface InviteCodeModalProps {
@@ -26,6 +27,8 @@ export default function InviteCodeModal({
   onSuccess,
 }: InviteCodeModalProps) {
   const { theme } = useTheme();
+  const { toastState, toastMessage: saveToastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500, successMessage: "Invite redeemed" });
   const [code, setCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,27 +42,29 @@ export default function InviteCodeModal({
     setIsLoading(true);
     setError(null);
 
-    const result = await redeemInviteCode(code);
+    let redeemError: string | null = null;
+
+    const performRedeem = async () => {
+      const result = await redeemInviteCode(code.trim());
+      if (!result.success) {
+        const message = result.error ?? "Invalid or expired invite code";
+        redeemError = message;
+        throw new Error(message);
+      }
+      setCode("");
+      onSuccess();
+      onClose();
+    };
+
+    setRetry(() => {
+      void performRedeem();
+    });
+    const result = await withSaveIndicator(performRedeem);
 
     setIsLoading(false);
 
-    if (result.success) {
-      Alert.alert(
-        "Success",
-        `You now have access to "${result.bubbleName}"${result.senderName ? ` shared by ${result.senderName}` : ""}.`,
-        [
-          {
-            text: "OK",
-            onPress: () => {
-              setCode("");
-              onSuccess();
-              onClose();
-            },
-          },
-        ]
-      );
-    } else {
-      setError(result.error || "Invalid or expired invite code");
+    if (result === null) {
+      setError(redeemError ?? "Invalid or expired invite code");
     }
   };
 
@@ -136,6 +141,13 @@ export default function InviteCodeModal({
             )}
           </Pressable>
         </View>
+
+        <SaveToast
+          state={toastState}
+          message={saveToastMessage}
+          onRetry={retryFn ?? undefined}
+          onDismiss={dismiss}
+        />
       </View>
     </Modal>
   );

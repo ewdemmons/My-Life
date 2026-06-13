@@ -25,13 +25,16 @@ import { SchedulingModal } from "@/components/SchedulingModal";
 import { RecurringEventModal } from "@/components/RecurringEventModal";
 import { PeopleAvatars } from "@/components/PeopleSelector";
 import { useApp } from "@/context/AppContext";
-import { CalendarEvent, getEventTypeInfo, LifeCategory, EVENT_TYPES, EventType, LifeAreaScheduleWithCategory } from "@/types";
+import { CalendarEvent, getEventTypeInfo, LifeCategory, EVENT_TYPES, EventType } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 import { timeToMinutes } from "@/utils/scheduleTimeUtils";
 import { useAuth } from "@/context/AuthContext";
 import { canModifyEntriesInCategory, canModifyEntryInLifeArea } from "@/lib/permissions";
+import { SaveToast } from "@/components/SaveToast";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
+import MonthView from "@/components/calendar/MonthView";
 
-type ViewMode = "upcoming" | "day";
+type CalendarTab = "upcoming" | "month" | "day";
 type ColorMode = "lifeArea" | "eventType";
 type EventTypeFilter = "all" | EventType;
 type UpcomingListItem =
@@ -52,7 +55,6 @@ const EVENTS_COLUMN_FLEX = 0.65;
 const REMINDERS_COLUMN_FLEX = 0.35;
 const REMINDER_TAG_HEIGHT = 18;
 const REMINDER_TAG_GAP = 2;
-const SCHEDULE_LABEL_MIN_HEIGHT = HOUR_ROW_HEIGHT * 2;
 const DEFAULT_EVENT_COLOR = "#6B7FFF";
 const EVENT_TYPE_COLORS: Record<string, string> = {
   appointment: "#3B82F6",
@@ -131,13 +133,14 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
   const tabBarHeight = useBottomTabBarHeight();
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { categories, events, deleteEvent, deleteEventSeries, getSchedulesForDay } = useApp();
-  const [daySchedules, setDaySchedules] = useState<LifeAreaScheduleWithCategory[]>([]);
+  const { categories, events, deleteEvent, deleteEventSeries } = useApp();
+  const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
+    useSaveIndicator({ threshold: 500 });
 
   const nowDate = new Date();
   const [currentTime, setCurrentTime] = useState(nowDate);
   const [selectedDate, setSelectedDate] = useState(formatDateKey(nowDate));
-  const [viewMode, setViewMode] = useState<ViewMode>("upcoming");
+  const [viewMode, setViewMode] = useState<CalendarTab>("upcoming");
   const [dayHoursRange, setDayHoursRange] = useState({ start: 0, end: 23 });
   const [eventTypeFilter, setEventTypeFilter] = useState<EventTypeFilter>("all");
   const [selectedLifeAreaFilterId, setSelectedLifeAreaFilterId] = useState<string | null>(null);
@@ -281,6 +284,10 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
     () => applyEventTypeFilter(selectedDayEvents),
     [selectedDayEvents, applyEventTypeFilter],
   );
+  const monthTabEvents = useMemo(
+    () => applyEventTypeFilter(filteredEvents),
+    [filteredEvents, applyEventTypeFilter],
+  );
 
   const displayedEvents = useMemo(() => {
     if (viewMode === "upcoming") return filteredUpcomingEvents;
@@ -315,60 +322,6 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
   }, [dayHoursRange]);
 
   const dayTimelineHeight = dayHours.length * HOUR_ROW_HEIGHT;
-
-  useEffect(() => {
-    const dayOfWeek = new Date(`${selectedDate}T12:00:00`).getDay();
-    let cancelled = false;
-    getSchedulesForDay(dayOfWeek).then((schedules) => {
-      if (!cancelled) setDaySchedules(schedules);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [selectedDate, getSchedulesForDay]);
-
-  const scheduleShadingLayouts = useMemo(() => {
-    if (daySchedules.length === 0) return [];
-    const timelineStart = dayHoursRange.start * 60;
-    const timelineEnd = (dayHoursRange.end + 1) * 60;
-
-    return daySchedules
-      .map((schedule) => {
-        const startMinutes = timeToMinutes(schedule.startTime);
-        const endMinutes = timeToMinutes(schedule.endTime);
-        if (endMinutes <= startMinutes) return null;
-        const top = ((startMinutes - timelineStart) / 60) * HOUR_ROW_HEIGHT;
-        const height = ((endMinutes - startMinutes) / 60) * HOUR_ROW_HEIGHT;
-        return { schedule, top, height, startMinutes, endMinutes };
-      })
-      .filter(
-        (item): item is NonNullable<typeof item> =>
-          item !== null &&
-          item.endMinutes > timelineStart &&
-          item.startMinutes < timelineEnd,
-      );
-  }, [daySchedules, dayHoursRange]);
-
-  const scheduleLabelStackIndex = useMemo(() => {
-    const stackMap = new Map<string, number>();
-    const byStart = new Map<number, typeof scheduleShadingLayouts>();
-
-    scheduleShadingLayouts.forEach((item) => {
-      if (item.height < SCHEDULE_LABEL_MIN_HEIGHT) return;
-      const group = byStart.get(item.startMinutes) || [];
-      group.push(item);
-      byStart.set(item.startMinutes, group);
-    });
-
-    byStart.forEach((group) => {
-      group.sort((a, b) => a.schedule.categoryName.localeCompare(b.schedule.categoryName));
-      group.forEach((item, index) => {
-        stackMap.set(item.schedule.id, index);
-      });
-    });
-
-    return stackMap;
-  }, [scheduleShadingLayouts]);
 
   const getHourLabel = (hour: number) => {
     const ampm = hour >= 12 ? "PM" : "AM";
@@ -566,19 +519,33 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
   };
 
   const handleDeleteInstance = async () => {
-    if (editingEvent) {
+    if (!editingEvent) return;
+
+    const performDelete = async () => {
       await deleteEvent(editingEvent.id);
       setShowRecurringModal(false);
       setEditingEvent(null);
-    }
+    };
+
+    setRetry(() => {
+      void handleDeleteInstance();
+    });
+    await withSaveIndicator(performDelete, { showSuccess: false });
   };
 
   const handleDeleteSeries = async () => {
-    if (editingEvent?.seriesId) {
-      await deleteEventSeries(editingEvent.seriesId);
+    if (!editingEvent?.seriesId) return;
+
+    const performDelete = async () => {
+      await deleteEventSeries(editingEvent.seriesId!);
       setShowRecurringModal(false);
       setEditingEvent(null);
-    }
+    };
+
+    setRetry(() => {
+      void handleDeleteSeries();
+    });
+    await withSaveIndicator(performDelete, { showSuccess: false });
   };
 
   const formatTime = (timeString: string) => {
@@ -708,12 +675,17 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
     await applyDayHoursRange(0, 23);
   }, [applyDayHoursRange]);
 
+  const handleMonthDayPress = useCallback((date: string) => {
+    setSelectedDate(date);
+    setViewMode("day");
+  }, []);
+
   const renderViewToggleAndFilter = () => {
     const filterActive = activeFilterCount > 0;
     return (
       <View style={styles.headerControlsRow}>
         <View style={[styles.viewToggleContainer, { backgroundColor: theme.backgroundDefault }]}>
-          {(["upcoming", "day"] as ViewMode[]).map((mode) => (
+          {(["upcoming", "month", "day"] as CalendarTab[]).map((mode) => (
             <Pressable
               key={mode}
               style={[
@@ -1111,46 +1083,46 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
 
   const renderDayDateSelector = () => (
     <View>
-      <ScrollView
-        ref={dateStripScrollRef}
-        horizontal
-        showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.dateStripContent}
-      >
-        {dayStripDates.map((date) => {
-          const dateObj = new Date(date + "T00:00:00");
-          const isSelected = date === selectedDate;
-          const isToday = date === today;
-          const eventDots = dateStripEventDots[date] || [];
-          const showEventDots = !(isToday && eventDots.length === 0);
-          return (
-            <Pressable key={date} style={styles.dateItem} onPress={() => setSelectedDate(date)}>
-              <ThemedText style={[styles.dateItemDay, { color: theme.textSecondary }]}>
-                {dateObj.toLocaleDateString("en-US", { weekday: "narrow" })}
-              </ThemedText>
-              <View
-                style={[
-                  styles.dateNumberCircle,
-                  { borderColor: theme.border, backgroundColor: "transparent" },
-                  isSelected && { backgroundColor: accentColor, borderColor: accentColor },
-                ]}
-              >
-                <ThemedText style={[styles.dateItemNumber, { color: isSelected ? "#FFFFFF" : theme.text }]}>
-                  {dateObj.getDate()}
+      {!isMonthExpanded ? (
+        <ScrollView
+          ref={dateStripScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.dateStripContent}
+        >
+          {dayStripDates.map((date) => {
+            const dateObj = new Date(date + "T00:00:00");
+            const isSelected = date === selectedDate;
+            const isToday = date === today;
+            const eventDots = dateStripEventDots[date] || [];
+            const showEventDots = !(isToday && eventDots.length === 0);
+            return (
+              <Pressable key={date} style={styles.dateItem} onPress={() => setSelectedDate(date)}>
+                <ThemedText style={[styles.dateItemDay, { color: theme.textSecondary }]}>
+                  {dateObj.toLocaleDateString("en-US", { weekday: "narrow" })}
                 </ThemedText>
-              </View>
-              {isToday && !isSelected ? <View style={[styles.todayDot, { backgroundColor: accentColor }]} /> : null}
-              <View style={styles.dateStripDotsRow}>
-                {showEventDots ? renderEventDots(eventDots, 2) : null}
-              </View>
-            </Pressable>
-          );
-        })}
-      </ScrollView>
-
-      <Animated.View style={[styles.monthGridAnimatedWrap, { height: animatedGridHeight }]}>
-        {renderMonthGrid()}
-      </Animated.View>
+                <View
+                  style={[
+                    styles.dateNumberCircle,
+                    { borderColor: theme.border, backgroundColor: "transparent" },
+                    isSelected && { backgroundColor: accentColor, borderColor: accentColor },
+                  ]}
+                >
+                  <ThemedText style={[styles.dateItemNumber, { color: isSelected ? "#FFFFFF" : theme.text }]}>
+                    {dateObj.getDate()}
+                  </ThemedText>
+                </View>
+                {isToday && !isSelected ? <View style={[styles.todayDot, { backgroundColor: accentColor }]} /> : null}
+                <View style={styles.dateStripDotsRow}>
+                  {showEventDots ? renderEventDots(eventDots, 2) : null}
+                </View>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      ) : (
+        renderMonthGrid()
+      )}
 
       {renderMonthToggleChevron(() => toggleMonthExpanded(!isMonthExpanded))}
     </View>
@@ -1340,15 +1312,24 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
           ],
         }}
       >
-        <View style={[styles.eventListHeader, { borderTopColor: theme.border, borderTopWidth: 0 }]}>
-          <ThemedText style={styles.eventListTitle}>
-            {activeFilterCount === 0
-              ? `${filteredCountForCurrentView} event${filteredCountForCurrentView !== 1 ? "s" : ""}`
-              : `${filteredCountForCurrentView} of ${unfilteredCountForCurrentView} events`}
-          </ThemedText>
-        </View>
+        {viewMode !== "month" ? (
+          <View style={[styles.eventListHeader, { borderTopColor: theme.border, borderTopWidth: 0 }]}>
+            <ThemedText style={styles.eventListTitle}>
+              {activeFilterCount === 0
+                ? `${filteredCountForCurrentView} event${filteredCountForCurrentView !== 1 ? "s" : ""}`
+                : `${filteredCountForCurrentView} of ${unfilteredCountForCurrentView} events`}
+            </ThemedText>
+          </View>
+        ) : null}
 
-        {viewMode === "day" ? (
+        {viewMode === "month" ? (
+          <MonthView
+            events={monthTabEvents}
+            categories={categories}
+            selectedDate={selectedDate}
+            onDayPress={handleMonthDayPress}
+          />
+        ) : viewMode === "day" ? (
           <View style={styles.dayTimelineRow}>
             <View style={styles.dayEventsColumnWrap}>
               <ScrollView
@@ -1377,48 +1358,13 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
                   </View>
                 ))}
 
-                {scheduleShadingLayouts.map(({ schedule, top, height }) => {
-                  const color = schedule.categoryColor || DEFAULT_EVENT_COLOR;
-                  const showLabel = height >= SCHEDULE_LABEL_MIN_HEIGHT;
-                  const labelStack = scheduleLabelStackIndex.get(schedule.id) ?? 0;
-                  return (
-                    <View
-                      key={`schedule-shade-${schedule.id}`}
-                      pointerEvents="none"
-                      style={[
-                        styles.scheduleShadingBlock,
-                        {
-                          top,
-                          height,
-                          backgroundColor: hexToRgba(color, 0.08),
-                          borderLeftColor: hexToRgba(color, 0.3),
-                        },
-                      ]}
-                    >
-                      {showLabel ? (
-                        <View
-                          style={[
-                            styles.scheduleBlockLabel,
-                            { top: 2 + labelStack * 11 },
-                          ]}
-                        >
-                          <View style={[styles.scheduleColorDot, { backgroundColor: color }]} />
-                          <ThemedText
-                            numberOfLines={1}
-                            style={[styles.scheduleBlockLabelText, { color }]}
-                          >
-                            {schedule.categoryName}
-                          </ThemedText>
-                        </View>
-                      ) : null}
-                    </View>
-                  );
-                })}
-
                 {timelineEvents.map(({ event, top, height }) => {
                   const color = getEventColor(event);
                   const eventType = getEventTypeInfo(event.eventType);
                   const eventCategory = categories.find((category) => category.id === event.categoryId);
+                  const isAppointment =
+                    event.eventType === "appointment" || event.eventType === "meeting";
+                  const textColor = isAppointment ? "#FFFFFF" : color;
                   const startLabel = event.startDate < selectedDate ? "12:00 AM" : formatTime(event.startTime);
                   const endLabel = event.endDate > selectedDate ? "11:59 PM" : formatTime(event.endTime);
                   return (
@@ -1430,19 +1376,29 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
                           top,
                           height,
                           borderLeftColor: color,
-                          backgroundColor: hexToRgba(color, 0.18),
+                          backgroundColor: isAppointment ? `${color}CC` : `${color}33`,
                         },
                       ]}
                       onPress={() => handleEventPress(event)}
                     >
-                      <ThemedText numberOfLines={1} style={[styles.timelineEventTitle, { color }]}>
+                      <ThemedText numberOfLines={1} style={[styles.timelineEventTitle, { color: textColor }]}>
                         {event.title}
                       </ThemedText>
-                      <ThemedText style={[styles.timelineEventTime, { color: hexToRgba(color, 0.72) }]}>
+                      <ThemedText
+                        style={[
+                          styles.timelineEventTime,
+                          { color: isAppointment ? "#FFFFFF" : hexToRgba(color, 0.72) },
+                        ]}
+                      >
                         {`${startLabel} - ${endLabel}`}
                       </ThemedText>
-                      <View style={[styles.timelineBadge, { backgroundColor: hexToRgba(color, 0.2) }]}>
-                        <ThemedText style={[styles.timelineBadgeText, { color }]}>
+                      <View
+                        style={[
+                          styles.timelineBadge,
+                          { backgroundColor: isAppointment ? "#FFFFFF33" : hexToRgba(color, 0.2) },
+                        ]}
+                      >
+                        <ThemedText style={[styles.timelineBadgeText, { color: textColor }]}>
                           {(eventCategory?.name || "General") + " · " + eventType.label}
                         </ThemedText>
                       </View>
@@ -1560,6 +1516,13 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
         onCancel={() => setActiveTimePicker(null)}
       />
       {renderFilterSheet()}
+
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
     </View>
   );
 }
@@ -2029,33 +1992,6 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     height: StyleSheet.hairlineWidth,
-  },
-  scheduleShadingBlock: {
-    position: "absolute",
-    left: EVENT_LEFT_OFFSET,
-    right: EVENT_RIGHT_OFFSET,
-    borderLeftWidth: 2,
-    borderRadius: 0,
-    zIndex: 0,
-    overflow: "hidden",
-  },
-  scheduleBlockLabel: {
-    position: "absolute",
-    left: 6,
-    right: 4,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 3,
-  },
-  scheduleColorDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 3,
-  },
-  scheduleBlockLabelText: {
-    fontSize: 8,
-    fontWeight: "600",
-    flex: 1,
   },
   timelineEventBlock: {
     position: "absolute",
