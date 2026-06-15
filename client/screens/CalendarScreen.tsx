@@ -41,10 +41,12 @@ type UpcomingListItem =
   | { id: string; type: "header"; title: string; range: string }
   | { id: string; type: "event"; event: CalendarEvent };
 
-interface CalendarScreenProps {
+export interface CalendarScreenProps {
   categoryFilter?: LifeCategory;
   categoryId?: string;
   colorMode?: ColorMode;
+  embedded?: boolean;
+  showTimeWindows?: boolean;
 }
 
 const HOUR_ROW_HEIGHT = 52;
@@ -127,13 +129,31 @@ const hourToHhmm = (hour: number) =>
 const hhmmToHour = (timeStr: string) =>
   parseInt(timeStr.split(":")[0], 10);
 
-export default function CalendarScreen({ categoryFilter, categoryId, colorMode }: CalendarScreenProps = {}) {
+function TabBarHeightConsumer({
+  onHeight,
+}: {
+  onHeight: (n: number) => void;
+}) {
+  const h = useBottomTabBarHeight();
+  useEffect(() => {
+    onHeight(h);
+  }, [h, onHeight]);
+  return null;
+}
+
+export default function CalendarScreen({
+  categoryFilter,
+  categoryId,
+  colorMode,
+  embedded = false,
+  showTimeWindows = false,
+}: CalendarScreenProps = {}) {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
-  const tabBarHeight = useBottomTabBarHeight();
+  const [tabBarHeight, setTabBarHeight] = useState(0);
   const { theme } = useTheme();
   const { user } = useAuth();
-  const { categories, events, deleteEvent, deleteEventSeries } = useApp();
+  const { categories, events, deleteEvent, deleteEventSeries, lifeAreaSchedules } = useApp();
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500 });
 
@@ -375,6 +395,40 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
       })
       .filter((item) => item.endMinutes > dayHoursRange.start * 60 && item.startMinutes < (dayHoursRange.end + 1) * 60);
   }, [timedDayEvents, selectedDate, dayHoursRange]);
+
+  const scheduleOverlays = useMemo(() => {
+    if (!showTimeWindows || !effectiveCategoryFilter) return [];
+
+    const selectedDayOfWeek = new Date(selectedDate + "T00:00:00").getDay();
+    const categorySchedules = lifeAreaSchedules.filter(
+      (schedule) =>
+        schedule.categoryId === effectiveCategoryFilter.id &&
+        schedule.isActive &&
+        schedule.daysOfWeek.includes(selectedDayOfWeek),
+    );
+    const windowColor = effectiveCategoryFilter.color ?? theme.primary;
+
+    return categorySchedules
+      .map((schedule) => {
+        const startMinutes = timeToMinutes(schedule.startTime);
+        const endMinutes = timeToMinutes(schedule.endTime);
+        const top = ((startMinutes - dayHoursRange.start * 60) / 60) * HOUR_ROW_HEIGHT;
+        const height = Math.max(((endMinutes - startMinutes) / 60) * HOUR_ROW_HEIGHT, 20);
+        return { schedule, top, height, startMinutes, endMinutes, windowColor };
+      })
+      .filter(
+        (item) =>
+          item.endMinutes > dayHoursRange.start * 60 &&
+          item.startMinutes < (dayHoursRange.end + 1) * 60,
+      );
+  }, [
+    showTimeWindows,
+    effectiveCategoryFilter,
+    selectedDate,
+    lifeAreaSchedules,
+    dayHoursRange,
+    theme.primary,
+  ]);
 
   const remindersByHour = useMemo(() => {
     const map: Record<number, CalendarEvent[]> = {};
@@ -682,6 +736,7 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
 
   const renderViewToggleAndFilter = () => {
     const filterActive = activeFilterCount > 0;
+    const hideFilter = embedded && !!categoryFilter;
     return (
       <View style={styles.headerControlsRow}>
         <View style={[styles.viewToggleContainer, { backgroundColor: theme.backgroundDefault }]}>
@@ -705,26 +760,28 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
             </Pressable>
           ))}
         </View>
-        <Pressable
-          style={[
-            styles.filterControlButton,
-            {
-              backgroundColor: theme.backgroundDefault,
-              borderColor: filterActive ? "#6B7FFF" : theme.border,
-            },
-          ]}
-          onPress={() => setShowFilterSheet(true)}
-        >
-          <Feather name="filter" size={14} color={filterActive ? "#6B7FFF" : theme.textSecondary} />
-          <ThemedText
+        {hideFilter ? null : (
+          <Pressable
             style={[
-              styles.filterControlButtonText,
-              { color: filterActive ? "#6B7FFF" : theme.text },
+              styles.filterControlButton,
+              {
+                backgroundColor: theme.backgroundDefault,
+                borderColor: filterActive ? "#6B7FFF" : theme.border,
+              },
             ]}
+            onPress={() => setShowFilterSheet(true)}
           >
-            {filterActive ? `Filter · ${activeFilterCount}` : "Filter"}
-          </ThemedText>
-        </Pressable>
+            <Feather name="filter" size={14} color={filterActive ? "#6B7FFF" : theme.textSecondary} />
+            <ThemedText
+              style={[
+                styles.filterControlButtonText,
+                { color: filterActive ? "#6B7FFF" : theme.text },
+              ]}
+            >
+              {filterActive ? `Filter · ${activeFilterCount}` : "Filter"}
+            </ThemedText>
+          </Pressable>
+        )}
       </View>
     );
   };
@@ -1224,9 +1281,14 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
     );
   };
 
+  const bottomScrollPadding = embedded
+    ? insets.bottom + Spacing.xl + 60
+    : tabBarHeight + Spacing.xl + 60;
   const dayScrollContentPadding = {
-    paddingBottom: tabBarHeight + Spacing.xl + 60,
+    paddingBottom: bottomScrollPadding,
   };
+  const fabBottom = embedded ? Spacing.lg : tabBarHeight + Spacing.lg;
+  const headerTopPadding = embedded ? Spacing.sm : headerHeight + Spacing.sm;
 
   useEffect(() => {
     setMonthGridMeasuredHeight(0);
@@ -1278,7 +1340,7 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
 
   return (
     <View style={{ flex: 1, backgroundColor: theme.backgroundRoot }}>
-      <View style={[styles.headerSection, { paddingTop: headerHeight + Spacing.sm }]}>
+      <View style={[styles.headerSection, { paddingTop: headerTopPadding }]}>
         {renderViewToggleAndFilter()}
         {viewMode === "upcoming" ? renderNavigation() : null}
         {viewMode === "day" ? renderDayDateSelector() : null}
@@ -1328,6 +1390,7 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
             categories={categories}
             selectedDate={selectedDate}
             onDayPress={handleMonthDayPress}
+            embedded={embedded}
           />
         ) : viewMode === "day" ? (
           <View style={styles.dayTimelineRow}>
@@ -1356,6 +1419,25 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
                       <View style={[styles.halfHourDivider, { backgroundColor: theme.border + "80" }]} />
                     </Pressable>
                   </View>
+                ))}
+
+                {scheduleOverlays.map(({ schedule, top, height, windowColor }) => (
+                  <View
+                    key={schedule.id}
+                    pointerEvents="none"
+                    style={{
+                      position: "absolute",
+                      top,
+                      left: EVENT_LEFT_OFFSET + 2,
+                      right: EVENT_RIGHT_OFFSET + 2,
+                      height,
+                      borderWidth: 1.5,
+                      borderStyle: "dashed",
+                      borderColor: windowColor,
+                      borderRadius: 4,
+                      zIndex: 1,
+                    }}
+                  />
                 ))}
 
                 {timelineEvents.map(({ event, top, height }) => {
@@ -1453,7 +1535,7 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
               return <View style={styles.sectionEventWrap}>{renderEventCard({ item: item.event })}</View>;
             }}
             contentContainerStyle={{
-              paddingBottom: tabBarHeight + Spacing.xl + 60,
+              paddingBottom: bottomScrollPadding,
               flexGrow: 1,
             }}
             scrollIndicatorInsets={{ bottom: insets.bottom }}
@@ -1465,7 +1547,7 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
 
       {canAddEvents ? (
         <Pressable
-          style={[styles.fab, { backgroundColor: accentColor, bottom: tabBarHeight + Spacing.lg }]}
+          style={[styles.fab, { backgroundColor: accentColor, bottom: fabBottom }]}
           onPress={handleAddEvent}
         >
           <Feather name="plus" size={24} color="#FFFFFF" />
@@ -1523,8 +1605,13 @@ export default function CalendarScreen({ categoryFilter, categoryId, colorMode }
         onRetry={retryFn ?? undefined}
         onDismiss={dismiss}
       />
+      {!embedded ? <TabBarHeightConsumer onHeight={setTabBarHeight} /> : null}
     </View>
   );
+}
+
+export function CalendarView(props: CalendarScreenProps) {
+  return <CalendarScreen {...props} />;
 }
 
 const styles = StyleSheet.create({

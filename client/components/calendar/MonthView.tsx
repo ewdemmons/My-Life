@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useState, useEffect } from "react";
 import { View, StyleSheet, Pressable, ScrollView } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
@@ -13,6 +13,7 @@ interface MonthViewProps {
   categories: LifeCategory[];
   selectedDate: string;
   onDayPress: (date: string) => void;
+  embedded?: boolean;
 }
 
 type MonthCell = {
@@ -59,9 +60,27 @@ const buildMonthCells = (viewMonth: Date, today: string): MonthCell[] => {
   return cells;
 };
 
-export default function MonthView({ events, categories, selectedDate, onDayPress }: MonthViewProps) {
+function TabBarHeightConsumer({
+  onHeight,
+}: {
+  onHeight: (n: number) => void;
+}) {
+  const h = useBottomTabBarHeight();
+  useEffect(() => {
+    onHeight(h);
+  }, [h, onHeight]);
+  return null;
+}
+
+export default function MonthView({
+  events,
+  categories,
+  selectedDate,
+  onDayPress,
+  embedded = false,
+}: MonthViewProps) {
   const { theme } = useTheme();
-  const tabBarHeight = useBottomTabBarHeight();
+  const [tabBarHeight, setTabBarHeight] = useState(0);
   const today = formatDateKey(new Date());
   const [viewMonth, setViewMonth] = useState(() => parseSelectedMonth(selectedDate));
 
@@ -96,6 +115,7 @@ export default function MonthView({ events, categories, selectedDate, onDayPress
   };
 
   return (
+    <>
     <ScrollView
       contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBarHeight + Spacing.xl }]}
       showsVerticalScrollIndicator={false}
@@ -194,6 +214,8 @@ export default function MonthView({ events, categories, selectedDate, onDayPress
         </View>
       ))}
     </ScrollView>
+    {!embedded ? <TabBarHeightConsumer onHeight={setTabBarHeight} /> : null}
+    </>
   );
 }
 

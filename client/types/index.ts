@@ -121,7 +121,7 @@ export const TASK_TYPES: { value: TaskType; label: string; icon: string }[] = [
   { value: "project", label: "Project", icon: "folder" },
   { value: "task", label: "Task", icon: "check-square" },
   { value: "subtask", label: "Step", icon: "corner-down-right" },
-  { value: "appointment", label: "Appointment", icon: "calendar" },
+  { value: "appointment", label: "Note", icon: "file-text" },
   { value: "idea", label: "Idea", icon: "zap" },
   { value: "list", label: "List", icon: "list" },
   { value: "item", label: "Item", icon: "circle" },

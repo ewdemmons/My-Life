@@ -1708,10 +1708,10 @@ function TaskItem({
       <View style={styles.leftSection}>
         <View style={styles.leftColumn}>
           <View style={[styles.typeBadge, { backgroundColor: typeColor + "15" }]}>
-            <Feather name={typeInfo.icon as any} size={12} color={typeColor} />
             <ThemedText style={[styles.typeBadgeText, { color: typeColor }]}>
               {typeInfo.label}
             </ThemedText>
+            <Feather name={typeInfo.icon as any} size={10} color={typeColor} />
           </View>
           {hasChildren ? (
             <Pressable onPress={handleChevronPress} hitSlop={12} style={styles.expandButton}>
@@ -2487,13 +2487,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     gap: 4,
-    paddingHorizontal: Spacing.xs,
-    paddingVertical: 3,
+    paddingHorizontal: 3,
+    paddingVertical: 2,
     borderRadius: 4,
     marginBottom: 2,
   },
   typeBadgeText: {
-    fontSize: 11,
+    fontSize: 9,
     fontWeight: "600",
   },
   categoryBadge: {

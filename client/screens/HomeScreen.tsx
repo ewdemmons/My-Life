@@ -14,7 +14,7 @@ import {
 } from "react-native";
 import { SafeAreaView, useSafeAreaInsets } from "react-native-safe-area-context";
 import { useBottomTabBarHeight } from "@react-navigation/bottom-tabs";
-import { useNavigation, useFocusEffect, useRoute, RouteProp } from "@react-navigation/native";
+import { useNavigation, useFocusEffect, useRoute, RouteProp, useScrollToTop } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
@@ -114,6 +114,8 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const scrollRef = useRef<ScrollView>(null);
   const hasInitialized = useRef(false);
+
+  useScrollToTop(scrollRef);
 
   const tabBarSpacerHeight = tabBarHeight + insets.bottom;
 
@@ -511,8 +513,12 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
               </View>
             </View>
             <View style={styles.zone1GreetingRow}>
-              <ThemedText style={styles.headline} numberOfLines={1}>
+              {/* Greeting hidden — kept for future use */}
+              {/* <ThemedText style={styles.headline} numberOfLines={1}>
                 {greetingText}
+              </ThemedText> */}
+              <ThemedText style={styles.balanceHeadline} numberOfLines={1}>
+                Balance Your World
               </ThemedText>
             </View>
             <View style={styles.zone1TipRow}>
@@ -554,35 +560,46 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
               <View style={styles.fabRow}>
                 <View style={styles.fabColumn}>
                   <Pressable
-                    style={[styles.actionFab, { backgroundColor: "#F59E0B" }]}
+                    style={styles.lifeCoachBtnShadow}
                     onPress={() => (navigation.getParent() as NativeStackNavigationProp<RootStackParamList> | undefined)?.navigate("AssistantChat", {})}
+                    accessibilityLabel="Life Coach"
                   >
-                    <Feather name="zap" size={28} color="#FFFFFF" />
+                    <LinearGradient
+                      colors={["#F59E0B", "#EF4444", "#DC2626"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.lifeCoachBtn}
+                    >
+                      <Feather name="zap" size={18} color="#FFFFFF" />
+                      <Text style={styles.lifeCoachBtnText}>Life Coach</Text>
+                    </LinearGradient>
                   </Pressable>
-                  <ThemedText style={[styles.fabLabel, { color: theme.buttonText, opacity: 0.78 }]}>
-                    Life Coach
-                  </ThemedText>
                 </View>
                 <View style={styles.fabColumn}>
                   <Pressable
-                    style={[styles.actionFab, styles.captureFab, { backgroundColor: theme.primary }]}
+                    style={styles.captureBtnShadow}
                     onPress={onOpenCapture}
                     accessibilityLabel="Capture"
                   >
-                    <Feather name="plus" size={28} color="#FFFFFF" />
+                    <LinearGradient
+                      colors={["#3B82F6", "#2563EB", "#1D4ED8"]}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 1 }}
+                      style={styles.captureBtn}
+                    >
+                      <Feather name="plus" size={18} color="#FFFFFF" />
+                      <Text style={styles.captureBtnText}>Capture</Text>
+                    </LinearGradient>
                   </Pressable>
-                  <ThemedText style={[styles.fabLabel, { color: theme.buttonText, opacity: 0.78 }]}>
-                    Capture
-                  </ThemedText>
                 </View>
               </View>
             </View>
           </View>
 
           <View style={styles.agendaAnchor}>
-            <View style={styles.agendaAnchorRow}>
-              <ThemedText style={[styles.agendaAnchorLabel, { color: theme.buttonText }]}>
-                What's on the agenda?
+            <View style={styles.agendaFooter}>
+              <ThemedText style={[styles.agendaText, { color: theme.buttonText }]}>
+                What's on the Agenda?
               </ThemedText>
               <PlanActionButton onPress={showPlanGeneratorAlert} />
             </View>
@@ -598,28 +615,26 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
         {/* Zone 2 — Agenda shell */}
         <View style={[styles.pageZone, { height: SCREEN_HEIGHT, backgroundColor: ZONE_2_BG }]}>
           <View style={styles.zone2Header}>
+            <View style={styles.zone2AgendaRow}>
+              <ThemedText style={[styles.zone2AgendaLabel, { color: theme.buttonText }]}>
+                What's on the agenda?
+              </ThemedText>
+              <PlanActionButton onPress={showPlanGeneratorAlert} />
+            </View>
+            <ThemedText style={[styles.zone2DateSubtitle, { color: theme.textSecondary }]}>
+              {todaySubtitle}
+            </ThemedText>
             <Pressable style={styles.scrollHint} onPress={scrollToZone1}>
               <Feather name="chevron-up" size={18} color={SCROLL_HINT_COLOR} />
               <Text style={styles.scrollHintText}>scroll up for Life Wheel</Text>
             </Pressable>
-
-            <View style={styles.zone2TitleRow}>
-              <View style={styles.zone2TitleBlock}>
-                <ThemedText style={[styles.zone2Title, { color: theme.buttonText }]}>
-                  My Dashboard
-                </ThemedText>
-                <ThemedText style={[styles.zone2DateSubtitle, { color: theme.textSecondary }]}>
-                  {todaySubtitle}
-                </ThemedText>
-              </View>
-              <PlanActionButton onPress={showPlanGeneratorAlert} />
-            </View>
           </View>
 
           <ScrollView
             style={styles.zone2Scroll}
             contentContainerStyle={styles.zone2ScrollContent}
             nestedScrollEnabled
+            scrollEnabled
             showsVerticalScrollIndicator={false}
           >
             <ScrollView
@@ -839,6 +854,13 @@ const styles = StyleSheet.create({
     textAlign: "center",
     paddingHorizontal: 16,
   },
+  balanceHeadline: {
+    fontSize: 21,
+    fontWeight: "700",
+    color: "#FFFFFF",
+    textAlign: "center",
+    paddingHorizontal: 16,
+  },
   tipPressable: {
     width: "100%",
     flex: 1,
@@ -862,44 +884,77 @@ const styles = StyleSheet.create({
   fabRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "flex-end",
+    alignItems: "center",
   },
   fabColumn: {
     width: FAB_SIZE,
     alignItems: "center",
   },
-  actionFab: {
+  lifeCoachBtnShadow: {
     width: FAB_SIZE,
     height: FAB_SIZE,
     borderRadius: 16,
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  lifeCoachBtn: {
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: 16,
+    flexDirection: "column",
     alignItems: "center",
     justifyContent: "center",
-  },
-  captureFab: {
+    gap: 4,
     overflow: "hidden",
   },
-  fabLabel: {
-    marginTop: 4,
-    fontSize: 11,
-    fontWeight: "500",
-    textAlign: "center",
+  lifeCoachBtnText: {
+    fontSize: 9,
+    fontWeight: "600",
+    color: "#FFFFFF",
+  },
+  captureBtnShadow: {
     width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: 16,
+    shadowColor: "#3B82F6",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.4,
+    shadowRadius: 8,
+    elevation: 8,
+  },
+  captureBtn: {
+    width: FAB_SIZE,
+    height: FAB_SIZE,
+    borderRadius: 16,
+    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 4,
+    overflow: "hidden",
+  },
+  captureBtnText: {
+    fontSize: 9,
+    fontWeight: "600",
+    color: "#FFFFFF",
   },
   agendaAnchor: {
     paddingHorizontal: Spacing.lg,
     paddingTop: Spacing.xs,
     paddingBottom: Spacing.xs,
   },
-  agendaAnchorRow: {
-    flexDirection: "row",
+  agendaFooter: {
     alignItems: "center",
-    justifyContent: "space-between",
+    paddingHorizontal: 16,
+    paddingBottom: 8,
+    gap: 8,
   },
-  agendaAnchorLabel: {
-    fontSize: 13,
+  agendaText: {
+    fontSize: 15,
     fontWeight: "600",
-    flex: 1,
-    marginRight: Spacing.sm,
+    textAlign: "center",
   },
   planActionButton: {
     borderRadius: 10,
@@ -922,21 +977,18 @@ const styles = StyleSheet.create({
   },
   zone2Header: {
     paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.sm,
+    paddingTop: Spacing.xs,
   },
-  zone2TitleRow: {
+  zone2AgendaRow: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginTop: Spacing.sm,
   },
-  zone2TitleBlock: {
+  zone2AgendaLabel: {
+    fontSize: 15,
+    fontWeight: "600",
     flex: 1,
     marginRight: Spacing.sm,
-  },
-  zone2Title: {
-    fontSize: 13,
-    fontWeight: "700",
   },
   zone2DateSubtitle: {
     fontSize: 11,
@@ -955,14 +1007,20 @@ const styles = StyleSheet.create({
   viewSelectorWrap: {
     marginTop: Spacing.md,
     marginBottom: Spacing.sm,
+    flexGrow: 0,
+    flexShrink: 0,
+    alignSelf: "flex-start",
   },
   viewSelectorRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
     paddingHorizontal: Spacing.lg,
     gap: 8,
   },
   viewPill: {
+    height: 34,
     paddingHorizontal: 16,
-    paddingVertical: 8,
     borderRadius: 16,
     minWidth: 110,
     flexShrink: 0,

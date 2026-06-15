@@ -459,8 +459,10 @@ const styles = StyleSheet.create({
   },
   sharedBadge: {
     position: "absolute",
-    top: -10,
-    right: -10,
+    top: 6,
+    alignSelf: "center",
+    left: "50%",
+    marginLeft: -10,
     width: 20,
     height: 20,
     borderRadius: 10,

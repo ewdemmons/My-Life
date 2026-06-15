@@ -1,5 +1,6 @@
 import React, { useMemo, useState, useCallback, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Platform } from "react-native";
+import { View, StyleSheet, Pressable, Platform, Text } from "react-native";
+import { TouchableOpacity } from "react-native-gesture-handler";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -27,6 +28,7 @@ import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { getTaskTypeInfo, getEventTypeInfo, Task, Habit } from "@/types";
 import { MasterListSortSheet } from "@/components/MasterListSortSheet";
 import { MasterListFilterSheet } from "@/components/MasterListFilterSheet";
+import { TaskCompletionModal } from "@/components/TaskCompletionModal";
 import {
   applyMasterListFilters,
   applyMasterListHabitFilters,
@@ -95,12 +97,6 @@ function groupPinnedTasks(tasks: Task[]): MasterListTaskSection[] {
   return sections;
 }
 
-function getStatusColor(status: Task["status"], theme: ReturnType<typeof useTheme>["theme"]): string {
-  if (status === "completed") return theme.success;
-  if (status === "in_progress") return theme.primary;
-  return theme.textSecondary;
-}
-
 export function DashboardTab() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
@@ -143,6 +139,9 @@ export function DashboardTab() {
   const [isSavingOrder, setIsSavingOrder] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [toastVisible, setToastVisible] = useState(false);
+  const [completionTask, setCompletionTask] = useState<Task | null>(null);
+  const [recentlyCompleted, setRecentlyCompleted] = useState<Set<string>>(new Set());
+  const [expandedEntryIds, setExpandedEntryIds] = useState<Set<string>>(new Set());
 
   const isDraggingRef = useRef(false);
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -177,6 +176,26 @@ export function DashboardTab() {
     }, 2500);
   }, []);
 
+  const markRecentlyCompleted = useCallback((taskId: string) => {
+    setRecentlyCompleted((prev) => new Set([...prev, taskId]));
+    setTimeout(() => {
+      setRecentlyCompleted((prev) => {
+        const next = new Set(prev);
+        next.delete(taskId);
+        return next;
+      });
+    }, 1500);
+  }, []);
+
+  const toggleEntryExpanded = useCallback((id: string) => {
+    setExpandedEntryIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }, []);
+
   const handleSortSelect = useCallback(async (option: MasterListSortOption) => {
     setSortOption(option);
     await AsyncStorage.setItem(MASTERLIST_SORT_KEY, option);
@@ -189,10 +208,15 @@ export function DashboardTab() {
   const showPinnedEntries = shouldShowPinnedEntries(filters);
   const showPinnedHabitsList = shouldShowPinnedHabits(filters);
 
-  const filteredTasks = useMemo(
-    () => (showPinnedEntries ? applyMasterListFilters(pinnedTasks, filters) : []),
-    [pinnedTasks, filters, showPinnedEntries],
-  );
+  const filteredTasks = useMemo(() => {
+    if (!showPinnedEntries) return [];
+    const active = applyMasterListFilters(pinnedTasks, filters);
+    const fading = pinnedTasks.filter(
+      (t) => recentlyCompleted.has(t.id) && t.status === "completed",
+    );
+    const activeIds = new Set(active.map((t) => t.id));
+    return [...active, ...fading.filter((t) => !activeIds.has(t.id))];
+  }, [pinnedTasks, filters, showPinnedEntries, recentlyCompleted]);
 
   const filteredHabits = useMemo(
     () => (showPinnedHabitsList ? applyMasterListHabitFilters(pinnedHabits, filters) : []),
@@ -218,16 +242,16 @@ export function DashboardTab() {
 
   const childEntriesByParent = useMemo(() => {
     const map = new Map<string, Task[]>();
-    for (const parent of filteredTasks) {
+    for (const task of pinnedTasks) {
       const children = tasks
-        .filter((t) => t.parentId === parent.id)
-        .sort((a, b) => (a.orderIndex || 0) - (b.orderIndex || 0));
+        .filter((t) => t.parentId === task.id && t.status !== "completed")
+        .sort((a, b) => (a.orderIndex ?? 0) - (b.orderIndex ?? 0));
       if (children.length > 0) {
-        map.set(parent.id, children);
+        map.set(task.id, children);
       }
     }
     return map;
-  }, [filteredTasks, tasks]);
+  }, [pinnedTasks, tasks]);
 
   const toggleSection = useCallback((key: string) => {
     setCollapsedSections((prev) => ({ ...prev, [key]: !prev[key] }));
@@ -257,19 +281,38 @@ export function DashboardTab() {
     [categories, navigation],
   );
 
-  const handleToggleComplete = useCallback(
+  const handleCheckboxComplete = useCallback(
     async (task: Task) => {
       if (!canModifyTask(task)) return;
-      const newStatus = task.status === "completed" ? "pending" : "completed";
+
+      if (task.status !== "completed" && task.type !== "item" && task.type !== "subtask") {
+        setCompletionTask(task);
+        return;
+      }
+
       const performToggle = async () => {
-        await updateTask(task.id, { status: newStatus });
+        if (task.status === "completed") {
+          await updateTask(task.id, {
+            status: "pending",
+            completionType: null,
+            completionDate: undefined,
+          });
+        } else {
+          await updateTask(task.id, {
+            status: "completed",
+            completionType: "as_of",
+            completionDate: new Date().toISOString().split("T")[0],
+          });
+          markRecentlyCompleted(task.id);
+        }
       };
+
       setRetry(() => {
         void performToggle();
       });
       await withSaveIndicator(performToggle);
     },
-    [canModifyTask, updateTask, withSaveIndicator, setRetry],
+    [canModifyTask, updateTask, withSaveIndicator, setRetry, markRecentlyCompleted],
   );
 
   const handleUnpinTask = useCallback(
@@ -352,10 +395,6 @@ export function DashboardTab() {
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   }, []);
-
-  const handleNonManualLongPress = useCallback(() => {
-    showToast("Switch to Manual sort to reorder");
-  }, [showToast]);
 
   const upcomingEvents = useMemo(() => {
     const today = getLocalTodayDate();
@@ -452,122 +491,195 @@ export function DashboardTab() {
     );
   };
 
-  const renderSubEntries = (parentTask: Task) => {
-    const children = childEntriesByParent.get(parentTask.id);
-    if (!children || children.length === 0) return null;
+  const renderExpandedChildren = (parentTask: Task) => {
+    const children = childEntriesByParent.get(parentTask.id) ?? [];
+    const isExpanded = expandedEntryIds.has(parentTask.id);
+    if (!isExpanded || children.length === 0) return null;
 
-    const visibleChildren = children.slice(0, 3);
-    const remaining = children.length - visibleChildren.length;
-
-    return (
-      <View style={styles.subEntriesContainer}>
-        {visibleChildren.map((child) => (
-          <Pressable
-            key={child.id}
-            style={styles.subEntryRow}
-            onPress={() => navigateToTask(child)}
-          >
-            <Feather
-              name="circle"
-              size={8}
-              color={getStatusColor(child.status, theme)}
-              style={styles.subEntryDot}
-            />
-            <ThemedText
-              style={[
-                styles.subEntryTitle,
-                { color: theme.textSecondary },
-                child.status === "completed" && styles.subEntryCompleted,
-              ]}
-              numberOfLines={1}
-            >
-              {child.title}
-            </ThemedText>
-          </Pressable>
-        ))}
-        {remaining > 0 ? (
-          <Pressable
-            style={styles.viewAllEntriesBtn}
-            onPress={() => navigateToTask(parentTask)}
-          >
-            <ThemedText style={[styles.viewAllEntriesText, { color: theme.link }]}>
-              View all {children.length} entries →
-            </ThemedText>
-          </Pressable>
-        ) : null}
-      </View>
-    );
-  };
-
-  const renderTaskCardContent = (task: Task, isActive = false) => {
-    const category = categories.find((c) => c.id === task.categoryId);
-    const typeInfo = getTaskTypeInfo(task.type);
-
-    return (
+    return children.map((child) => (
       <View
-        style={[
-          styles.taskCard,
-          {
-            backgroundColor: isActive ? theme.backgroundSecondary : theme.backgroundDefault,
-          },
-          isActive && styles.taskCardDragging,
-        ]}
+        key={child.id}
+        style={[styles.childEntryRow, { borderTopColor: theme.border }]}
       >
         <Pressable
-          onPress={() => handleToggleComplete(task)}
-          disabled={!canModifyTask(task)}
-          hitSlop={8}
-          style={styles.checkBtn}
+          onPress={() => handleCheckboxComplete(child)}
+          disabled={!canModifyTask(child)}
+          style={styles.childCheckbox}
         >
-          <Feather
-            name={task.status === "completed" ? "check-circle" : "circle"}
-            size={22}
-            color={task.status === "completed" ? theme.success : theme.textSecondary}
+          <View
+            style={[
+              styles.childCheckboxInner,
+              { borderColor: theme.border },
+              child.status === "completed" && { backgroundColor: theme.success },
+            ]}
           />
         </Pressable>
-
-        <View style={styles.taskContent}>
+        <Pressable style={{ flex: 1 }} onPress={() => navigateToTask(child)}>
           <ThemedText
             style={[
-              styles.taskTitle,
-              task.status === "completed" && styles.completedText,
+              styles.childEntryTitle,
+              { color: theme.text },
+              child.status === "completed" && {
+                textDecorationLine: "line-through",
+                color: theme.textSecondary,
+              },
             ]}
             numberOfLines={1}
           >
-            {task.title}
+            {child.title}
           </ThemedText>
-          <View style={styles.taskMeta}>
-            {category ? (
-              <View style={styles.categoryBadge}>
-                <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
-                <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
-                  {category.name}
+        </Pressable>
+      </View>
+    ));
+  };
+
+  const renderTaskCardWrapper = (task: Task, isActive = false, drag?: () => void) => {
+    const category = categories.find((c) => c.id === task.categoryId);
+    const typeInfo = getTaskTypeInfo(task.type);
+    const children = childEntriesByParent.get(task.id) ?? [];
+    const hasChildren = children.length > 0;
+    const isExpanded = expandedEntryIds.has(task.id);
+    const isComplete = task.status === "completed";
+
+    return (
+      <View style={{ opacity: recentlyCompleted.has(task.id) ? 0.4 : 1 }}>
+        <View
+          style={[
+            styles.taskCard,
+            {
+              backgroundColor: isActive ? theme.backgroundSecondary : theme.backgroundDefault,
+            },
+            isActive && styles.taskCardDragging,
+          ]}
+        >
+          {drag ? (
+            <TouchableOpacity
+              onLongPress={drag}
+              delayLongPress={600}
+              hitSlop={{ top: 8, bottom: 8, left: 4, right: 4 }}
+              style={styles.masterListDragHandle}
+              disabled={isActive}
+            >
+              <Feather
+                name="menu"
+                size={16}
+                color={theme.textSecondary}
+                style={{ opacity: 0.5 }}
+              />
+            </TouchableOpacity>
+          ) : (
+            <View style={styles.masterListDragHandle}>
+              <Feather
+                name="menu"
+                size={16}
+                color={theme.textSecondary}
+                style={{ opacity: 0.5 }}
+              />
+            </View>
+          )}
+
+          <Pressable
+            style={styles.taskContent}
+            onPress={() => {
+              if (!isActive) navigateToTask(task);
+            }}
+            disabled={isActive}
+          >
+            <ThemedText
+              style={[
+                styles.taskTitle,
+                isComplete && styles.completedText,
+              ]}
+              numberOfLines={1}
+            >
+              {task.title}
+            </ThemedText>
+            <View style={styles.taskMeta}>
+              {category ? (
+                <View style={styles.categoryBadge}>
+                  <View style={[styles.categoryDot, { backgroundColor: category.color }]} />
+                  <ThemedText style={[styles.metaText, { color: theme.textSecondary }]}>
+                    {category.name}
+                  </ThemedText>
+                </View>
+              ) : null}
+              <View style={[styles.typeBadge, { backgroundColor: "#6B7280" + "20" }]}>
+                <Feather
+                  name={typeInfo.icon as keyof typeof Feather.glyphMap}
+                  size={10}
+                  color={theme.textSecondary}
+                />
+                <ThemedText style={[styles.typeText, { color: theme.textSecondary }]}>
+                  {typeInfo.label}
                 </ThemedText>
               </View>
-            ) : null}
-            <View style={[styles.typeBadge, { backgroundColor: "#6B7280" + "20" }]}>
-              <Feather name={typeInfo.icon as keyof typeof Feather.glyphMap} size={10} color={theme.textSecondary} />
-              <ThemedText style={[styles.typeText, { color: theme.textSecondary }]}>
-                {typeInfo.label}
-              </ThemedText>
+              {hasChildren ? (
+                <Pressable
+                  onPress={() => toggleEntryExpanded(task.id)}
+                  hitSlop={8}
+                >
+                  <Feather
+                    name={isExpanded ? "chevron-down" : "chevron-right"}
+                    size={15}
+                    color={theme.textSecondary}
+                  />
+                </Pressable>
+              ) : null}
+              {task.priority === "high" ? (
+                <View style={[styles.priorityBadge, { backgroundColor: theme.error + "20" }]}>
+                  <Feather name="alert-circle" size={10} color={theme.error} />
+                </View>
+              ) : null}
             </View>
-            {task.priority === "high" ? (
-              <View style={[styles.priorityBadge, { backgroundColor: theme.error + "20" }]}>
-                <Feather name="alert-circle" size={10} color={theme.error} />
-              </View>
-            ) : null}
-          </View>
-        </View>
+          </Pressable>
 
-        {canModifyTask(task) ? (
-        <Pressable
-          onPress={() => handleUnpinTask(task.id)}
-          hitSlop={8}
-          style={styles.unpinBtn}
-        >
-          <Feather name="star" size={18} color="#F59E0B" />
-        </Pressable>
-        ) : null}
+          {canModifyTask(task) ? (
+            <Pressable
+              onPress={() => handleUnpinTask(task.id)}
+              hitSlop={8}
+              style={styles.masterListActionBtn}
+            >
+              <Feather name="star" size={16} color="#F59E0B" />
+              <Text
+                style={{
+                  fontSize: 9,
+                  color: theme.textSecondary,
+                  fontWeight: "500",
+                }}
+              >
+                Unpin
+              </Text>
+            </Pressable>
+          ) : null}
+
+          <Pressable
+            onPress={() => handleCheckboxComplete(task)}
+            disabled={!canModifyTask(task)}
+            hitSlop={8}
+            style={styles.masterListActionBtn}
+          >
+            <View
+              style={[
+                styles.completeCheckbox,
+                { borderColor: theme.border },
+                isComplete && {
+                  backgroundColor: theme.success,
+                  borderColor: theme.success,
+                },
+              ]}
+            />
+            <Text
+              style={{
+                fontSize: 9,
+                color: theme.textSecondary,
+                fontWeight: "500",
+              }}
+            >
+              Complete
+            </Text>
+          </Pressable>
+        </View>
+        {!isActive ? renderExpandedChildren(task) : null}
       </View>
     );
   };
@@ -652,14 +764,7 @@ export function DashboardTab() {
 
   const renderStaticTaskCard = (task: Task) => (
     <View key={task.id} style={styles.taskCardWrapper}>
-      <Pressable
-        onPress={() => navigateToTask(task)}
-        onLongPress={handleNonManualLongPress}
-        delayLongPress={500}
-      >
-        {renderTaskCardContent(task)}
-      </Pressable>
-      {renderSubEntries(task)}
+      {renderTaskCardWrapper(task)}
     </View>
   );
 
@@ -673,39 +778,24 @@ export function DashboardTab() {
         <ScaleDecorator activeScale={1.03}>
           <ShadowDecorator>
             <View style={styles.taskCardWrapper}>
-              <Pressable
-                onPress={() => {
-                  if (!isActive) navigateToTask(item.task);
-                }}
-                onLongPress={() => {
-                  if (!dragEnabled) {
-                    if (!isManualSort) handleNonManualLongPress();
-                    return;
-                  }
-                  handleDragBegin();
-                  drag();
-                }}
-                delayLongPress={500}
-                disabled={isActive}
-              >
-                {renderTaskCardContent(item.task, isActive)}
-              </Pressable>
-              {!isActive ? renderSubEntries(item.task) : null}
+              {renderTaskCardWrapper(item.task, isActive, drag)}
             </View>
           </ShadowDecorator>
         </ScaleDecorator>
       );
     },
     [
-      dragEnabled,
-      isManualSort,
-      handleNonManualLongPress,
-      handleDragBegin,
       navigateToTask,
       collapsedSections,
       theme,
       categories,
       childEntriesByParent,
+      expandedEntryIds,
+      recentlyCompleted,
+      toggleEntryExpanded,
+      handleCheckboxComplete,
+      handleUnpinTask,
+      canModifyTask,
     ],
   );
 
@@ -920,6 +1010,18 @@ export function DashboardTab() {
         onChange={setFilters}
         onClose={() => setShowFilterSheet(false)}
       />
+
+      {completionTask ? (
+        <TaskCompletionModal
+          visible
+          task={completionTask}
+          onClose={() => setCompletionTask(null)}
+          onComplete={() => {
+            markRecentlyCompleted(completionTask.id);
+            setCompletionTask(null);
+          }}
+        />
+      ) : null}
     </>
   );
 }
@@ -1007,6 +1109,32 @@ const styles = StyleSheet.create({
   taskCardWrapper: {
     marginBottom: Spacing.sm,
   },
+  masterListDragHandle: {
+    width: 32,
+    alignItems: "center",
+    justifyContent: "center",
+    alignSelf: "stretch",
+  },
+  childEntryRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingLeft: 20,
+    paddingVertical: 6,
+    borderTopWidth: 0.5,
+  },
+  childCheckbox: {
+    marginRight: 8,
+  },
+  childCheckboxInner: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1.5,
+  },
+  childEntryTitle: {
+    fontSize: 12,
+    flex: 1,
+  },
   taskCard: {
     flexDirection: "row",
     alignItems: "center",
@@ -1023,6 +1151,19 @@ const styles = StyleSheet.create({
   },
   checkBtn: {
     padding: 2,
+  },
+  completeCheckbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    borderWidth: 2,
+  },
+  masterListActionBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 2,
+    paddingHorizontal: 8,
+    alignSelf: "stretch",
   },
   taskContent: {
     flex: 1,
