@@ -6,6 +6,7 @@ import {
   ScrollView,
   TextInput,
   Text,
+  Image,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation } from "@react-navigation/native";
@@ -19,8 +20,10 @@ import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 
 import { useTheme } from "@/hooks/useTheme";
+import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
+import { SaveToast } from "@/components/SaveToast";
 import { useApp } from "@/context/AppContext";
 import { useAuth } from "@/context/AuthContext";
 import { LifeAreaSchedule, LifeCategory } from "@/types";
@@ -36,7 +39,7 @@ const CURATED_SYMBOLS = ["🎯", "⭐", "⚡", "🧭", "💫", "🔥"];
 const DEFAULT_EMOJI = "😊";
 
 type WheelCenterIcon = {
-  type: "initial" | "emoji" | "symbol";
+  type: "initial" | "emoji" | "symbol" | "photo";
   value: string;
 };
 
@@ -82,7 +85,10 @@ function parseCenterIcon(raw: string | null): WheelCenterIcon {
     const parsed = JSON.parse(raw) as WheelCenterIcon;
     if (
       parsed &&
-      (parsed.type === "initial" || parsed.type === "emoji" || parsed.type === "symbol") &&
+      (parsed.type === "initial" ||
+        parsed.type === "emoji" ||
+        parsed.type === "symbol" ||
+        parsed.type === "photo") &&
       typeof parsed.value === "string"
     ) {
       return parsed;
@@ -95,7 +101,13 @@ function parseCenterIcon(raw: string | null): WheelCenterIcon {
 
 function isOptionSelected(icon: WheelCenterIcon, option: WheelCenterIcon): boolean {
   if (icon.type !== option.type) return false;
-  if (option.type === "initial" || option.type === "emoji") return true;
+  if (
+    option.type === "initial" ||
+    option.type === "emoji" ||
+    option.type === "photo"
+  ) {
+    return true;
+  }
   return icon.value === option.value;
 }
 
@@ -105,8 +117,21 @@ export function WheelTab() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { categories, lifeAreaSchedules } = useApp();
   const { user } = useAuth();
+  const {
+    toastState,
+    toastMessage,
+    retryFn,
+    withSaveIndicator,
+    setRetry,
+    dismiss,
+  } = useSaveIndicator({
+    threshold: 300,
+    successMessage: "Order saved",
+    errorMessage: "Failed to save order",
+  });
 
   const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [centerIcon, setCenterIcon] = useState<WheelCenterIcon>(DEFAULT_CENTER_ICON);
   const [orderedCategories, setOrderedCategories] = useState<LifeCategory[]>(categories);
   const [prefsLoaded, setPrefsLoaded] = useState(false);
@@ -132,6 +157,31 @@ export function WheelTab() {
     };
     loadDisplayName();
   }, [user?.id]);
+
+  useEffect(() => {
+    if (!user?.id) return;
+    supabase
+      .from("profiles")
+      .select("avatar_url")
+      .eq("id", user.id)
+      .single()
+      .then(({ data }) => {
+        if (data?.avatar_url) {
+          setAvatarUrl(data.avatar_url);
+        }
+      });
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (centerIcon?.type === "photo" && avatarUrl && centerIcon.value !== avatarUrl) {
+      const updated = {
+        type: "photo" as const,
+        value: avatarUrl,
+      };
+      setCenterIcon(updated);
+      AsyncStorage.setItem(WHEEL_CENTER_ICON_KEY, JSON.stringify(updated));
+    }
+  }, [avatarUrl, centerIcon]);
 
   useEffect(() => {
     const loadPrefs = async () => {
@@ -206,6 +256,11 @@ export function WheelTab() {
     saveCenterIcon({ type: "symbol", value: symbol });
   };
 
+  const handleSelectPhoto = () => {
+    if (!avatarUrl) return;
+    saveCenterIcon({ type: "photo", value: avatarUrl });
+  };
+
   const handleEmojiChange = (text: string) => {
     const segments = [...text];
     const emoji = segments.length > 0 ? segments[0] : DEFAULT_EMOJI;
@@ -213,11 +268,19 @@ export function WheelTab() {
   };
 
   const handleDragEnd = useCallback(
-    ({ data }: { data: LifeCategory[] }) => {
+    async ({ data }: { data: LifeCategory[] }) => {
       setOrderedCategories(data);
-      saveLifeAreaOrder(data);
+
+      const performSave = async () => {
+        await saveLifeAreaOrder(data);
+      };
+
+      setRetry(() => {
+        void performSave();
+      });
+      await withSaveIndicator(performSave);
     },
-    [saveLifeAreaOrder],
+    [saveLifeAreaOrder, withSaveIndicator, setRetry],
   );
 
   const renderPreviewContent = () => {
@@ -273,7 +336,16 @@ export function WheelTab() {
       <ThemedText style={styles.sectionTitle}>Center Icon</ThemedText>
 
       <View style={styles.previewWrapper}>
-        {centerIcon.type === "initial" ? (
+        {centerIcon.type === "photo" && centerIcon.value ? (
+          <Image
+            source={{ uri: centerIcon.value }}
+            style={{
+              width: 52,
+              height: 52,
+              borderRadius: 26,
+            }}
+          />
+        ) : centerIcon.type === "initial" ? (
           <LinearGradient
             colors={[theme.primary, theme.link]}
             style={[
@@ -313,6 +385,27 @@ export function WheelTab() {
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.optionsRow}
       >
+        {avatarUrl ? (
+          <Pressable
+            onPress={handleSelectPhoto}
+            style={[
+              styles.centerOption,
+              centerIcon?.type === "photo" && {
+                borderColor: theme.primary,
+                borderWidth: 2,
+              },
+            ]}
+          >
+            <Image
+              source={{ uri: avatarUrl }}
+              style={{
+                width: 34,
+                height: 34,
+                borderRadius: 17,
+              }}
+            />
+          </Pressable>
+        ) : null}
         {renderOptionCircle(
           { type: "initial", value: "" },
           <ThemedText style={[styles.optionInitial, { color: theme.buttonText }]}>
@@ -416,18 +509,26 @@ export function WheelTab() {
   );
 
   return (
-    <DraggableFlatList
-      data={orderedCategories}
-      keyExtractor={(item) => item.id}
-      onDragEnd={handleDragEnd}
-      renderItem={renderLifeAreaRow}
-      ListHeaderComponent={renderCenterIconSection}
-      ListFooterComponent={renderFooter}
-      contentContainerStyle={{
-        paddingBottom: insets.bottom + Spacing.xl,
-      }}
-      activationDistance={8}
-    />
+    <>
+      <DraggableFlatList
+        data={orderedCategories}
+        keyExtractor={(item) => item.id}
+        onDragEnd={handleDragEnd}
+        renderItem={renderLifeAreaRow}
+        ListHeaderComponent={renderCenterIconSection}
+        ListFooterComponent={renderFooter}
+        contentContainerStyle={{
+          paddingBottom: insets.bottom + Spacing.xl,
+        }}
+        activationDistance={8}
+      />
+      <SaveToast
+        state={toastState}
+        message={toastMessage}
+        onRetry={retryFn ?? undefined}
+        onDismiss={dismiss}
+      />
+    </>
   );
 }
 
@@ -473,6 +574,15 @@ const styles = StyleSheet.create({
   },
   optionOuter: {
     borderRadius: BorderRadius.full,
+  },
+  centerOption: {
+    width: OPTION_CIRCLE_SIZE,
+    height: OPTION_CIRCLE_SIZE,
+    borderRadius: BorderRadius.full,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    borderColor: "transparent",
   },
   optionCircle: {
     width: OPTION_CIRCLE_SIZE,

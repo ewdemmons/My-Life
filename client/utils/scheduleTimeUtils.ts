@@ -16,6 +16,39 @@ export function formatTime12h(hhmm: string): string {
   return `${hour12}:${minutes} ${ampm}`;
 }
 
+export function formatDateMMDDYYYY(dateStr: string): string {
+  const [year, month, day] = dateStr.split("-");
+  return `${month}/${day}/${year}`;
+}
+
+export function formatEventDateTimeDisplay(startDate: string, startTime: string): string {
+  return `${formatDateMMDDYYYY(startDate)} at ${formatTime12h(startTime)}`;
+}
+
+const LEGACY_EVENT_DATETIME_IN_BODY = /\d{4}-\d{2}-\d{2}\s+at\s+\d{1,2}:\d{2}/;
+
+export function hasLegacyEventDateTimeInBody(body: string): boolean {
+  return LEGACY_EVENT_DATETIME_IN_BODY.test(body);
+}
+
+export function getEventReminderNotificationBody(
+  storedBody: string,
+  event?: { startDate: string; startTime: string } | null,
+): string {
+  if (event) {
+    const prefix = storedBody.startsWith("Updated:") ? "Updated: " : "Scheduled for ";
+    return `${prefix}${formatEventDateTimeDisplay(event.startDate, event.startTime)}`;
+  }
+
+  const match = storedBody.match(/^(Scheduled for|Updated:)\s+(\d{4}-\d{2}-\d{2})\s+at\s+(\d{1,2}:\d{2})/);
+  if (match) {
+    const prefix = match[1] === "Updated:" ? "Updated: " : "Scheduled for ";
+    return `${prefix}${formatEventDateTimeDisplay(match[2], match[3])}`;
+  }
+
+  return storedBody;
+}
+
 export function getTimeStringFromDate(date: Date): string {
   const hours = String(date.getHours()).padStart(2, "0");
   const minutes = String(date.getMinutes()).padStart(2, "0");

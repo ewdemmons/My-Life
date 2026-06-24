@@ -157,7 +157,10 @@ export function NotificationProvider({ children }: { children: React.ReactNode }
             return updated;
           });
           
-          if (shouldSendNotification(notificationType, preferences)) {
+          if (
+            notificationType !== "event_reminder" &&
+            shouldSendNotification(notificationType, preferences)
+          ) {
             sendLocalNotification(n.title, n.body, n.data);
           }
 

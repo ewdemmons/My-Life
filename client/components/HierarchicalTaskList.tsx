@@ -37,6 +37,7 @@ import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/types";
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
+import { getLocalDateString } from "@/utils/planUtils";
 
 function isTemporarilyComplete(task: Task): boolean {
   if (task.completionType !== "until" || !task.completionDate) return false;
@@ -1488,7 +1489,7 @@ function TaskItem({
         await updateTask(task.id, {
           status: "completed",
           completionType: "as_of",
-          completionDate: new Date().toISOString().split("T")[0],
+          completionDate: getLocalDateString(),
         });
       }
     };

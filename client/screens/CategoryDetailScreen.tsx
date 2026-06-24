@@ -28,6 +28,7 @@ import { AddPersonModal } from "@/components/AddPersonModal";
 import { BubbleShareModal } from "@/components/BubbleShareModal";
 import { HabitsList } from "@/components/HabitsList";
 import { AddHabitModal } from "@/components/AddHabitModal";
+import { getLocalDateString } from "@/utils/planUtils";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task, Habit } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
 import { canModifyEntriesInCategory } from "@/lib/permissions";
@@ -631,7 +632,7 @@ export default function CategoryDetailScreen() {
             onPress={() => setShowAddPersonModal(true)}
           >
             <Feather name="user-plus" size={16} color="#FFFFFF" />
-            <ThemedText style={styles.addPersonCtaText}>Add Person</ThemedText>
+            <ThemedText style={styles.addPersonCtaText}>Add People</ThemedText>
           </Pressable>
         </View>
       )}
@@ -742,7 +743,7 @@ export default function CategoryDetailScreen() {
           setEditingAsInstance(false);
           setSchedulingPersonId(null);
         }}
-        initialDate={new Date().toISOString().split("T")[0]}
+        initialDate={getLocalDateString()}
         lockedCategoryId={category.id}
         editingEvent={editingEvent}
         editingAsInstance={editingAsInstance}
@@ -826,9 +827,9 @@ export default function CategoryDetailScreen() {
                   <Feather name="check-square" size={20} color={theme.secondary} />
                 </View>
                 <View style={styles.actionMenuTextContainer}>
-                  <ThemedText style={styles.actionMenuTitle}>Add Task</ThemedText>
+                  <ThemedText style={styles.actionMenuTitle}>Add Entry</ThemedText>
                   <ThemedText style={[styles.actionMenuSubtitle, { color: theme.textSecondary }]}>
-                    Create a new task
+                    Capture a task, goal, project, list, note, idea
                   </ThemedText>
                 </View>
               </Pressable>
@@ -868,9 +869,9 @@ export default function CategoryDetailScreen() {
                   <Feather name="user-plus" size={20} color="#F472B6" />
                 </View>
                 <View style={styles.actionMenuTextContainer}>
-                  <ThemedText style={styles.actionMenuTitle}>Add Person</ThemedText>
+                  <ThemedText style={styles.actionMenuTitle}>Add People</ThemedText>
                   <ThemedText style={[styles.actionMenuSubtitle, { color: theme.textSecondary }]}>
-                    Add someone to your contacts
+                    Add someone to your inner circle
                   </ThemedText>
                 </View>
               </Pressable>

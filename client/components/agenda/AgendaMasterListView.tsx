@@ -23,6 +23,7 @@ import {
   MasterListItem,
 } from "@/utils/masterListUtils";
 import { getTaskTypeInfo, Habit, Task } from "@/types";
+import { getLocalDateString } from "@/utils/planUtils";
 
 export function AgendaMasterListView() {
   const { theme } = useTheme();
@@ -158,7 +159,7 @@ export function AgendaMasterListView() {
           await updateTask(task.id, {
             status: "completed",
             completionType: "as_of",
-            completionDate: new Date().toISOString().split("T")[0],
+            completionDate: getLocalDateString(),
           });
           markRecentlyCompleted(task.id);
         }

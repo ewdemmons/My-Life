@@ -1,7 +1,21 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Pressable, Alert, ScrollView, Switch, Platform, TextInput } from "react-native";
+import {
+  View,
+  StyleSheet,
+  Pressable,
+  Alert,
+  ScrollView,
+  Switch,
+  Platform,
+  TextInput,
+  Image,
+  ActivityIndicator,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import { useTheme } from "@/hooks/useTheme";
 import useDisplayDensity, { DisplayDensity } from "@/hooks/useDisplayDensity";
 import { Spacing, BorderRadius } from "@/constants/theme";
@@ -27,6 +41,8 @@ const DENSITY_DESCRIPTIONS: Record<DisplayDensity, string> = {
   large: "Larger text and cards. Consistent size at all levels.",
 };
 
+const SPEAK_OVER_SILENT_MODE_KEY = "@speak_over_silent_mode";
+
 export function ProfileTab() {
   const insets = useSafeAreaInsets();
   const bottomPadding = insets.bottom + Spacing.xl;
@@ -37,7 +53,10 @@ export function ProfileTab() {
   const { density, setDensity } = useDisplayDensity();
   const [showInviteCodeModal, setShowInviteCodeModal] = useState(false);
   const [displayName, setDisplayName] = useState("");
+  const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
+  const [isUploadingPhoto, setIsUploadingPhoto] = useState(false);
   const [isSavingName, setIsSavingName] = useState(false);
+  const [speakOverSilentMode, setSpeakOverSilentMode] = useState(false);
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500, successMessage: "Settings saved" });
 
@@ -46,13 +65,31 @@ export function ProfileTab() {
       if (!user?.id) return;
       const { data } = await supabase
         .from("profiles")
-        .select("display_name")
+        .select("display_name, avatar_url")
         .eq("id", user.id)
         .single();
       setDisplayName(data?.display_name || "");
+      if (data?.avatar_url) {
+        setAvatarUrl(data.avatar_url);
+      } else {
+        setAvatarUrl(null);
+      }
     };
     loadProfileName();
   }, [user?.id]);
+
+  React.useEffect(() => {
+    AsyncStorage.getItem(SPEAK_OVER_SILENT_MODE_KEY).then((val) => {
+      if (val !== null) {
+        setSpeakOverSilentMode(val === "true");
+      }
+    });
+  }, []);
+
+  const handleToggleSpeakOverSilentMode = async (enabled: boolean) => {
+    setSpeakOverSilentMode(enabled);
+    await AsyncStorage.setItem(SPEAK_OVER_SILENT_MODE_KEY, String(enabled));
+  };
 
   const handleToggleNotifications = async (enabled: boolean) => {
     if (enabled && Platform.OS !== "web") {
@@ -136,6 +173,81 @@ export function ProfileTab() {
     await withSaveIndicator(performSave);
   };
 
+  const handlePickPhoto = async () => {
+    if (!user?.id || isUploadingPhoto) return;
+
+    const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permission.granted) {
+      Alert.alert(
+        "Permission required",
+        "Please allow access to your photo library in Settings.",
+      );
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ["images"],
+      allowsEditing: true,
+      aspect: [1, 1],
+      quality: 0.8,
+      base64: false,
+    });
+
+    if (result.canceled) return;
+
+    const uri = result.assets[0].uri;
+
+    setIsUploadingPhoto(true);
+    try {
+      const compressed = await ImageManipulator.manipulateAsync(
+        uri,
+        [{ resize: { width: 400, height: 400 } }],
+        {
+          compress: 0.7,
+          format: ImageManipulator.SaveFormat.JPEG,
+          base64: true,
+        },
+      );
+
+      const base64Data = compressed.base64;
+      if (!base64Data) throw new Error("Failed to compress image");
+
+      const binaryString = atob(base64Data);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+
+      const fileName = `${user.id}/avatar.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(fileName, bytes.buffer, {
+          contentType: "image/jpeg",
+          upsert: true,
+        });
+
+      if (uploadError) throw uploadError;
+
+      const { data: urlData } = supabase.storage.from("avatars").getPublicUrl(fileName);
+
+      const publicUrl = `${urlData.publicUrl}?t=${Date.now()}`;
+
+      const { error: profileError } = await supabase
+        .from("profiles")
+        .update({ avatar_url: publicUrl })
+        .eq("id", user.id);
+
+      if (profileError) throw profileError;
+
+      setAvatarUrl(publicUrl);
+    } catch (error) {
+      console.error("Photo upload error:", error);
+      Alert.alert("Upload failed", "Could not upload photo. Please try again.");
+    } finally {
+      setIsUploadingPhoto(false);
+    }
+  };
+
   return (
     <>
     <ScrollView
@@ -148,9 +260,29 @@ export function ProfileTab() {
       scrollIndicatorInsets={{ bottom: insets.bottom }}
     >
       <View style={styles.profileSection}>
-        <View style={[styles.avatar, { backgroundColor: theme.primary }]}>
-          <Feather name="user" size={40} color="#FFFFFF" />
-        </View>
+        <Pressable
+          onPress={handlePickPhoto}
+          disabled={isUploadingPhoto}
+          style={styles.avatarContainer}
+        >
+          {avatarUrl ? (
+            <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+          ) : (
+            <View style={[styles.avatarPlaceholder, { backgroundColor: theme.primary }]}>
+              <ThemedText style={styles.avatarInitial}>
+                {displayName?.[0]?.toUpperCase() ?? "?"}
+              </ThemedText>
+            </View>
+          )}
+          <View style={[styles.avatarEditBadge, { backgroundColor: theme.primary, borderColor: theme.backgroundRoot }]}>
+            <Feather name="camera" size={12} color="#fff" />
+          </View>
+          {isUploadingPhoto ? (
+            <View style={styles.avatarUploading}>
+              <ActivityIndicator color="#fff" />
+            </View>
+          ) : null}
+        </Pressable>
         <ThemedText style={styles.profileName}>My Life</ThemedText>
         <ThemedText style={[styles.profileSubtitle, { color: theme.textSecondary }]}>
           {user?.email || "Organizing life, one task at a time"}
@@ -244,6 +376,25 @@ export function ProfileTab() {
           </View>
           <ThemedText style={[styles.settingHint, { color: theme.textSecondary }]}>
             Dark mode follows your system settings
+          </ThemedText>
+        </View>
+        <View style={[styles.settingsCard, { backgroundColor: theme.backgroundDefault, marginTop: Spacing.sm }]}>
+          <View style={styles.settingRow}>
+            <View style={styles.settingInfo}>
+              <View style={[styles.settingIcon, { backgroundColor: theme.secondary + "20" }]}>
+                <Feather name="volume-2" size={20} color={theme.secondary} />
+              </View>
+              <ThemedText style={styles.settingText}>Speak Over Silent Mode</ThemedText>
+            </View>
+            <Switch
+              value={speakOverSilentMode}
+              onValueChange={handleToggleSpeakOverSilentMode}
+              trackColor={{ false: theme.backgroundSecondary, true: theme.primary + "80" }}
+              thumbColor={speakOverSilentMode ? theme.primary : theme.backgroundTertiary}
+            />
+          </View>
+          <ThemedText style={[styles.settingHint, { color: theme.textSecondary }]}>
+            Allow Coach to read responses aloud even when your phone is on silent
           </ThemedText>
         </View>
       </View>
@@ -469,13 +620,50 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: Spacing.xl,
   },
-  avatar: {
+  avatarContainer: {
+    position: "relative",
     width: 80,
     height: 80,
-    borderRadius: BorderRadius.full,
+    marginBottom: 10,
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+  },
+  avatarPlaceholder: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     alignItems: "center",
     justifyContent: "center",
-    marginBottom: Spacing.md,
+  },
+  avatarInitial: {
+    fontSize: 32,
+    fontWeight: "700",
+    color: "#fff",
+  },
+  avatarEditBadge: {
+    position: "absolute",
+    bottom: 0,
+    right: 0,
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+  },
+  avatarUploading: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 40,
+    backgroundColor: "rgba(0,0,0,0.5)",
+    alignItems: "center",
+    justifyContent: "center",
   },
   profileName: {
     fontSize: 24,

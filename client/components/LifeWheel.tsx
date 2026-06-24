@@ -8,6 +8,8 @@ import {
   NativeSyntheticEvent,
   TextLayoutEventData,
   LayoutChangeEvent,
+  Text,
+  Image,
 } from "react-native";
 import Svg, {
   Circle,
@@ -18,6 +20,9 @@ import Svg, {
   Stop,
 } from "react-native-svg";
 import { Feather } from "@expo/vector-icons";
+import {
+  LinearGradient as ExpoLinearGradient,
+} from "expo-linear-gradient";
 import ReanimatedAnimated, {
   useAnimatedStyle,
   withSpring,
@@ -30,16 +35,23 @@ import { LifeCategory } from "@/types";
 
 const AnimatedPressable = ReanimatedAnimated.createAnimatedComponent(Pressable);
 
+export type WheelCenterIcon = {
+  type: "initial" | "emoji" | "symbol" | "photo";
+  value: string;
+};
+
 interface LifeWheelProps {
   categories: LifeCategory[];
   onCategoryPress: (category: LifeCategory) => void;
   onCategoryLongPress: (category: LifeCategory) => void;
   enlarged?: boolean;
   onCenterPress?: () => void;
+  centerIcon?: WheelCenterIcon | null;
+  centerDisplayName?: string;
 }
 
 const REFERENCE_WHEEL_SIZE = 399;
-const BASE_CENTER_SIZE = 60;
+const BASE_CENTER_SIZE = 70;
 const BUBBLE_BORDER_WIDTH = 2.75;
 const MIN_LABEL_FONT_SIZE = 7;
 const ORBIT_RADIUS_RATIO = 0.38;
@@ -97,12 +109,20 @@ function colorWithAlpha(hex: string, alpha: number): string {
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+function getInitialLetter(displayName?: string): string {
+  const trimmed = (displayName ?? "").trim();
+  if (trimmed.length > 0) return trimmed[0].toUpperCase();
+  return "?";
+}
+
 export function LifeWheel({
   categories,
   onCategoryPress,
   onCategoryLongPress,
   enlarged = false,
   onCenterPress,
+  centerIcon,
+  centerDisplayName,
 }: LifeWheelProps) {
   const { theme } = useTheme();
   const centerPulse = useRef(new Animated.Value(1)).current;
@@ -149,7 +169,7 @@ export function LifeWheel({
   const categoryCount = categories.length;
   const orbitRadiusTarget = smallerDim * ORBIT_RADIUS_RATIO * scale;
   const centerSizeRatio = BASE_CENTER_SIZE / REFERENCE_WHEEL_SIZE;
-  const CENTER_SIZE = Math.max(44, WHEEL_SIZE * centerSizeRatio);
+  const CENTER_SIZE = Math.max(51, WHEEL_SIZE * centerSizeRatio);
   const BUBBLE_SIZE = getBubbleSizeForOrbit(categoryCount, orbitRadiusTarget);
 
   const minOrbitRadius = CENTER_SIZE / 2 + BUBBLE_SIZE / 2 + WHEEL_EDGE_INSET;
@@ -169,6 +189,69 @@ export function LifeWheel({
   };
 
   const centerIconSize = Math.max(20, Math.round(28 * (WHEEL_SIZE / REFERENCE_WHEEL_SIZE)));
+  const centerEmojiFontSize = CENTER_SIZE * 0.45;
+
+  const renderCenterContent = () => {
+    if (!centerIcon) {
+      return <Feather name="target" size={centerIconSize} color={theme.buttonText} />;
+    }
+
+    if (centerIcon.type === "photo" && centerIcon.value) {
+      return (
+        <Image
+          source={{ uri: centerIcon.value }}
+          style={{
+            width: CENTER_SIZE - 4,
+            height: CENTER_SIZE - 4,
+            borderRadius: (CENTER_SIZE - 4) / 2,
+          }}
+          resizeMode="cover"
+        />
+      );
+    }
+
+    if (centerIcon.type === "initial") {
+      return (
+        <Text
+          style={{
+            fontSize: centerEmojiFontSize,
+            fontWeight: "700",
+            color: theme.buttonText,
+          }}
+        >
+          {getInitialLetter(centerDisplayName)}
+        </Text>
+      );
+    }
+
+    if (centerIcon.type === "emoji" || centerIcon.type === "symbol") {
+      const displayValue =
+        centerIcon.type === "emoji"
+          ? centerIcon.value || "😊"
+          : centerIcon.value;
+
+      return (
+        <Text style={{ fontSize: centerEmojiFontSize, textAlign: "center" }}>
+          {displayValue}
+        </Text>
+      );
+    }
+
+    return <Feather name="target" size={centerIconSize} color={theme.buttonText} />;
+  };
+
+  const centerShadowStyle = {
+    shadowColor: theme.primary,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.5,
+    shadowRadius: 12,
+    elevation: 8,
+  };
+
+  const centerDimensions = {
+    width: CENTER_SIZE,
+    height: CENTER_SIZE,
+  };
 
   return (
     <View style={styles.fillContainer} onLayout={handleContainerLayout}>
@@ -218,7 +301,7 @@ export function LifeWheel({
           <Circle
             cx={centerRadius}
             cy={centerRadius}
-            r={CENTER_SIZE / 2 + 8 * (WHEEL_SIZE / REFERENCE_WHEEL_SIZE)}
+            r={CENTER_SIZE / 2 + 9 * (WHEEL_SIZE / REFERENCE_WHEEL_SIZE)}
             fill="url(#centerGlow)"
             opacity={0.3}
           />
@@ -239,20 +322,23 @@ export function LifeWheel({
           <Pressable
             style={[
               styles.center,
-              {
-                backgroundColor: theme.primary,
-                width: CENTER_SIZE,
-                height: CENTER_SIZE,
-                shadowColor: theme.primary,
-                shadowOffset: { width: 0, height: 0 },
-                shadowOpacity: 0.5,
-                shadowRadius: 12,
-                elevation: 8,
-              },
+              centerDimensions,
+              centerShadowStyle,
+              centerIcon?.type !== "initial" &&
+                centerIcon?.type !== "photo" && { backgroundColor: theme.primary },
             ]}
             onPress={onCenterPress}
           >
-            <Feather name="target" size={centerIconSize} color={theme.buttonText} />
+            {centerIcon?.type === "initial" ? (
+              <ExpoLinearGradient
+                colors={[theme.primary, theme.link]}
+                style={[StyleSheet.absoluteFill, styles.center]}
+              >
+                {renderCenterContent()}
+              </ExpoLinearGradient>
+            ) : (
+              renderCenterContent()
+            )}
           </Pressable>
         </Animated.View>
 

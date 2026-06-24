@@ -8,7 +8,9 @@ import { ThemedView } from "@/components/ThemedView";
 import { ThemedText } from "@/components/ThemedText";
 import { useTheme } from "@/hooks/useTheme";
 import { useNotifications } from "@/context/NotificationContext";
+import { useApp } from "@/context/AppContext";
 import { AppNotification } from "@/types";
+import { getEventReminderNotificationBody } from "@/utils/scheduleTimeUtils";
 import { Spacing, BorderRadius } from "@/constants/theme";
 
 function getNotificationIcon(type: string): keyof typeof Feather.glyphMap {
@@ -45,7 +47,20 @@ function formatTimeAgo(timestamp: number): string {
   if (minutes < 60) return `${minutes}m ago`;
   if (hours < 24) return `${hours}h ago`;
   if (days < 7) return `${days}d ago`;
-  return new Date(timestamp).toLocaleDateString();
+  return new Date(timestamp).toLocaleDateString(
+    "en-US",
+    { month: "2-digit", day: "2-digit", year: "numeric" }
+  );
+}
+
+function getDisplayBody(item: AppNotification, events: { id: string; startDate: string; startTime: string }[]): string {
+  if (item.type !== "event_reminder" && item.type !== "event_updated") {
+    return item.body;
+  }
+
+  const eventId = item.data?.eventId as string | undefined;
+  const event = eventId ? events.find((entry) => entry.id === eventId) : undefined;
+  return getEventReminderNotificationBody(item.body, event);
 }
 
 export default function NotificationsScreen() {
@@ -53,6 +68,7 @@ export default function NotificationsScreen() {
   const insets = useSafeAreaInsets();
   const headerHeight = useHeaderHeight();
   const navigation = useNavigation<any>();
+  const { events } = useApp();
   const {
     notifications,
     markAsRead,
@@ -168,7 +184,7 @@ export default function NotificationsScreen() {
             </Pressable>
           </View>
           <ThemedText style={[styles.body, { color: theme.textSecondary }]}>
-            {item.body}
+            {getDisplayBody(item, events)}
           </ThemedText>
           {isConnectionRequest ? (
             <View style={styles.actionButtons}>
@@ -218,38 +234,40 @@ export default function NotificationsScreen() {
 
   return (
     <ThemedView style={styles.container}>
-      {unreadCount > 0 ? (
-        <View style={[styles.markAllContainer, { borderBottomColor: theme.border }]}>
-          <Pressable onPress={markAllAsRead} style={styles.markAllButton}>
-            <Feather name="check-circle" size={16} color={theme.primary} />
-            <ThemedText style={[styles.markAllText, { color: theme.primary }]}>
-              Mark all as read
-            </ThemedText>
-          </Pressable>
-        </View>
-      ) : null}
-      <FlatList
-        data={notifications}
-        keyExtractor={(item) => item.id}
-        renderItem={renderNotification}
-        ListEmptyComponent={renderEmpty}
-        contentContainerStyle={[
-          styles.listContent,
-          {
-            paddingTop: headerHeight + Spacing.md,
-            paddingBottom: insets.bottom + Spacing.xl,
-          },
-          notifications.length === 0 && styles.emptyList,
-        ]}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={handleRefresh}
-            tintColor={theme.primary}
-            progressViewOffset={headerHeight}
-          />
-        }
-      />
+      <View style={{ flex: 1, paddingTop: headerHeight }}>
+        {unreadCount > 0 ? (
+          <View style={[styles.markAllContainer, { borderBottomColor: theme.border }]}>
+            <Pressable onPress={markAllAsRead} style={styles.markAllButton}>
+              <Feather name="check-circle" size={16} color={theme.primary} />
+              <ThemedText style={[styles.markAllText, { color: theme.primary }]}>
+                Mark all as read
+              </ThemedText>
+            </Pressable>
+          </View>
+        ) : null}
+        <FlatList
+          data={notifications}
+          keyExtractor={(item) => item.id}
+          renderItem={renderNotification}
+          ListEmptyComponent={renderEmpty}
+          contentContainerStyle={[
+            styles.listContent,
+            {
+              paddingTop: Spacing.md,
+              paddingBottom: insets.bottom + Spacing.xl,
+            },
+            notifications.length === 0 && styles.emptyList,
+          ]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={handleRefresh}
+              tintColor={theme.primary}
+              progressViewOffset={headerHeight}
+            />
+          }
+        />
+      </View>
     </ThemedView>
   );
 }
@@ -267,11 +285,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
   },
   markAllContainer: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
     paddingHorizontal: Spacing.md,
     paddingVertical: Spacing.sm,
     borderBottomWidth: 1,

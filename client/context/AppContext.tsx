@@ -14,6 +14,11 @@ import { useAuth } from "./AuthContext";
 import { DEFAULT_BUBBLES } from "@/lib/defaultBubbles";
 import { scheduleEventNotifications, cancelEventNotifications } from "@/utils/notifications";
 import {
+  formatEventDateTimeDisplay,
+  getEventReminderNotificationBody,
+  hasLegacyEventDateTimeInBody,
+} from "@/utils/scheduleTimeUtils";
+import {
   checkAndReopenCompleteUntilEntries,
   findCompleteUntilReminder,
   syncCompleteUntilReminder,
@@ -27,6 +32,97 @@ const PEOPLE_KEY = "@mylife_people";
 const RECYCLE_BIN_KEY = "@mylife_recycle_bin";
 const MIGRATION_COMPLETE_KEY = "@mylife_migration_complete";
 const RECYCLE_BIN_RETENTION_DAYS = 30;
+
+async function cancelDeviceNotificationsForEvents(eventsToClean: CalendarEvent[]) {
+  await Promise.all(
+    eventsToClean.map((event) =>
+      cancelEventNotifications(event.notificationIdAdvance, event.notificationIdAtStart)
+    )
+  );
+}
+
+async function deleteInAppEventNotifications(userId: string, eventIds: string[]) {
+  for (const eventId of eventIds) {
+    await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", userId)
+      .contains("data", { eventId });
+  }
+}
+
+async function cleanupRemovedEvents(eventsToClean: CalendarEvent[], userId: string) {
+  if (eventsToClean.length === 0) return;
+  await cancelDeviceNotificationsForEvents(eventsToClean);
+  await deleteInAppEventNotifications(userId, eventsToClean.map((event) => event.id));
+}
+
+async function backfillEventReminderNotificationBodies(
+  userId: string,
+  loadedEvents: CalendarEvent[],
+  categories: LifeCategory[],
+  minutesBefore: number,
+): Promise<CalendarEvent[]> {
+  const { data: rows, error } = await supabase
+    .from("notifications")
+    .select("id, body, data")
+    .eq("user_id", userId)
+    .eq("type", "event_reminder");
+
+  if (error || !rows?.length) return loadedEvents;
+
+  const eventById = new Map(loadedEvents.map((event) => [event.id, event]));
+  const notificationIdUpdates = new Map<string, { notificationIdAdvance: string | null; notificationIdAtStart: string | null }>();
+
+  for (const row of rows) {
+    if (!hasLegacyEventDateTimeInBody(row.body)) continue;
+
+    const eventId = row.data?.eventId as string | undefined;
+    if (!eventId) continue;
+
+    const event = eventById.get(eventId);
+    if (!event) continue;
+
+    const newBody = getEventReminderNotificationBody(row.body, event);
+    if (newBody === row.body) continue;
+
+    await supabase
+      .from("notifications")
+      .update({ body: newBody })
+      .eq("id", row.id)
+      .eq("user_id", userId);
+
+    if (event.notificationIdAdvance || event.notificationIdAtStart) {
+      await cancelEventNotifications(event.notificationIdAdvance, event.notificationIdAtStart);
+
+      const bubbleName = categories.find((category) => category.id === event.categoryId)?.name || "";
+      const { advanceId, atStartId } = await scheduleEventNotifications(event, bubbleName, minutesBefore);
+
+      if (advanceId || atStartId) {
+        await supabase
+          .from("events")
+          .update({
+            notification_id_advance: advanceId,
+            notification_id_at_start: atStartId,
+          })
+          .eq("id", event.id)
+          .eq("user_id", userId);
+
+        notificationIdUpdates.set(event.id, {
+          notificationIdAdvance: advanceId,
+          notificationIdAtStart: atStartId,
+        });
+      }
+    }
+  }
+
+  if (notificationIdUpdates.size === 0) return loadedEvents;
+
+  return loadedEvents.map((event) => {
+    const update = notificationIdUpdates.get(event.id);
+    return update ? { ...event, ...update } : event;
+  });
+}
 
 interface AppContextType {
   categories: LifeCategory[];
@@ -475,6 +571,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const sharedBubbleIdsRef = useRef<Set<string>>(new Set());
   const ownedBubbleIdsRef = useRef<Set<string>>(new Set());
   const regenStateRef = useRef<RegenState>({ activeSeries: null, ignoreIds: new Set() });
+  const backfillRanRef = useRef(false);
 
   useEffect(() => {
     if (user) {
@@ -491,7 +588,46 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     };
   }, [user?.id]);
 
+  useEffect(() => {
+    if (!user || isLoading || events.length === 0) return;
+    if (backfillRanRef.current) return;
+    backfillRanRef.current = true;
+
+    let cancelled = false;
+
+    void (async () => {
+      try {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("notification_preferences")
+          .eq("id", user.id)
+          .single();
+        const minutesBefore =
+          profileData?.notification_preferences?.reminderMinutesBefore ?? 60;
+
+        const updatedEvents = await backfillEventReminderNotificationBodies(
+          user.id,
+          events,
+          categories,
+          minutesBefore,
+        );
+
+        if (cancelled) return;
+
+        setEvents(updatedEvents);
+        await notificationContext.refreshNotifications();
+      } catch (error) {
+        console.warn("Background notification backfill failed:", error);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, isLoading]);
+
   const clearLocalState = () => {
+    backfillRanRef.current = false;
     setCategories([]);
     setTasks([]);
     setEvents([]);
@@ -913,7 +1049,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (bubblesRes.error) console.warn("Error loading bubbles:", bubblesRes.error.message);
       if (sharedBubblesRes.error) console.warn("Error loading shared bubbles:", sharedBubblesRes.error.message);
       
-      setCategories([...ownedCategories, ...sharedCategories]);
+      const loadedCategories = [...ownedCategories, ...sharedCategories];
+      setCategories(loadedCategories);
 
       // Combine tasks from bubbles + uncategorized user tasks
       const bubbleTasks = tasksInBubblesRes.error ? [] : (tasksInBubblesRes.data || []).map(mapSupabaseTaskToTask);
@@ -1342,7 +1479,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             await addNotification(
               "event_reminder",
               newEvent.title,
-              `Scheduled for ${newEvent.startDate} at ${newEvent.startTime}`,
+              `Scheduled for ${formatEventDateTimeDisplay(newEvent.startDate, newEvent.startTime)}`,
               { eventId: newEvent.id, bubbleId: newEvent.categoryId }
             );
           }
@@ -1382,7 +1519,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await addNotification(
           "event_reminder",
           newEvent.title,
-          `Scheduled for ${newEvent.startDate} at ${newEvent.startTime}`,
+          `Scheduled for ${formatEventDateTimeDisplay(newEvent.startDate, newEvent.startTime)}`,
           { eventId: newEvent.id, bubbleId: newEvent.categoryId }
         );
       }
@@ -1456,12 +1593,32 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       notificationIdAtStart = result.atStartId;
 
       // Update in notifications table
-      await notificationContext.addNotification(
-        "event_reminder",
-        updatedEvent.title,
-        `Updated: ${updatedEvent.startDate} at ${updatedEvent.startTime}`,
-        { eventId: id, bubbleId: updatedEvent.categoryId }
-      );
+      const reminderTitle = updatedEvent.title;
+      const reminderBody = `Updated: ${formatEventDateTimeDisplay(updatedEvent.startDate, updatedEvent.startTime)}`;
+      const reminderData = { eventId: id, bubbleId: updatedEvent.categoryId };
+
+      const { data: existingNotification } = await supabase
+        .from("notifications")
+        .select("id")
+        .eq("user_id", user.id)
+        .contains("data", { eventId: id })
+        .eq("type", "event_reminder")
+        .maybeSingle();
+
+      if (existingNotification) {
+        await supabase
+          .from("notifications")
+          .update({ title: reminderTitle, body: reminderBody, data: reminderData })
+          .eq("id", existingNotification.id)
+          .eq("user_id", user.id);
+      } else {
+        await notificationContext.addNotification(
+          "event_reminder",
+          reminderTitle,
+          reminderBody,
+          reminderData
+        );
+      }
     }
 
     const supabaseUpdates = mapEventToSupabase(updates, user.id, existingEvent);
@@ -1508,6 +1665,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       existingEvent.notificationIdAtStart
     );
 
+    await supabase
+      .from("notifications")
+      .delete()
+      .eq("user_id", user.id)
+      .contains("data", { eventId: id });
+
     let deleteQuery = supabase.from("events").delete().eq("id", id);
     deleteQuery = applyEntryOwnerFilter(
       deleteQuery,
@@ -1524,7 +1687,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     setEvents((prev) => prev.filter((event) => event.id !== id));
-  }, [user, events, categories, notificationContext]);
+  }, [user, events, categories]);
 
   const deleteTask = useCallback(async (id: string) => {
     if (!user) return;
@@ -1614,9 +1777,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       try {
         if (newRecurrence === "none") {
-          const idsToDelete = seriesEvents.filter((e) => e.id !== anchorEvent.id).map((e) => e.id);
+          const eventsToRemove = seriesEvents.filter((e) => e.id !== anchorEvent.id);
+          const idsToDelete = eventsToRemove.map((e) => e.id);
           
           if (idsToDelete.length > 0) {
+            await cleanupRemovedEvents(eventsToRemove, user.id);
+
             let deleteQuery = supabase.from("events").delete().in("id", idsToDelete);
             deleteQuery = applyBulkLifeAreaOwnerFilter(
               deleteQuery,
@@ -1657,11 +1823,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return true;
         }
 
-        const futureNonExceptionIds = nonExceptionEvents
-          .filter((e) => e.startDate >= todayString && e.id !== anchorEvent.id)
-          .map((e) => e.id);
+        const futureEventsToRemove = nonExceptionEvents
+          .filter((e) => e.startDate >= todayString && e.id !== anchorEvent.id);
+        const futureNonExceptionIds = futureEventsToRemove.map((e) => e.id);
 
         if (futureNonExceptionIds.length > 0) {
+          await cleanupRemovedEvents(futureEventsToRemove, user.id);
+
           let futureDeleteQuery = supabase.from("events").delete().in("id", futureNonExceptionIds);
           futureDeleteQuery = applyBulkLifeAreaOwnerFilter(
             futureDeleteQuery,
@@ -1801,12 +1969,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       regenStateRef.current = { activeSeries: seriesId, ignoreIds: new Set(allSeriesIds) };
 
       try {
-        const futureNonExceptionIds = nonExceptionEvents
-          .filter((e) => e.startDate >= todayString && e.id !== anchorEvent.id)
-          .map((e) => e.id);
+        const futureEventsToRemove = nonExceptionEvents
+          .filter((e) => e.startDate >= todayString && e.id !== anchorEvent.id);
+        const futureNonExceptionIds = futureEventsToRemove.map((e) => e.id);
 
         if (futureNonExceptionIds.length > 0) {
           futureNonExceptionIds.forEach((id) => regenStateRef.current.ignoreIds.add(id));
+          await cleanupRemovedEvents(futureEventsToRemove, user.id);
+
           let dateChangeDeleteQuery = supabase.from("events").delete().in("id", futureNonExceptionIds);
           dateChangeDeleteQuery = applyBulkLifeAreaOwnerFilter(
             dateChangeDeleteQuery,
@@ -2020,6 +2190,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!canModifyEntryInLifeArea(user.id, anchorUserId, anchorEvent.categoryId, categories)) {
       return;
     }
+
+    await cleanupRemovedEvents(seriesEvents, user.id);
 
     let seriesDeleteQuery = supabase.from("events").delete().eq("series_id", seriesId);
     seriesDeleteQuery = applyBulkLifeAreaOwnerFilter(
@@ -2740,6 +2912,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const clearAllData = useCallback(async () => {
     if (!user) return;
 
+    await cancelDeviceNotificationsForEvents(events);
+
     await Promise.all([
       supabase.from("tasks").delete().eq("user_id", user.id),
       supabase.from("events").delete().eq("user_id", user.id),
@@ -2757,7 +2931,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOccurrences([]);
     setRecycleBin([]);
     setLifeAreaSchedules([]);
-  }, [user]);
+  }, [user, events]);
 
   return (
     <AppContext.Provider

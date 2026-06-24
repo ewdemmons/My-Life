@@ -1,6 +1,7 @@
 import * as Notifications from "expo-notifications";
 import { Platform } from "react-native";
 import { NotificationType, NotificationPreferences, DEFAULT_NOTIFICATION_PREFERENCES, CalendarEvent } from "@/types";
+import { formatTime12h } from "@/utils/scheduleTimeUtils";
 
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -89,11 +90,10 @@ export async function scheduleEventNotifications(
 
   if (eventStartTime > now) {
     try {
-      const formattedTime = event.startTime;
       atStartId = await Notifications.scheduleNotificationAsync({
         content: {
           title: event.title,
-          body: `Starting now: ${event.title} at ${formattedTime}${bubbleName ? ` in ${bubbleName}` : ""}`,
+          body: `Starting now: ${event.title} at ${formatTime12h(event.startTime)}${bubbleName ? ` in ${bubbleName}` : ""}`,
           data: { 
             eventId: event.id, 
             bubbleId: event.categoryId,

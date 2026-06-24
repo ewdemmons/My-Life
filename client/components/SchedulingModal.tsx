@@ -14,7 +14,6 @@ import AppTimePicker from "./AppTimePicker";
 import { PeopleSelector } from "./PeopleSelector";
 import { useTheme } from "@/hooks/useTheme";
 import { useApp } from "@/context/AppContext";
-import { useNotifications } from "@/context/NotificationContext";
 import {
   CalendarEvent,
   EventType,
@@ -26,7 +25,6 @@ import {
 } from "@/types";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { getRecurrenceDescription } from "@/utils/recurrence";
-import { scheduleEventReminder, calculateReminderTime } from "@/utils/notifications";
 import { SaveToast } from "@/components/SaveToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
@@ -67,7 +65,6 @@ export function SchedulingModal({
 }: SchedulingModalProps) {
   const { theme } = useTheme();
   const { addEvent, updateEvent, updateEventInstance, updateEventSeries, deleteEvent, tasks, categories, events } = useApp();
-  const { preferences } = useNotifications();
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500, successMessage: "Event scheduled" });
 
@@ -303,21 +300,6 @@ export function SchedulingModal({
           }
         } else {
           await addEvent(eventData);
-
-          if (preferences.enabled && preferences.eventReminders) {
-            const reminderTime = calculateReminderTime(
-              eventData.startDate,
-              eventData.startTime,
-              preferences.reminderMinutesBefore
-            );
-            const notificationEventId = `${eventData.startDate}-${eventData.startTime}-${Date.now()}`;
-            await scheduleEventReminder(
-              notificationEventId,
-              eventData.title,
-              `Reminder: "${eventData.title}" starts in ${preferences.reminderMinutesBefore} minutes`,
-              reminderTime
-            );
-          }
         }
         onClose();
       } finally {

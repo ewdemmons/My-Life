@@ -1,7 +1,7 @@
-import React, { useLayoutEffect, useState } from "react";
+import React, { useCallback, useLayoutEffect, useState } from "react";
 import { View, StyleSheet, Pressable } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useNavigation } from "@react-navigation/native";
+import { useFocusEffect, useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 
@@ -22,20 +22,27 @@ const TAB_CONFIG: {
   icon: keyof typeof Feather.glyphMap;
   title: string;
 }[] = [
-  { key: "profile", label: "Profile", icon: "user", title: "My Profile" },
+  { key: "dashboard", label: "Master List", icon: "star", title: "Master List" },
   { key: "wheel", label: "Wheel", icon: "circle", title: "Life Wheel" },
   { key: "bin", label: "Bin", icon: "trash-2", title: "Recycle Bin" },
-  { key: "dashboard", label: "Dashboard", icon: "list", title: "My Dashboard" },
+  { key: "profile", label: "Profile", icon: "user", title: "My Profile" },
 ];
 
 export default function CentralDashboardScreen() {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const [activeTab, setActiveTab] = useState<DashboardTab>("profile");
+  const route = useRoute<RouteProp<RootStackParamList, "CentralDashboard">>();
+  const [activeTab, setActiveTab] = useState<DashboardTab>("dashboard");
 
-  const activeTitle =
-    TAB_CONFIG.find((tab) => tab.key === activeTab)?.title ?? "My Profile";
+  useFocusEffect(
+    useCallback(() => {
+      const tab = route.params?.initialTab;
+      if (tab) {
+        setActiveTab(tab);
+      }
+    }, [route.params?.initialTab]),
+  );
 
   useLayoutEffect(() => {
     navigation.setOptions({
@@ -64,7 +71,7 @@ export default function CentralDashboardScreen() {
             ‹
           </ThemedText>
         </Pressable>
-        <ThemedText style={styles.headerTitle}>{activeTitle}</ThemedText>
+        <ThemedText style={styles.headerTitle}>Dashboard</ThemedText>
         <View style={styles.headerSpacer} />
       </View>
 

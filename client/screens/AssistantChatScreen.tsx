@@ -19,7 +19,6 @@ import { Feather } from "@expo/vector-icons";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAudioRecorder, AudioModule, RecordingPresets } from "expo-audio";
 import * as Speech from "expo-speech";
-import { File } from "expo-file-system/next";
 import * as Network from "expo-network";
 
 import { useTheme } from "@/hooks/useTheme";
@@ -28,11 +27,29 @@ import { ThemedText } from "@/components/ThemedText";
 import { ThemedView } from "@/components/ThemedView";
 import { useApp } from "@/context/AppContext";
 import { SaveToast } from "@/components/SaveToast";
+import { BriefToast } from "@/components/BriefToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { buildSchedulePreferences } from "@/utils/schedulePreferences";
 import { buildAppContext } from "@/utils/appContextBuilder";
 import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { sendToAI, isPlanningRequest, isRefinementBranchRequest } from "@/lib/aiService";
+import {
+  parseChatMessage,
+  ParseCommandResult,
+  CommandContext,
+} from "@/lib/commandService";
+import {
+  executeCreateEntry,
+  executeScheduleEvent,
+  executeCreateHabit,
+  executeLogHabit,
+  executePinEntry,
+  executeCompleteEntry,
+  executeCompleteEntryUntil,
+  executeUpdateEntry,
+  executeUpdateEvent,
+  CommandExecutionResult,
+} from "@/lib/commandExecutor";
 import {
   getRegularSystemPrompt,
   getPlanningSystemPrompt,
@@ -47,6 +64,7 @@ import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigato
 
 const MESSAGES_STORAGE_KEY = "@assistant_messages";
 const REFINEMENT_STATE_KEY = "@assistant_refinement_state";
+const SPEAK_OVER_SILENT_MODE_KEY = "@speak_over_silent_mode";
 
 interface ScheduleProposal {
   type: "schedule";
@@ -103,6 +121,7 @@ interface Message {
   quickReplies?: string[];
   isImportedPlan?: boolean;
   importSource?: "text" | "url";
+  isCommandClarification?: boolean;
 }
 
 interface RefinementState {
@@ -119,20 +138,58 @@ export default function AssistantChatScreen() {
   const route = useRoute<RouteProp<RootStackParamList, "AssistantChat">>();
   const entryContext = route.params?.entryContext;
   const { theme, isDark } = useTheme();
-  const { 
-    categories, 
-    tasks, 
-    events, 
-    habits, 
+  const {
+    categories,
+    tasks,
+    events,
+    habits,
     people,
     occurrences,
-    addTask, 
+    addTask,
     addCategory,
     updateTask,
     addEvent,
     addHabit,
+    deleteTask,
+    deleteEvent,
+    getEventsByDate,
+    deleteHabit,
+    addOccurrence,
+    deleteOccurrence,
+    pinTask,
+    unpinTask,
+    updateEvent,
     lifeAreaSchedules,
   } = useApp();
+  const deleteTaskRef = useRef(deleteTask);
+  const deleteEventRef = useRef(deleteEvent);
+  const getEventsByDateRef = useRef(getEventsByDate);
+  const eventsRef = useRef(events);
+  const addEventRef = useRef(addEvent);
+  const updateEventRef = useRef(updateEvent);
+  const habitsRef = useRef(habits);
+  const deleteHabitRef = useRef(deleteHabit);
+  const addOccurrenceRef = useRef(addOccurrence);
+  const deleteOccurrenceRef = useRef(deleteOccurrence);
+  const unpinTaskRef = useRef(unpinTask);
+  const updateTaskRef = useRef(updateTask);
+  const tasksRef = useRef(tasks);
+  deleteTaskRef.current = deleteTask;
+  deleteEventRef.current = deleteEvent;
+  getEventsByDateRef.current = getEventsByDate;
+  eventsRef.current = events;
+  addEventRef.current = addEvent;
+  updateEventRef.current = updateEvent;
+  habitsRef.current = habits;
+  deleteHabitRef.current = deleteHabit;
+  addOccurrenceRef.current = addOccurrence;
+  deleteOccurrenceRef.current = deleteOccurrence;
+  unpinTaskRef.current = unpinTask;
+  updateTaskRef.current = updateTask;
+  tasksRef.current = tasks;
+  const commandHistoryRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
+  const lastMessageWasVoiceRef = useRef(false);
+  const recentEntitiesRef = useRef<Array<{ id: string; kind: "task" | "event"; title: string }>>([]);
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
@@ -157,14 +214,32 @@ export default function AssistantChatScreen() {
   const [recordingPermission, setRecordingPermission] = useState<boolean | null>(null);
   const [speakingMessageId, setSpeakingMessageId] = useState<string | null>(null);
   const [autoSpeak, setAutoSpeak] = useState(false);
+  const [speakOverSilent, setSpeakOverSilent] = useState(false);
+  const [silentHintMessage, setSilentHintMessage] = useState<string | null>(null);
+  const [silentHintVisible, setSilentHintVisible] = useState(false);
   const [isParsingExternalPlan, setIsParsingExternalPlan] = useState(false);
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const hasShownSilentHintRef = useRef(false);
+  const silentHintTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   
   const audioRecorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
 
   useEffect(() => {
     loadMessages();
     checkMicPermission();
+    AsyncStorage.getItem(SPEAK_OVER_SILENT_MODE_KEY).then((val) => {
+      if (val !== null) {
+        setSpeakOverSilent(val === "true");
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (silentHintTimerRef.current) {
+        clearTimeout(silentHintTimerRef.current);
+      }
+    };
   }, []);
 
   useEffect(() => {
@@ -329,6 +404,7 @@ export default function AssistantChatScreen() {
         allowsRecording: true,
         playsInSilentMode: true,
       });
+      await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
       setIsRecording(true);
     } catch (error) {
@@ -347,9 +423,6 @@ export default function AssistantChatScreen() {
       await AudioModule.setAudioModeAsync({
         allowsRecording: false,
       });
-      
-      // Wait for the file to be fully written
-      await new Promise(resolve => setTimeout(resolve, 1000));
       
       const uri = audioRecorder.uri;
       console.log("Recording stopped, URI:", uri);
@@ -383,51 +456,46 @@ export default function AssistantChatScreen() {
 
   const transcribeAudio = async (uri: string) => {
     setIsTranscribing(true);
-    
     try {
       console.log("Transcribing audio from URI:", uri);
-      
-      // Try to read the audio file as base64
-      // First try with the URI as-is, then try stripping file:// prefix
-      let base64Audio: string | null = null;
-      
-      // Try original URI first
-      try {
-        const audioFile = new File(uri);
-        base64Audio = await audioFile.base64();
-        console.log("Audio read with original URI, length:", base64Audio.length);
-      } catch (e1) {
-        console.log("Failed with original URI, trying stripped path...");
-        // Try without file:// prefix
-        const filePath = uri.startsWith("file://") ? uri.substring(7) : uri;
-        try {
-          const audioFile = new File(filePath);
-          base64Audio = await audioFile.base64();
-          console.log("Audio read with stripped path, length:", base64Audio.length);
-        } catch (e2) {
-          console.error("Both read attempts failed:", e1, e2);
-          throw new Error("Could not read recording file");
-        }
-      }
-      
-      if (!base64Audio || base64Audio.length === 0) {
-        throw new Error("Recording file is empty");
-      }
-      
-      console.log("Audio read successfully, length:", base64Audio.length);
 
-      const response = await apiRequest("POST", "/api/assistant/transcribe", {
-        audio: base64Audio,
-        mimeType: "audio/m4a",
-      });
+      const apiKey = process.env.EXPO_PUBLIC_GROQ_API_KEY;
+      if (!apiKey) {
+        throw new Error("Groq API key not configured");
+      }
+
+      const formData = new FormData();
+      formData.append("file", {
+        uri,
+        name: "recording.m4a",
+        type: "audio/m4a",
+      } as unknown as Blob);
+      formData.append("model", "whisper-large-v3-turbo");
+
+      const response = await fetch(
+        "https://api.groq.com/openai/v1/audio/transcriptions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${apiKey}`,
+          },
+          body: formData,
+        },
+      );
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        throw new Error(`Transcription failed: ${response.status} ${errorText}`);
+      }
 
       const data = await response.json();
-      
-      if (data.text) {
-        setInputText(data.text);
-        setTimeout(() => sendMessage(data.text), 100);
-      } else if (data.error) {
-        Alert.alert("Transcription Error", data.error);
+      const transcribedText = data.text;
+
+      if (transcribedText && transcribedText.trim()) {
+        lastMessageWasVoiceRef.current = true;
+        setTimeout(() => sendMessage(transcribedText), 100);
+      } else {
+        Alert.alert("No speech detected", "Please try again.");
       }
     } catch (error) {
       console.error("Transcription error:", error);
@@ -456,7 +524,14 @@ export default function AssistantChatScreen() {
     if (!cleanText) return;
 
     setSpeakingMessageId(messageId);
-    
+
+    if (speakOverSilent) {
+      await AudioModule.setAudioModeAsync({
+        allowsRecording: false,
+        playsInSilentMode: true,
+      });
+    }
+
     Speech.speak(cleanText, {
       language: "en-US",
       pitch: 1,
@@ -465,6 +540,33 @@ export default function AssistantChatScreen() {
       onError: () => setSpeakingMessageId(null),
       onStopped: () => setSpeakingMessageId(null),
     });
+
+    if (!speakOverSilent && !hasShownSilentHintRef.current) {
+      hasShownSilentHintRef.current = true;
+      if (silentHintTimerRef.current) {
+        clearTimeout(silentHintTimerRef.current);
+      }
+      setSilentHintMessage(
+        "🔇 If you don't hear anything, your phone may be on silent. Enable 'Speak Over Silent Mode' in Settings to always hear responses.",
+      );
+      setSilentHintVisible(true);
+      silentHintTimerRef.current = setTimeout(() => {
+        setSilentHintVisible(false);
+        setSilentHintMessage(null);
+      }, 4000);
+    }
+  };
+
+  const maybeAutoSpeakResponse = (messageId: string, text: string) => {
+    if (lastMessageWasVoiceRef.current) {
+      lastMessageWasVoiceRef.current = false;
+      void speakMessage(messageId, text);
+    }
+  };
+
+  const appendAssistantMessage = (message: Message) => {
+    setMessages((prev) => [...prev, message]);
+    maybeAutoSpeakResponse(message.id, message.content);
   };
 
   const stopSpeaking = () => {
@@ -616,6 +718,103 @@ export default function AssistantChatScreen() {
     }
   };
 
+  const buildCommandContext = (): CommandContext => ({
+    categories: categories.map((c) => ({ id: c.id, name: c.name })),
+    people: people.map((p) => ({ id: p.id, name: p.name })),
+    pendingTasks: tasks
+      .filter((t) => t.status === "pending")
+      .map((t) => ({
+        id: t.id,
+        title: t.title,
+        categoryName:
+          categories.find((c) => c.id === t.categoryId)?.name ?? "Unsorted",
+      })),
+    habits: habits.map((h) => ({ id: h.id, title: h.name })),
+    recentEntities: recentEntitiesRef.current,
+  });
+
+  const pushRecentEntity = (entity: { id: string; kind: "task" | "event"; title: string }) => {
+    recentEntitiesRef.current = [
+      entity,
+      ...recentEntitiesRef.current.filter((e) => e.id !== entity.id),
+    ].slice(0, 5);
+  };
+
+  const executeCommandAction = async (
+    chatResult: ParseCommandResult,
+  ): Promise<CommandExecutionResult> => {
+    switch (chatResult.type) {
+      case "createEntry":
+        return executeCreateEntry(chatResult.input, {
+          addTask,
+          deleteTask: (id) => deleteTaskRef.current(id),
+          categories,
+        });
+      case "scheduleEvent":
+        return executeScheduleEvent(chatResult.input, {
+          addEvent,
+          deleteEvent: (id) => deleteEventRef.current(id),
+          getEventsByDate: (date) => getEventsByDateRef.current(date),
+          categories,
+        });
+      case "createHabit":
+        return executeCreateHabit(chatResult.input, {
+          addHabit,
+          deleteHabit: (id) => deleteHabitRef.current(id),
+          getHabits: () => habitsRef.current,
+          categories,
+        });
+      case "logHabit":
+        return executeLogHabit(chatResult.input, {
+          addOccurrence: (occ) => addOccurrenceRef.current(occ),
+          deleteOccurrence: (id) => deleteOccurrenceRef.current(id),
+          getHabitName: (id) =>
+            habits.find((h) => h.id === id)?.name ?? "habit",
+        });
+      case "pinEntry":
+        return executePinEntry(chatResult.input, {
+          pinTask,
+          unpinTask: (id) => unpinTaskRef.current(id),
+          getTaskTitle: (id) =>
+            tasksRef.current.find((t) => t.id === id)?.title ?? "entry",
+        });
+      case "completeEntry":
+        return executeCompleteEntry(chatResult.input, {
+          updateTask,
+          getTaskTitle: (id) =>
+            tasksRef.current.find((t) => t.id === id)?.title ?? "entry",
+        });
+      case "completeEntryUntil":
+        return executeCompleteEntryUntil(chatResult.input, {
+          updateTask,
+          getTask: (id) => tasksRef.current.find((t) => t.id === id),
+          getEvents: () => eventsRef.current,
+          addEvent: (e) => addEventRef.current(e),
+          updateEvent: (id, u) => updateEventRef.current(id, u),
+          deleteEvent: (id) => deleteEventRef.current(id),
+        });
+      case "updateEntry":
+        return executeUpdateEntry(chatResult.input, {
+          updateTask,
+          getTask: (id) => tasksRef.current.find((t) => t.id === id),
+          categories,
+        });
+      case "updateEvent":
+        return executeUpdateEvent(chatResult.input, {
+          updateEvent: (id, u) => updateEventRef.current(id, u),
+          getEvent: (id) => eventsRef.current.find((e) => e.id === id),
+          categories,
+        });
+      default:
+        return {
+          success: false,
+          message: "",
+          undo: null,
+          error: "Unknown command type",
+        };
+    }
+  };
+
   const parseExternalPlan = async (planText: string): Promise<Plan | null> => {
     try {
       const response = await apiRequest("POST", "/api/assistant/parse-plan", { planText });
@@ -648,6 +847,10 @@ export default function AssistantChatScreen() {
   const sendMessage = async (overrideText?: string) => {
     const messageText = overrideText || inputText.trim();
     if (!messageText || isLoading || isParsingExternalPlan) return;
+
+    if (!overrideText) {
+      lastMessageWasVoiceRef.current = false;
+    }
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -699,7 +902,7 @@ export default function AssistantChatScreen() {
               content: errorContent,
               timestamp: new Date(),
             };
-            setMessages(prev => [...prev, errorMessage]);
+            appendAssistantMessage(errorMessage);
             return;
           }
           
@@ -738,7 +941,7 @@ export default function AssistantChatScreen() {
               isImportedPlan: true,
               importSource,
             };
-            setMessages(prev => [...prev, successMessage]);
+            appendAssistantMessage(successMessage);
           } else {
             const errorMessage: Message = {
               id: (Date.now() + 3).toString(),
@@ -746,7 +949,7 @@ export default function AssistantChatScreen() {
               content: "I couldn't convert that into a structured plan. The text might not contain actionable items. Try providing a more detailed plan with specific goals and tasks.",
               timestamp: new Date(),
             };
-            setMessages(prev => [...prev, errorMessage]);
+            appendAssistantMessage(errorMessage);
           }
         } else {
           setMessages(prev => prev.filter(m => 
@@ -759,7 +962,7 @@ export default function AssistantChatScreen() {
             content: "Please provide more content to convert. You can:\n\n• Paste plan text after \"Convert this plan:\"\n• Share a link to a ChatGPT or Grok conversation\n\nExample: \"Convert this plan: 1. Wake up early, 2. Exercise, 3. Work on project...\"",
             timestamp: new Date(),
           };
-          setMessages(prev => [...prev, errorMessage]);
+          appendAssistantMessage(errorMessage);
         }
       } catch (error) {
         console.error("External plan parsing error:", error);
@@ -769,7 +972,7 @@ export default function AssistantChatScreen() {
           content: "Sorry, I encountered an error while processing your plan. Please try again.",
           timestamp: new Date(),
         };
-        setMessages(prev => [...prev, errorMessage]);
+        appendAssistantMessage(errorMessage);
       } finally {
         setIsParsingExternalPlan(false);
       }
@@ -779,6 +982,74 @@ export default function AssistantChatScreen() {
     setIsLoading(true);
 
     try {
+      const clarificationHistory = commandHistoryRef.current;
+      const chatResult = await parseChatMessage(
+        messageText,
+        buildCommandContext(),
+        clarificationHistory,
+      );
+
+      if (chatResult.type === "clarification") {
+        commandHistoryRef.current = [
+          ...clarificationHistory,
+          { role: "user", content: messageText },
+          { role: "assistant", content: chatResult.question },
+        ];
+
+        const clarificationMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: chatResult.question,
+          timestamp: new Date(),
+          quickReplies: chatResult.options,
+          isCommandClarification: true,
+        };
+        appendAssistantMessage(clarificationMessage);
+        return;
+      }
+
+      if (chatResult.type === "error") {
+        commandHistoryRef.current = [];
+        const errorMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: chatResult.message,
+          timestamp: new Date(),
+        };
+        appendAssistantMessage(errorMessage);
+        return;
+      }
+
+      if (chatResult.type !== "conversation") {
+        const execResult = await executeCommandAction(chatResult);
+        commandHistoryRef.current = [];
+
+        if (execResult.success) {
+          if (execResult.trackedEntity) {
+            pushRecentEntity(execResult.trackedEntity);
+          }
+          const confirmMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: execResult.message,
+            timestamp: new Date(),
+          };
+          appendAssistantMessage(confirmMessage);
+        } else {
+          console.error("[Command] action failed:", execResult.error);
+          const failMessage: Message = {
+            id: (Date.now() + 1).toString(),
+            role: "assistant",
+            content: "Sorry, I couldn't complete that action. Please try again.",
+            timestamp: new Date(),
+          };
+          appendAssistantMessage(failMessage);
+        }
+        return;
+      }
+
+      commandHistoryRef.current = [];
+
       const refinementContext = getRefinementContext();
       const appContext = getAppContext();
       let endRefinement = false;
@@ -855,7 +1126,7 @@ Be conversational and helpful.`;
         quickReplies: quickReplies.length > 0 ? quickReplies : undefined,
       };
 
-      setMessages(prev => [...prev, assistantMessage]);
+      appendAssistantMessage(assistantMessage);
       
       if (data.endRefinement) {
         const newState = { isActive: false };
@@ -870,7 +1141,7 @@ Be conversational and helpful.`;
         content: "Sorry, I encountered an error. Please try again.",
         timestamp: new Date(),
       };
-      setMessages(prev => [...prev, errorMessage]);
+      appendAssistantMessage(errorMessage);
     } finally {
       setIsLoading(false);
     }
@@ -1245,7 +1516,12 @@ Be conversational and helpful.`;
     }
   };
 
-  const handleQuickReply = (reply: string) => {
+  const handleQuickReply = (reply: string, isCommandClarification?: boolean) => {
+    if (isCommandClarification) {
+      sendMessage(reply);
+      return;
+    }
+
     const lowerReply = reply.toLowerCase();
     
     if (lowerReply.includes("done") || lowerReply === "no") {
@@ -1386,13 +1662,13 @@ Be conversational and helpful.`;
     return null;
   };
 
-  const renderQuickReplies = (replies: string[]) => (
+  const renderQuickReplies = (replies: string[], isCommandClarification?: boolean) => (
     <View style={styles.quickRepliesContainer}>
       {replies.map((reply, index) => (
         <Pressable
           key={index}
           style={[styles.quickReplyChip, { backgroundColor: theme.primary + "20", borderColor: theme.primary }]}
-          onPress={() => handleQuickReply(reply)}
+          onPress={() => handleQuickReply(reply, isCommandClarification)}
         >
           <ThemedText style={[styles.quickReplyText, { color: theme.primary }]}>{reply}</ThemedText>
         </Pressable>
@@ -1479,7 +1755,7 @@ Be conversational and helpful.`;
           </View>
         )}
         {!isUser && item.quickReplies && item.quickReplies.length > 0 && (
-          renderQuickReplies(item.quickReplies)
+          renderQuickReplies(item.quickReplies, item.isCommandClarification)
         )}
       </View>
     );
@@ -1668,6 +1944,7 @@ Be conversational and helpful.`;
         onRetry={retryFn ?? undefined}
         onDismiss={dismiss}
       />
+      <BriefToast message={silentHintMessage} visible={silentHintVisible} />
     </KeyboardAvoidingView>
   );
 }

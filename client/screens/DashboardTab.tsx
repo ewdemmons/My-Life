@@ -47,6 +47,7 @@ import {
   shouldShowPinnedHabits,
   sortMasterListTasks,
 } from "@/utils/masterListUtils";
+import { getLocalDateString } from "@/utils/planUtils";
 
 const parseLocalDate = (dateStr: string): Date => {
   const [year, month, day] = dateStr.split("-").map(Number);
@@ -301,7 +302,7 @@ export function DashboardTab() {
           await updateTask(task.id, {
             status: "completed",
             completionType: "as_of",
-            completionDate: new Date().toISOString().split("T")[0],
+            completionDate: getLocalDateString(),
           });
           markRecentlyCompleted(task.id);
         }
@@ -591,6 +592,7 @@ export function DashboardTab() {
                 isComplete && styles.completedText,
               ]}
               numberOfLines={1}
+              ellipsizeMode="tail"
             >
               {task.title}
             </ThemedText>
@@ -633,51 +635,80 @@ export function DashboardTab() {
             </View>
           </Pressable>
 
-          {canModifyTask(task) ? (
+          {canModifyTask ? (
+            <View style={styles.masterListActionsGroup}>
+              <Pressable
+                onPress={() => handleUnpinTask(task.id)}
+                hitSlop={8}
+                style={styles.masterListActionBtn}
+              >
+                <Feather name="star" size={14} color="#F59E0B" />
+                <Text
+                  style={{
+                    fontSize: 8,
+                    color: theme.textSecondary,
+                    fontWeight: "500",
+                  }}
+                >
+                  Unpin
+                </Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => handleCheckboxComplete(task)}
+                disabled={!canModifyTask(task)}
+                hitSlop={8}
+                style={styles.masterListActionBtn}
+              >
+                <View
+                  style={[
+                    styles.completeCheckbox,
+                    { borderColor: theme.border },
+                    isComplete && {
+                      backgroundColor: theme.success,
+                      borderColor: theme.success,
+                    },
+                  ]}
+                />
+                <Text
+                  style={{
+                    fontSize: 8,
+                    color: theme.textSecondary,
+                    fontWeight: "500",
+                  }}
+                >
+                  Complete
+                </Text>
+              </Pressable>
+            </View>
+          ) : (
             <Pressable
-              onPress={() => handleUnpinTask(task.id)}
+              onPress={() => handleCheckboxComplete(task)}
+              disabled={!canModifyTask(task)}
               hitSlop={8}
               style={styles.masterListActionBtn}
             >
-              <Feather name="star" size={16} color="#F59E0B" />
+              <View
+                style={[
+                  styles.completeCheckbox,
+                  { borderColor: theme.border },
+                  isComplete && {
+                    backgroundColor: theme.success,
+                    borderColor: theme.success,
+                  },
+                ]}
+              />
               <Text
                 style={{
-                  fontSize: 9,
+                  fontSize: 8,
                   color: theme.textSecondary,
                   fontWeight: "500",
                 }}
               >
-                Unpin
+                Complete
               </Text>
             </Pressable>
-          ) : null}
-
-          <Pressable
-            onPress={() => handleCheckboxComplete(task)}
-            disabled={!canModifyTask(task)}
-            hitSlop={8}
-            style={styles.masterListActionBtn}
-          >
-            <View
-              style={[
-                styles.completeCheckbox,
-                { borderColor: theme.border },
-                isComplete && {
-                  backgroundColor: theme.success,
-                  borderColor: theme.success,
-                },
-              ]}
-            />
-            <Text
-              style={{
-                fontSize: 9,
-                color: theme.textSecondary,
-                fontWeight: "500",
-              }}
-            >
-              Complete
-            </Text>
-          </Pressable>
+          )}
         </View>
         {!isActive ? renderExpandedChildren(task) : null}
       </View>
@@ -844,7 +875,7 @@ export function DashboardTab() {
               onDragBegin={handleDragBegin}
               onDragEnd={handleDragEnd}
               renderItem={renderDraggableItem}
-              activationDistance={8}
+              activationDistance={30}
             />
           ) : null}
           {renderHabitsSection()}
@@ -1153,23 +1184,30 @@ const styles = StyleSheet.create({
     padding: 2,
   },
   completeCheckbox: {
-    width: 22,
-    height: 22,
-    borderRadius: 11,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
     borderWidth: 2,
+  },
+  masterListActionsGroup: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexShrink: 0,
+    gap: 0,
   },
   masterListActionBtn: {
     alignItems: "center",
     justifyContent: "center",
-    gap: 2,
-    paddingHorizontal: 8,
+    gap: 1,
+    paddingHorizontal: 4,
     alignSelf: "stretch",
   },
   taskContent: {
     flex: 1,
+    minWidth: 0,
   },
   taskTitle: {
-    fontSize: 15,
+    fontSize: 14,
     fontWeight: "500",
     marginBottom: 4,
   },

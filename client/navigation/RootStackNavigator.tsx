@@ -11,7 +11,6 @@ import AddCategoryScreen from "@/screens/AddCategoryScreen";
 import AddTaskScreen from "@/screens/AddTaskScreen";
 import NotificationsScreen from "@/screens/NotificationsScreen";
 import CentralDashboardScreen from "@/screens/CentralDashboardScreen";
-import ProfileScreen from "@/screens/ProfileScreen";
 import AssistantChatScreen from "@/screens/AssistantChatScreen";
 import DailyPlanGeneratorScreen from "@/screens/DailyPlanGeneratorScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
@@ -47,8 +46,7 @@ export type RootStackParamList = {
     initialCategoryId?: string;
   };
   Notifications: undefined;
-  CentralDashboard: undefined;
-  Profile: undefined;
+  CentralDashboard: { initialTab?: "profile" | "wheel" | "bin" | "dashboard" } | undefined;
   AssistantChat: { entryContext?: EntryContext };
   DailyPlanGenerator: { initialDate?: string };
 };
@@ -105,13 +103,6 @@ function MainAppNavigator() {
         component={CentralDashboardScreen}
         options={{
           headerTitle: "My Dashboard",
-        }}
-      />
-      <Stack.Screen
-        name="Profile"
-        component={ProfileScreen}
-        options={{
-          headerTitle: "Profile",
         }}
       />
       <Stack.Screen

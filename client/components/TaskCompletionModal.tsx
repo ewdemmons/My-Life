@@ -11,6 +11,7 @@ import { useApp } from "@/context/AppContext";
 import { SaveToast } from "@/components/SaveToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
+import { getLocalDateString } from "@/utils/planUtils";
 
 interface TaskCompletionModalProps {
   visible: boolean;
@@ -48,7 +49,7 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
   };
 
   const formatDateForStorage = (date: Date) => {
-    return date.toISOString().split("T")[0];
+    return getLocalDateString(date);
   };
 
   const handleComplete = async () => {

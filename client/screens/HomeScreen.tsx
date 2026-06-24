@@ -19,11 +19,12 @@ import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Feather } from "@expo/vector-icons";
 import { BlurView } from "expo-blur";
 import { LinearGradient } from "expo-linear-gradient";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
-import { LifeWheel } from "@/components/LifeWheel";
+import { LifeWheel, WheelCenterIcon } from "@/components/LifeWheel";
 import { useApp } from "@/context/AppContext";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { MainTabParamList } from "@/navigation/MainTabNavigator";
@@ -44,6 +45,8 @@ import { DailyPlanView } from "@/components/agenda/DailyPlanView";
 import { NoPlanBanner } from "@/components/agenda/NoPlanBanner";
 import { BriefToast } from "@/components/BriefToast";
 import { SaveToast } from "@/components/SaveToast";
+import { CentralMenuDrawer } from "@/components/CentralMenuDrawer";
+import { NotificationBell } from "@/components/NotificationBell";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import {
   checkAndReopenCompleteUntilEntries,
@@ -67,6 +70,39 @@ const TIP_MESSAGES = [
   "Ask your Life Coach for help with anything",
   "Pin your most important entries to the Master List",
 ];
+
+const WHEEL_CENTER_ICON_KEY = "@wheel_center_icon";
+const LIFE_AREA_ORDER_KEY = "@life_area_order";
+
+function parseCenterIcon(raw: string | null): WheelCenterIcon | null {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as WheelCenterIcon;
+    if (
+      parsed &&
+      (parsed.type === "initial" || parsed.type === "emoji" || parsed.type === "symbol" || parsed.type === "photo") &&
+      typeof parsed.value === "string"
+    ) {
+      return parsed;
+    }
+  } catch {
+    // ignore invalid stored value
+  }
+  return null;
+}
+
+function applyCategoryOrder(all: LifeCategory[], orderIds: string[]): LifeCategory[] {
+  const byId = new Map(all.map((c) => [c.id, c]));
+  const ordered: LifeCategory[] = [];
+  for (const id of orderIds) {
+    const cat = byId.get(id);
+    if (cat) ordered.push(cat);
+  }
+  for (const cat of all) {
+    if (!orderIds.includes(cat.id)) ordered.push(cat);
+  }
+  return ordered;
+}
 
 interface HomeScreenProps {
   onOpenCapture?: () => void;
@@ -103,6 +139,12 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
     useSaveIndicator({ threshold: 500 });
   const [selectedCategory, setSelectedCategory] = useState<LifeCategory | null>(null);
   const [displayName, setDisplayName] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
+  const [drawerAvatarUrl, setDrawerAvatarUrl] = useState<string | null>(null);
+  const [drawerDisplayName, setDrawerDisplayName] = useState("");
+  const [drawerEmail, setDrawerEmail] = useState("");
+  const [centerIcon, setCenterIcon] = useState<WheelCenterIcon | null>(null);
+  const [lifeAreaOrder, setLifeAreaOrder] = useState<string[]>([]);
   const [tipIndex, setTipIndex] = useState(0);
   const [activePlanDates, setActivePlanDates] = useState<string[]>([]);
   const [selectedView, setSelectedView] = useState<string>("masterList");
@@ -118,6 +160,13 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
   useScrollToTop(scrollRef);
 
   const tabBarSpacerHeight = tabBarHeight + insets.bottom;
+
+  const orderedCategories = useMemo(() => {
+    if (lifeAreaOrder.length === 0) {
+      return categories;
+    }
+    return applyCategoryOrder(categories, lifeAreaOrder);
+  }, [categories, lifeAreaOrder]);
 
   const scrollToZone1 = useCallback(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -280,9 +329,45 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
       const onFocus = async () => {
         await refreshPlanStatus();
         await runCompleteUntilCheck();
+
+        const storedIcon = await AsyncStorage.getItem(WHEEL_CENTER_ICON_KEY);
+        setCenterIcon(parseCenterIcon(storedIcon));
+
+        const storedOrder = await AsyncStorage.getItem(LIFE_AREA_ORDER_KEY);
+        if (storedOrder) {
+          try {
+            const orderIds = JSON.parse(storedOrder) as string[];
+            setLifeAreaOrder(Array.isArray(orderIds) ? orderIds : []);
+          } catch {
+            setLifeAreaOrder([]);
+          }
+        } else {
+          setLifeAreaOrder([]);
+        }
+
+        if (user?.id) {
+          const { data } = await supabase
+            .from("profiles")
+            .select("display_name, avatar_url")
+            .eq("id", user.id)
+            .single();
+          if (data?.display_name) {
+            setDrawerDisplayName(data.display_name);
+          } else {
+            setDrawerDisplayName("");
+          }
+          if (data?.avatar_url) {
+            setDrawerAvatarUrl(data.avatar_url);
+          } else {
+            setDrawerAvatarUrl(null);
+          }
+          if (user.email) {
+            setDrawerEmail(user.email);
+          }
+        }
       };
       onFocus();
-    }, [refreshPlanStatus, runCompleteUntilCheck]),
+    }, [refreshPlanStatus, runCompleteUntilCheck, user?.id, user?.email]),
   );
 
   useEffect(() => {
@@ -325,7 +410,7 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
         .select("display_name")
         .eq("id", user.id)
         .single();
-      setDisplayName(data?.display_name?.trim() || null);
+      setDisplayName(data?.display_name?.trim() || user.email || null);
     };
     loadDisplayName();
   }, [user?.id]);
@@ -497,17 +582,15 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
                   <ThemedText style={styles.appTitle}>My Life</ThemedText>
                 </View>
                 <View style={styles.headerButtons}>
+                  <NotificationBell />
                   <Pressable
-                    style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
-                    onPress={() => navigation.navigate("Notifications")}
+                    onPress={() => setDrawerOpen(true)}
+                    hitSlop={8}
+                    style={styles.hamburgerBtn}
                   >
-                    <Feather name="bell" size={20} color={theme.text} />
-                  </Pressable>
-                  <Pressable
-                    style={[styles.headerButton, { backgroundColor: theme.backgroundDefault }]}
-                    onPress={() => navigation.navigate("Profile")}
-                  >
-                    <Feather name="user" size={20} color={theme.text} />
+                    <View style={[styles.hamLine, { backgroundColor: theme.text }]} />
+                    <View style={[styles.hamLine, { backgroundColor: theme.text }]} />
+                    <View style={[styles.hamLine, { backgroundColor: theme.text }]} />
                   </Pressable>
                 </View>
               </View>
@@ -538,12 +621,14 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
 
           <View style={styles.mainContent}>
             <View style={styles.wheelZone}>
-              {categories.length > 0 ? (
+              {orderedCategories.length > 0 ? (
                 <LifeWheel
-                  categories={categories}
+                  categories={orderedCategories}
                   onCategoryPress={handleCategoryPress}
                   onCategoryLongPress={handleCategoryLongPress}
                   onCenterPress={() => navigation.navigate("CentralDashboard")}
+                  centerIcon={centerIcon}
+                  centerDisplayName={displayName ?? user?.email ?? ""}
                 />
               ) : (
                 <View style={[styles.emptyState, { backgroundColor: theme.backgroundDefault }]}>
@@ -776,6 +861,14 @@ export default function HomeScreen({ onOpenCapture }: HomeScreenProps) {
         onRetry={retryFn ?? undefined}
         onDismiss={dismiss}
       />
+      <CentralMenuDrawer
+        visible={drawerOpen}
+        onClose={() => setDrawerOpen(false)}
+        avatarUrl={drawerAvatarUrl}
+        displayName={drawerDisplayName}
+        email={drawerEmail}
+        navigation={navigation}
+      />
     </SafeAreaView>
   );
 }
@@ -846,6 +939,19 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     alignItems: "center",
     justifyContent: "center",
+  },
+  hamburgerBtn: {
+    width: 40,
+    height: 40,
+    padding: 4,
+    gap: 4,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  hamLine: {
+    width: 20,
+    height: 2,
+    borderRadius: 1,
   },
   headline: {
     fontSize: 18,

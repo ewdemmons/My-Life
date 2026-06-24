@@ -9,6 +9,7 @@ import {
   SchedulePreference,
   Task,
 } from "@/types";
+import { getLocalDateString } from "@/utils/planUtils";
 
 export interface RefinementContextState {
   isActive: boolean;
@@ -68,10 +69,10 @@ Current time: ${now.toLocaleTimeString("en-US", {
     minute: "2-digit",
   })}`;
 
-  const today = new Date().toISOString().split("T")[0];
+  const today = getLocalDateString();
   const weekLater = new Date();
   weekLater.setDate(weekLater.getDate() + 7);
-  const weekLaterStr = weekLater.toISOString().split("T")[0];
+  const weekLaterStr = getLocalDateString(weekLater);
 
   const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
