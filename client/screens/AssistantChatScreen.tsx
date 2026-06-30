@@ -31,13 +31,23 @@ import { BriefToast } from "@/components/BriefToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { buildSchedulePreferences } from "@/utils/schedulePreferences";
 import { buildAppContext } from "@/utils/appContextBuilder";
-import { apiRequest, getApiUrl } from "@/lib/query-client";
 import { sendToAI, isPlanningRequest, isRefinementBranchRequest } from "@/lib/aiService";
 import {
   parseChatMessage,
-  ParseCommandResult,
+  CommandAction,
   CommandContext,
+  CreateEntryInput,
 } from "@/lib/commandService";
+import {
+  BatchExecutionResult,
+  buildBatchSummary,
+  getBatchItemDisplay,
+  getBatchItemIcon,
+  inferBatchActionLabel,
+  inferBatchCategoryName,
+  inferBatchSummaryKind,
+} from "@/lib/commandBatch";
+import { CommandBatchSummary } from "@/components/CommandBatchSummary";
 import {
   executeCreateEntry,
   executeScheduleEvent,
@@ -122,6 +132,7 @@ interface Message {
   isImportedPlan?: boolean;
   importSource?: "text" | "url";
   isCommandClarification?: boolean;
+  batchCommandResult?: BatchExecutionResult;
 }
 
 interface RefinementState {
@@ -137,6 +148,9 @@ export default function AssistantChatScreen() {
   const headerHeight = useHeaderHeight();
   const route = useRoute<RouteProp<RootStackParamList, "AssistantChat">>();
   const entryContext = route.params?.entryContext;
+  const lifeAreaContext = route.params?.lifeAreaContext;
+  const openPlanningSession = route.params?.openPlanningSession;
+  const initialPrompt = route.params?.initialPrompt;
   const { theme, isDark } = useTheme();
   const {
     categories,
@@ -190,6 +204,7 @@ export default function AssistantChatScreen() {
   const commandHistoryRef = useRef<Array<{ role: "user" | "assistant"; content: string }>>([]);
   const lastMessageWasVoiceRef = useRef(false);
   const recentEntitiesRef = useRef<Array<{ id: string; kind: "task" | "event"; title: string }>>([]);
+  const batchUndoHandlersRef = useRef<Record<string, Record<string, () => Promise<void>>>>({});
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500, successMessage: "Saved" });
 
@@ -207,6 +222,7 @@ export default function AssistantChatScreen() {
   const [previewPlanMessageId, setPreviewPlanMessageId] = useState<string | null>(null);
   const [refinementState, setRefinementState] = useState<RefinementState>({ isActive: false });
   const [entryContextHandled, setEntryContextHandled] = useState(false);
+  const [lifeAreaContextHandled, setLifeAreaContextHandled] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   
   const [isRecording, setIsRecording] = useState(false);
@@ -303,6 +319,56 @@ export default function AssistantChatScreen() {
       });
     }
   }, [entryContext, entryContextHandled, isLoadingHistory]);
+
+  useEffect(() => {
+    if (
+      lifeAreaContext &&
+      !entryContext &&
+      !lifeAreaContextHandled &&
+      !isLoadingHistory
+    ) {
+      setLifeAreaContextHandled(true);
+
+      const goalHint = lifeAreaContext.profile?.primaryGoal
+        ? `\n\nYour primary goal: "${lifeAreaContext.profile.primaryGoal}".`
+        : "";
+
+      const planningQuickReplies = openPlanningSession
+        ? [
+            "Help me plan toward my primary goal",
+            `Manifest a new goal in ${lifeAreaContext.name}`,
+            "Break my focus areas into actionable steps",
+          ]
+        : undefined;
+
+      const contextualGreeting: Message = {
+        id: Date.now().toString(),
+        role: "assistant",
+        content: `I'm your Coach for "${lifeAreaContext.name}".${goalHint}\n\nWhat would you like to work on in this Life Area?`,
+        timestamp: new Date(),
+        isRefinementPrompt: true,
+        quickReplies: planningQuickReplies,
+      };
+
+      setMessages((prev) => [...prev, contextualGreeting]);
+
+      setRefinementState({
+        isActive: true,
+        bubbleId: lifeAreaContext.categoryId,
+      });
+
+      if (initialPrompt?.trim()) {
+        setInputText(initialPrompt.trim());
+      }
+    }
+  }, [
+    lifeAreaContext,
+    entryContext,
+    lifeAreaContextHandled,
+    isLoadingHistory,
+    openPlanningSession,
+    initialPrompt,
+  ]);
 
   const getEntryQuickActions = (context: EntryContext): string[] => {
     const actions: string[] = [];
@@ -628,6 +694,7 @@ export default function AssistantChatScreen() {
       schedulePreferences,
       refinementState,
       entryContext,
+      lifeAreaContext: entryContext ? null : lifeAreaContext,
     });
 
   const getRefinementContext = () => {
@@ -701,18 +768,66 @@ export default function AssistantChatScreen() {
     return { isConvert, hasUrl, url, planText };
   };
 
-  const fetchUrlContent = async (url: string): Promise<{ content: string | null; errorType?: "blocked" | "unavailable" | "unknown" }> => {
+  const fetchUrlContent = async (
+    url: string,
+  ): Promise<{ content: string | null; errorType?: "blocked" | "unavailable" | "unknown" }> => {
     try {
-      const response = await apiRequest("POST", "/api/assistant/fetch-url", { url });
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        console.error("Anthropic API key not configured");
+        return { content: null, errorType: "unknown" };
+      }
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 4000,
+          messages: [
+            {
+              role: "user",
+              content: `Fetch and extract the full text content from this URL, preserving structure (headings, lists, sections): ${url}\n\nReturn ONLY the extracted content, no commentary.`,
+            },
+          ],
+          tools: [
+            {
+              type: "web_search_20250305",
+              name: "web_search",
+            },
+          ],
+        }),
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        if (response.status === 403) {
+          return { content: null, errorType: "blocked" };
+        }
+        if (response.status === 404) {
+          return { content: null, errorType: "unavailable" };
+        }
+        console.error("URL fetch failed:", response.status, errorText);
+        return { content: null, errorType: "unknown" };
+      }
+
       const data = await response.json();
-      return { content: data.content || null };
-    } catch (error: any) {
-      const errorMessage = error?.message || "";
-      if (errorMessage.includes("403") || errorMessage.includes("forbidden")) {
-        return { content: null, errorType: "blocked" };
-      } else if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+      const textBlocks = data.content?.filter(
+        (block: { type: string }) => block.type === "text",
+      );
+      const content =
+        textBlocks?.map((b: { text: string }) => b.text).join("\n") ?? null;
+
+      if (!content || content.trim().length < 20) {
         return { content: null, errorType: "unavailable" };
       }
+
+      return { content };
+    } catch (error) {
       console.error("Failed to fetch URL:", error);
       return { content: null, errorType: "unknown" };
     }
@@ -731,7 +846,36 @@ export default function AssistantChatScreen() {
       })),
     habits: habits.map((h) => ({ id: h.id, title: h.name })),
     recentEntities: recentEntitiesRef.current,
+    focusedEntry:
+      entryContext?.type === "task"
+        ? {
+            id: entryContext.id,
+            bubbleId: entryContext.bubbleId,
+            title: entryContext.title,
+          }
+        : undefined,
+    focusedLifeAreaId:
+      !entryContext && lifeAreaContext ? lifeAreaContext.categoryId : undefined,
   });
+
+  const applyEntryContextToCreateEntry = (
+    input: CreateEntryInput,
+  ): CreateEntryInput => {
+    if (entryContext?.type === "task") {
+      return {
+        ...input,
+        parentId: entryContext.id,
+        categoryId: entryContext.bubbleId ?? input.categoryId,
+      };
+    }
+    if (lifeAreaContext && !entryContext) {
+      return {
+        ...input,
+        categoryId: lifeAreaContext.categoryId,
+      };
+    }
+    return input;
+  };
 
   const pushRecentEntity = (entity: { id: string; kind: "task" | "event"; title: string }) => {
     recentEntitiesRef.current = [
@@ -741,15 +885,18 @@ export default function AssistantChatScreen() {
   };
 
   const executeCommandAction = async (
-    chatResult: ParseCommandResult,
+    chatResult: CommandAction,
   ): Promise<CommandExecutionResult> => {
     switch (chatResult.type) {
       case "createEntry":
-        return executeCreateEntry(chatResult.input, {
-          addTask,
-          deleteTask: (id) => deleteTaskRef.current(id),
-          categories,
-        });
+        return executeCreateEntry(
+          applyEntryContextToCreateEntry(chatResult.input),
+          {
+            addTask,
+            deleteTask: (id) => deleteTaskRef.current(id),
+            categories,
+          },
+        );
       case "scheduleEvent":
         return executeScheduleEvent(chatResult.input, {
           addEvent,
@@ -815,29 +962,249 @@ export default function AssistantChatScreen() {
     }
   };
 
+  const executeCommandBatch = async (
+    actions: CommandAction[],
+  ): Promise<{
+    result: BatchExecutionResult;
+    undoHandlers: Record<string, () => Promise<void>>;
+  }> => {
+    const summaryKind = inferBatchSummaryKind(actions);
+    let categoryName = inferBatchCategoryName(actions, categories);
+    if (
+      !categoryName &&
+      entryContext?.type === "task" &&
+      entryContext.bubbleId
+    ) {
+      categoryName = categories.find((c) => c.id === entryContext.bubbleId)?.name;
+    }
+    const actionLabel = inferBatchActionLabel(actions);
+    const items: BatchExecutionResult["items"] = [];
+    const undoHandlers: Record<string, () => Promise<void>> = {};
+    let succeeded = 0;
+    let failed = 0;
+
+    for (let index = 0; index < actions.length; index++) {
+      const action = actions[index];
+      const itemId = `${Date.now()}-${index}`;
+      const displayAction =
+        action.type === "createEntry"
+          ? { ...action, input: applyEntryContextToCreateEntry(action.input) }
+          : action;
+      const display = getBatchItemDisplay(displayAction, categories);
+
+      const execResult = await executeCommandAction(action);
+
+      if (execResult.success) {
+        succeeded++;
+        if (execResult.trackedEntity) {
+          pushRecentEntity(execResult.trackedEntity);
+        }
+        if (execResult.undo) {
+          undoHandlers[itemId] = execResult.undo;
+        }
+        items.push({
+          id: itemId,
+          success: true,
+          label: display.label,
+          detail: display.detail,
+          canUndo: Boolean(execResult.undo),
+          icon: getBatchItemIcon(action),
+        });
+      } else {
+        failed++;
+        console.error("[CommandBatch] item failed:", execResult.error);
+        items.push({
+          id: itemId,
+          success: false,
+          label: display.label,
+          detail: display.detail,
+          error: execResult.error ?? "Failed to create",
+          canUndo: false,
+          icon: getBatchItemIcon(action),
+        });
+      }
+    }
+
+    const result: BatchExecutionResult = {
+      total: actions.length,
+      succeeded,
+      failed,
+      items,
+      categoryName,
+      actionLabel,
+      summaryKind,
+      summary: buildBatchSummary({
+        total: actions.length,
+        succeeded,
+        failed,
+        actionLabel,
+        categoryName,
+        summaryKind,
+      }),
+    };
+
+    return { result, undoHandlers };
+  };
+
+  const handleBatchItemUndo = async (messageId: string, itemId: string) => {
+    const handler = batchUndoHandlersRef.current[messageId]?.[itemId];
+    if (!handler) return;
+
+    await handler();
+
+    setMessages((prev) =>
+      prev.map((message) => {
+        if (message.id !== messageId || !message.batchCommandResult) {
+          return message;
+        }
+
+        const updatedItems = message.batchCommandResult.items.map((item) =>
+          item.id === itemId ? { ...item, undone: true } : item,
+        );
+        const activeSucceeded = updatedItems.filter(
+          (item) => item.success && !item.undone,
+        ).length;
+
+        return {
+          ...message,
+          content: buildBatchSummary({
+            total: message.batchCommandResult.total,
+            succeeded: activeSucceeded,
+            failed: message.batchCommandResult.failed,
+            actionLabel: message.batchCommandResult.actionLabel,
+            categoryName: message.batchCommandResult.categoryName,
+            summaryKind: message.batchCommandResult.summaryKind,
+          }),
+          batchCommandResult: {
+            ...message.batchCommandResult,
+            succeeded: activeSucceeded,
+            summary: buildBatchSummary({
+              total: message.batchCommandResult.total,
+              succeeded: activeSucceeded,
+              failed: message.batchCommandResult.failed,
+              actionLabel: message.batchCommandResult.actionLabel,
+              categoryName: message.batchCommandResult.categoryName,
+              summaryKind: message.batchCommandResult.summaryKind,
+            }),
+            items: updatedItems,
+          },
+        };
+      }),
+    );
+  };
+
   const parseExternalPlan = async (planText: string): Promise<Plan | null> => {
     try {
-      const response = await apiRequest("POST", "/api/assistant/parse-plan", { planText });
+      const apiKey = process.env.EXPO_PUBLIC_ANTHROPIC_API_KEY;
+      if (!apiKey) {
+        console.error("Anthropic API key not configured");
+        return null;
+      }
+
+      const systemPrompt = `You convert informal plan text (which may be formatted as headers with bullet points, numbered lists, or loose paragraphs) into a structured JSON plan.
+
+How to interpret the input:
+- High-level section headers or bolded phrases (e.g. "Finish Core Feature Stability", "App Store Compliance & Polish") are OBJECTIVES — the major milestones of the plan.
+- Each bullet point or line under an objective is a TASK belonging to that objective. Use a single "General" project under each objective unless the text clearly groups tasks into distinct sub-categories — if it does, those become PROJECTS.
+- If an objective's tasks don't naturally divide into distinct sub-groups, put them all under a single project named exactly "General" — this will be automatically simplified during import, so always use the exact word "General" for this case rather than inventing another name.
+- For each task: extract a short, clear TITLE (a few words, action-oriented), and put any additional context, reasoning, or specifics into the DESCRIPTION field. If a bullet point is short with no extra detail, the description can be brief or restate the title in plain language — never leave it empty.
+- Infer priority as "high" only for items explicitly marked urgent/critical/blocking; otherwise default to "medium".
+- The overall "goal" field should be a one-sentence summary of what the plan accomplishes.
+- The "advice" field should be 1-2 sentences of practical guidance for executing this plan.
+- The "suggestedBubble" field should be your best guess at which Life Area this belongs to (e.g. "App Development", "Business Planning", "Work") based on the content.
+
+You MUST find actionable items in any plan-like text, even if loosely formatted. Only fail to extract a plan if the text is genuinely conversational with no list-like or task-like structure whatsoever (e.g. casual chat with no goals mentioned).
+
+Respond ONLY with valid JSON in this exact shape, no markdown fences, no commentary before or after:
+{
+  "goal": "string",
+  "advice": "string",
+  "suggestedBubble": "string",
+  "objectives": [
+    {
+      "name": "string",
+      "projects": [
+        {
+          "name": "string",
+          "tasks": [
+            { "title": "string", "description": "string", "priority": "low" | "medium" | "high" }
+          ]
+        }
+      ]
+    }
+  ]
+}`;
+
+      const response = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": apiKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 4000,
+          system: systemPrompt,
+          messages: [{ role: "user", content: planText }],
+        }),
+      });
+
+      console.log("[ParseExternalPlan] Response status:", response.status);
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Plan parse failed:", response.status, errorText);
+        return null;
+      }
+
       const data = await response.json();
-      if (data.plan) {
-        return {
-          goal: data.plan.goal || "Imported Plan",
-          advice: data.plan.advice || "Imported from external source",
-          suggestedBubble: data.plan.suggestedBubble || "General",
-          objectives: (data.plan.objectives || []).map((obj: any) => ({
-            name: obj.name,
-            projects: (obj.projects || []).map((proj: any) => ({
-              name: proj.name,
-              tasks: (proj.tasks || []).map((task: any) => ({
-                title: task.title,
-                description: task.description || "",
-                priority: task.priority || "medium",
-              })),
+      const textBlock = data.content?.find(
+        (block: { type: string }) => block.type === "text",
+      );
+      console.log("[ParseExternalPlan] Raw Claude response:", textBlock?.text);
+      if (!textBlock?.text) return null;
+
+      const cleanJson = textBlock.text
+        .replace(/```json\s*/gi, "")
+        .replace(/```\s*/g, "")
+        .trim();
+
+      console.log("[ParseExternalPlan] Cleaned JSON string:", cleanJson);
+
+      let parsed;
+      try {
+        parsed = JSON.parse(cleanJson);
+      } catch (parseError) {
+        console.error("[ParseExternalPlan] JSON.parse failed:", parseError);
+        console.error(
+          "[ParseExternalPlan] Content that failed to parse:",
+          cleanJson,
+        );
+        return null;
+      }
+
+      console.log(
+        "[ParseExternalPlan] Parsed object:",
+        JSON.stringify(parsed, null, 2),
+      );
+
+      return {
+        goal: parsed.goal || "Imported Plan",
+        advice: parsed.advice || "Imported from external source",
+        suggestedBubble: parsed.suggestedBubble || "General",
+        objectives: (parsed.objectives || []).map((obj: any) => ({
+          name: obj.name,
+          projects: (obj.projects || []).map((proj: any) => ({
+            name: proj.name,
+            tasks: (proj.tasks || []).map((task: any) => ({
+              title: task.title,
+              description: task.description || "",
+              priority: task.priority || "medium",
             })),
           })),
-        };
-      }
-      return null;
+        })),
+      };
     } catch (error) {
       console.error("Failed to parse plan:", error);
       return null;
@@ -1020,6 +1387,41 @@ export default function AssistantChatScreen() {
         return;
       }
 
+      if (chatResult.type === "batch") {
+        commandHistoryRef.current = [];
+
+        const batchActionLabel = inferBatchActionLabel(chatResult.actions);
+        const statusMessage: Message = {
+          id: (Date.now() + 1).toString(),
+          role: "assistant",
+          content: `Adding ${batchActionLabel}…`,
+          timestamp: new Date(),
+        };
+        appendAssistantMessage(statusMessage);
+
+        const { result: batchResult, undoHandlers } = await executeCommandBatch(
+          chatResult.actions,
+        );
+
+        const confirmMessageId = (Date.now() + 2).toString();
+        batchUndoHandlersRef.current[confirmMessageId] = undoHandlers;
+
+        setMessages((prev) => {
+          const withoutStatus = prev.filter((m) => m.id !== statusMessage.id);
+          return [
+            ...withoutStatus,
+            {
+              id: confirmMessageId,
+              role: "assistant",
+              content: batchResult.summary,
+              timestamp: new Date(),
+              batchCommandResult: batchResult,
+            },
+          ];
+        });
+        return;
+      }
+
       if (chatResult.type !== "conversation") {
         const execResult = await executeCommandAction(chatResult);
         commandHistoryRef.current = [];
@@ -1173,6 +1575,8 @@ Be conversational and helpful.`;
       if (entryContext && entryContext.type === "task") {
         categoryId = entryContext.bubbleId;
         parentEntryId = entryContext.id;
+      } else if (lifeAreaContext && !entryContext) {
+        categoryId = lifeAreaContext.categoryId;
       } else {
         categoryId = categories.find(
           c => c.name.toLowerCase() === plan.suggestedBubble.toLowerCase()
@@ -1254,8 +1658,34 @@ Be conversational and helpful.`;
         createdTaskIds.push(createdObjective.id);
         const objectiveId = createdObjective.id;
 
-        if (objective.projects && objective.projects.length > 0) {
-          for (const project of objective.projects) {
+        const projects = objective.projects || [];
+        const shouldFlattenProjects =
+          projects.length === 1 &&
+          projects[0].name.trim().toLowerCase() === "general";
+
+        if (shouldFlattenProjects) {
+          const tasksToCreate = projects[0].tasks || [];
+          for (const taskItem of tasksToCreate) {
+            const createdTask = await addTask({
+              title: taskItem.title,
+              description: taskItem.description || "",
+              type: "task" as TaskType,
+              categoryId,
+              parentId: objectiveId,
+              priority: taskItem.priority || "medium",
+              status: "pending",
+            });
+
+            if (!createdTask) {
+              console.error(`Failed to create task: ${taskItem.title}`);
+              failedCount++;
+              continue;
+            }
+            createdCount++;
+            createdTaskIds.push(createdTask.id);
+          }
+        } else if (projects.length > 0) {
+          for (const project of projects) {
             const createdProject = await addTask({
               title: project.name,
               description: "",
@@ -1679,6 +2109,29 @@ Be conversational and helpful.`;
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.role === "user";
     
+    if (!isUser && item.batchCommandResult) {
+      return (
+        <View style={[styles.messageContainer, styles.assistantMessageContainer]}>
+          <View
+            style={[
+              styles.messageBubble,
+              styles.assistantBubble,
+              { backgroundColor: theme.backgroundDefault },
+            ]}
+          >
+            <ThemedText style={styles.messageText}>{item.content}</ThemedText>
+            <CommandBatchSummary
+              result={item.batchCommandResult}
+              onUndoItem={(itemId) => handleBatchItemUndo(item.id, itemId)}
+              canUndoItem={(itemId) =>
+                Boolean(batchUndoHandlersRef.current[item.id]?.[itemId])
+              }
+            />
+          </View>
+        </View>
+      );
+    }
+
     if (!isUser && item.plan && !item.planImplemented) {
       const textContent = extractTextFromMessage(item.content);
       

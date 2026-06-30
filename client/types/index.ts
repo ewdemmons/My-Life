@@ -347,3 +347,109 @@ export interface SchedulePreference {
   categoryColor: string;
   blocks: SchedulePreferenceBlock[];
 }
+
+export interface AssessmentQAPair {
+  question: string;
+  answer: string;
+}
+
+export interface LifeAreaProfile {
+  id: string;
+  categoryId: string;
+  primaryGoal: string;
+  currentFocus: string[];
+  knownObstacles: string[];
+  currentState?: string;
+  motivations?: string;
+  successCriteria?: string;
+  rawAnswers: AssessmentQAPair[];
+  pendingQuestion?: string;
+  status: "not_started" | "in_progress" | "completed";
+  assessedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface LifeAreaProfileInput {
+  primaryGoal?: string;
+  currentFocus?: string[];
+  knownObstacles?: string[];
+  currentState?: string;
+  motivations?: string;
+  successCriteria?: string;
+  rawAnswers?: AssessmentQAPair[];
+  pendingQuestion?: string | null;
+  status?: LifeAreaProfile["status"];
+  assessedAt?: string | null;
+}
+
+export interface LifeAreaProfileSynthesis {
+  primaryGoal: string;
+  currentFocus: string[];
+  knownObstacles: string[];
+  currentState: string;
+  motivations: string;
+  successCriteria: string;
+}
+
+export type CoachInsightType =
+  | "positive_trend"
+  | "gap_or_drop_off"
+  | "accountability_nudge"
+  | "sparse_area_prompt"
+  | "detail_planning_suggestion"
+  | "daily_planning_tie_in";
+
+export type CoachInsightActionType =
+  | "command"
+  | "navigate_chat"
+  | "navigate_plan_generator";
+
+export type CoachInsightCommandType =
+  | "createEntry"
+  | "scheduleEvent"
+  | "createHabit"
+  | "logHabit"
+  | "pinEntry"
+  | "completeEntry";
+
+export interface CoachInsightCommand {
+  type: CoachInsightCommandType;
+  input: Record<string, unknown>;
+}
+
+export interface CoachInsightAction {
+  actionType: CoachInsightActionType;
+  label: string;
+  command?: CoachInsightCommand;
+  initialPrompt?: string;
+  openPlanningSession?: boolean;
+  initialDate?: string;
+}
+
+export interface CoachInsight {
+  id: string;
+  type: CoachInsightType;
+  text: string;
+  action?: CoachInsightAction;
+  relatedEntryIds?: string[];
+  relatedHabitIds?: string[];
+}
+
+export interface LifeAreaActivityWatermark {
+  entryCount: number;
+  activeHabitCount: number;
+  latestTaskMs: number;
+  latestOccurrenceMs: number;
+  latestEventMs: number;
+  profileUpdatedMs: number;
+  dailyPlanPresenceHash: string;
+}
+
+export interface LifeAreaInsightsCache {
+  id: string;
+  categoryId: string;
+  insights: CoachInsight[];
+  generatedAt: string;
+  activityWatermark: LifeAreaActivityWatermark;
+}

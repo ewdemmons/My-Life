@@ -28,6 +28,11 @@ export function canModifyEntriesInCategory(category: LifeCategory): boolean {
   return category.sharePermission !== "view";
 }
 
+/** True if the current user owns this Life Area (may edit Coach profile / retake assessment). */
+export function isLifeAreaOwner(category: LifeCategory): boolean {
+  return !category.isShared;
+}
+
 /**
  * True if the user may fully manage entries in this Life Area (not view-only).
  * User A (owner): owned bubbles (`!isShared`) or `ownerId` match.

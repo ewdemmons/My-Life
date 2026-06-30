@@ -1,5 +1,5 @@
 import { Plan } from "@/components/PlanPreview";
-import { EntryContext } from "@/navigation/RootStackNavigator";
+import { EntryContext, LifeAreaContext } from "@/navigation/RootStackNavigator";
 import {
   CalendarEvent,
   Habit,
@@ -28,6 +28,7 @@ export interface BuildAppContextParams {
   schedulePreferences: SchedulePreference[];
   refinementState?: RefinementContextState;
   entryContext?: EntryContext | null;
+  lifeAreaContext?: LifeAreaContext | null;
   /** When true, limits unpinned suggestion data to Task-type entries only (daily plan generator). */
   forDailyPlan?: boolean;
 }
@@ -54,6 +55,7 @@ export function buildAppContext(params: BuildAppContextParams): string {
     schedulePreferences,
     refinementState,
     entryContext,
+    lifeAreaContext,
     forDailyPlan = false,
   } = params;
 
@@ -297,6 +299,68 @@ When creating sub-entries or plans for this entry, create them as children under
       `;
   }
 
+  let lifeAreaContextInfo = "";
+  if (lifeAreaContext && !entryContext) {
+    const categoryTasks = tasks.filter((t) => t.categoryId === lifeAreaContext.categoryId);
+    const categoryHabits = habits.filter(
+      (h) => h.categoryId === lifeAreaContext.categoryId && h.isActive,
+    );
+
+    const entryLines =
+      categoryTasks.length > 0
+        ? categoryTasks
+            .slice(0, 15)
+            .map(
+              (t) =>
+                `- "${t.title}" (${formatEntryType(t.type)}, ${t.status}, ${t.priority} priority)`,
+            )
+            .join("\n")
+        : "None";
+
+    const habitLines =
+      categoryHabits.length > 0
+        ? categoryHabits
+            .map(
+              (h) =>
+                `- ${h.name} (${formatHabitType(h.habitType)}, ${formatFrequencyLabel(h.goalFrequency)})`,
+            )
+            .join("\n")
+        : "None";
+
+    const descriptionLine = lifeAreaContext.description?.trim()
+      ? `Description: ${lifeAreaContext.description.trim()}`
+      : "No description provided.";
+
+    let profileBlock = "";
+    if (lifeAreaContext.profile) {
+      const p = lifeAreaContext.profile;
+      profileBlock = `
+
+LIFE AREA COACH PROFILE:
+Primary Goal: ${p.primaryGoal || "Not set"}
+Current Focus: ${p.currentFocus.length > 0 ? p.currentFocus.join(", ") : "None"}
+Known Obstacles: ${p.knownObstacles.length > 0 ? p.knownObstacles.join(", ") : "None"}
+Current State: ${p.currentState || "Not set"}
+Motivations: ${p.motivations || "Not set"}
+Success Criteria: ${p.successCriteria || "Not set"}`;
+    }
+
+    lifeAreaContextInfo = `
+LIFE AREA FOCUS:
+Life Area: "${lifeAreaContext.name}" (id: ${lifeAreaContext.categoryId})
+${descriptionLine}
+
+Entries in this Life Area:
+${entryLines}
+
+Habits in this Life Area:
+${habitLines}${profileBlock}
+
+When creating new entries from this session, default to this Life Area unless the user specifies otherwise.
+You may mention the Coach profile assessment if it would help the user, but do not require or block on it.
+      `;
+  }
+
   const suggestedTasksBlock = forDailyPlan
     ? `
 
@@ -333,5 +397,6 @@ PEOPLE:
 ${peopleSection}${scheduleSection}
 ${refinementContext}
 ${entryContextInfo}
+${lifeAreaContextInfo}
   `.trim();
 }

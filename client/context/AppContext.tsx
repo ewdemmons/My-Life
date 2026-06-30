@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, useRef } from "react";
 import { Alert } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES, LifeAreaSchedule, LifeAreaScheduleInput, LifeAreaScheduleWithCategory } from "@/types";
+import { LifeCategory, Task, DeletedItem, CalendarEvent, Person, SharePermission, Habit, Occurrence, OccurrenceItemType, DEFAULT_NOTIFICATION_PREFERENCES, LifeAreaSchedule, LifeAreaScheduleInput, LifeAreaScheduleWithCategory, LifeAreaProfile, LifeAreaProfileInput, LifeAreaProfileSynthesis, AssessmentQAPair, LifeAreaInsightsCache, CoachInsight, LifeAreaActivityWatermark } from "@/types";
 import {
   applyBulkLifeAreaOwnerFilter,
   applyEntryOwnerFilter,
@@ -185,6 +185,30 @@ interface AppContextType {
   updateLifeAreaSchedule: (id: string, updates: Partial<LifeAreaScheduleInput>) => Promise<LifeAreaSchedule | null>;
   deleteLifeAreaSchedule: (id: string) => Promise<void>;
   getSchedulesForDay: (dayOfWeek: number) => Promise<LifeAreaScheduleWithCategory[]>;
+  lifeAreaProfiles: LifeAreaProfile[];
+  getLifeAreaProfile: (categoryId: string) => LifeAreaProfile | undefined;
+  saveLifeAreaAssessment: (
+    categoryId: string,
+    rawAnswers: AssessmentQAPair[],
+    synthesis: LifeAreaProfileSynthesis,
+  ) => Promise<LifeAreaProfile | null>;
+  updateLifeAreaProfile: (
+    categoryId: string,
+    updates: LifeAreaProfileInput,
+  ) => Promise<LifeAreaProfile | null>;
+  saveAssessmentProgress: (
+    categoryId: string,
+    rawAnswers: AssessmentQAPair[],
+    pendingQuestion: string | null,
+  ) => Promise<LifeAreaProfile | null>;
+  resetLifeAreaAssessment: (categoryId: string) => Promise<void>;
+  lifeAreaInsights: LifeAreaInsightsCache[];
+  getLifeAreaInsights: (categoryId: string) => LifeAreaInsightsCache | undefined;
+  saveLifeAreaInsights: (
+    categoryId: string,
+    insights: CoachInsight[],
+    activityWatermark: LifeAreaActivityWatermark,
+  ) => Promise<LifeAreaInsightsCache | null>;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -497,6 +521,69 @@ function mapScheduleInputToSupabase(input: Partial<LifeAreaScheduleInput>, userI
   return result;
 }
 
+function parseRawAnswers(value: unknown): AssessmentQAPair[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      question: String((item as AssessmentQAPair).question ?? ""),
+      answer: String((item as AssessmentQAPair).answer ?? ""),
+    }))
+    .filter((item) => item.question.trim() || item.answer.trim());
+}
+
+function mapSupabaseProfileToProfile(row: any): LifeAreaProfile {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    primaryGoal: row.primary_goal || "",
+    currentFocus: row.current_focus || [],
+    knownObstacles: row.known_obstacles || [],
+    currentState: row.current_state || undefined,
+    motivations: row.motivations || undefined,
+    successCriteria: row.success_criteria || undefined,
+    rawAnswers: parseRawAnswers(row.raw_answers),
+    pendingQuestion: row.pending_question || undefined,
+    status: row.status || "not_started",
+    assessedAt: row.assessed_at || undefined,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+function mapProfileInputToSupabase(input: Partial<LifeAreaProfileInput>) {
+  const result: any = {};
+  if (input.primaryGoal !== undefined) result.primary_goal = input.primaryGoal || null;
+  if (input.currentFocus !== undefined) result.current_focus = input.currentFocus;
+  if (input.knownObstacles !== undefined) result.known_obstacles = input.knownObstacles;
+  if (input.currentState !== undefined) result.current_state = input.currentState || null;
+  if (input.motivations !== undefined) result.motivations = input.motivations || null;
+  if (input.successCriteria !== undefined) result.success_criteria = input.successCriteria || null;
+  if (input.rawAnswers !== undefined) result.raw_answers = input.rawAnswers;
+  if (input.pendingQuestion !== undefined) result.pending_question = input.pendingQuestion;
+  if (input.status !== undefined) result.status = input.status;
+  if (input.assessedAt !== undefined) result.assessed_at = input.assessedAt;
+  return result;
+}
+
+function mapSupabaseInsightsToCache(row: any): LifeAreaInsightsCache {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    insights: Array.isArray(row.insights) ? row.insights : [],
+    generatedAt: row.generated_at,
+    activityWatermark: row.activity_watermark ?? {
+      entryCount: 0,
+      activeHabitCount: 0,
+      latestTaskMs: 0,
+      latestOccurrenceMs: 0,
+      latestEventMs: 0,
+      profileUpdatedMs: 0,
+      dailyPlanPresenceHash: "",
+    },
+  };
+}
+
 function mapSupabaseRecycleBinToDeletedItem(item: any): DeletedItem {
   return {
     id: item.id,
@@ -564,6 +651,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [occurrences, setOccurrences] = useState<Occurrence[]>([]);
   const [recycleBin, setRecycleBin] = useState<DeletedItem[]>([]);
   const [lifeAreaSchedules, setLifeAreaSchedules] = useState<LifeAreaSchedule[]>([]);
+  const [lifeAreaProfiles, setLifeAreaProfiles] = useState<LifeAreaProfile[]>([]);
+  const [lifeAreaInsights, setLifeAreaInsights] = useState<LifeAreaInsightsCache[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [globalSaveState, setGlobalSaveState] = useState<"idle" | "saving" | "error">("idle");
   const [globalSaveError, setGlobalSaveError] = useState<string | null>(null);
@@ -636,6 +725,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOccurrences([]);
     setRecycleBin([]);
     setLifeAreaSchedules([]);
+    setLifeAreaProfiles([]);
+    setLifeAreaInsights([]);
     setIsLoading(false);
   };
 
@@ -1021,7 +1112,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Store owned bubble IDs for realtime subscriptions
       ownedBubbleIdsRef.current = new Set(ownedBubbleIds);
 
-      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes, habitsRes, occurrencesRes, schedulesRes] = await Promise.all([
+      const [tasksInBubblesRes, userUncategorizedTasksRes, eventsInBubblesRes, userUncategorizedEventsRes, peopleRes, recycleBinRes, habitsRes, occurrencesRes, schedulesRes, profilesRes, insightsRes] = await Promise.all([
         // Fetch all tasks in bubbles the user owns or is shared with
         allRelevantBubbleIds.length > 0
           ? supabase.from("tasks").select("*").in("bubble_id", allRelevantBubbleIds).order("sort_order", { ascending: true }).order("created_at", { ascending: true })
@@ -1039,6 +1130,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         supabase.from("habits").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
         supabase.from("occurrences").select("*").eq("user_id", user.id).order("occurred_at", { ascending: false }),
         supabase.from("life_area_schedules").select("*").eq("user_id", user.id).order("created_at", { ascending: true }),
+        supabase.from("life_area_profiles").select("*").order("created_at", { ascending: true }),
+        supabase.from("life_area_insights").select("*").order("created_at", { ascending: true }),
       ]);
 
       const ownedCategories = bubblesRes.error ? [] : (bubblesRes.data || []).map(mapSupabaseBubbleToCategory);
@@ -1088,6 +1181,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       if (schedulesRes.error) console.warn("Error loading life area schedules:", schedulesRes.error.message);
       else setLifeAreaSchedules((schedulesRes.data || []).map(mapSupabaseScheduleToSchedule));
+
+      if (profilesRes.error) console.warn("Error loading life area profiles:", profilesRes.error.message);
+      else setLifeAreaProfiles((profilesRes.data || []).map(mapSupabaseProfileToProfile));
+
+      if (insightsRes.error) console.warn("Error loading life area insights:", insightsRes.error.message);
+      else setLifeAreaInsights((insightsRes.data || []).map(mapSupabaseInsightsToCache));
 
       await cleanupExpiredRecycleBin();
 
@@ -2880,6 +2979,140 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setLifeAreaSchedules((prev) => prev.filter((schedule) => schedule.id !== id));
   }, [user]);
 
+  const getLifeAreaProfile = useCallback((categoryId: string): LifeAreaProfile | undefined => {
+    return lifeAreaProfiles.find((profile) => profile.categoryId === categoryId);
+  }, [lifeAreaProfiles]);
+
+  const upsertLifeAreaProfileRow = useCallback(async (
+    categoryId: string,
+    input: Partial<LifeAreaProfileInput>,
+  ): Promise<LifeAreaProfile | null> => {
+    if (!user) return null;
+
+    const payload = {
+      user_id: user.id,
+      category_id: categoryId,
+      ...mapProfileInputToSupabase(input),
+    };
+
+    const { data, error } = await supabase
+      .from("life_area_profiles")
+      .upsert(payload, { onConflict: "user_id,category_id" })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    const profile = mapSupabaseProfileToProfile(data);
+    setLifeAreaProfiles((prev) => {
+      const without = prev.filter((p) => p.categoryId !== categoryId);
+      return [...without, profile];
+    });
+    return profile;
+  }, [user]);
+
+  const saveAssessmentProgress = useCallback(async (
+    categoryId: string,
+    rawAnswers: AssessmentQAPair[],
+    pendingQuestion: string | null,
+  ): Promise<LifeAreaProfile | null> => {
+    return upsertLifeAreaProfileRow(categoryId, {
+      rawAnswers,
+      pendingQuestion,
+      status: "in_progress",
+    });
+  }, [upsertLifeAreaProfileRow]);
+
+  const saveLifeAreaAssessment = useCallback(async (
+    categoryId: string,
+    rawAnswers: AssessmentQAPair[],
+    synthesis: LifeAreaProfileSynthesis,
+  ): Promise<LifeAreaProfile | null> => {
+    const assessedAt = new Date().toISOString();
+    return upsertLifeAreaProfileRow(categoryId, {
+      rawAnswers,
+      pendingQuestion: null,
+      primaryGoal: synthesis.primaryGoal,
+      currentFocus: synthesis.currentFocus,
+      knownObstacles: synthesis.knownObstacles,
+      currentState: synthesis.currentState,
+      motivations: synthesis.motivations,
+      successCriteria: synthesis.successCriteria,
+      status: "completed",
+      assessedAt,
+    });
+  }, [upsertLifeAreaProfileRow]);
+
+  const updateLifeAreaProfile = useCallback(async (
+    categoryId: string,
+    updates: LifeAreaProfileInput,
+  ): Promise<LifeAreaProfile | null> => {
+    return upsertLifeAreaProfileRow(categoryId, updates);
+  }, [upsertLifeAreaProfileRow]);
+
+  const resetLifeAreaAssessment = useCallback(async (categoryId: string) => {
+    if (!user) return;
+
+    const existing = lifeAreaProfiles.find((profile) => profile.categoryId === categoryId);
+    if (!existing) return;
+
+    const { error } = await supabase
+      .from("life_area_profiles")
+      .delete()
+      .eq("id", existing.id)
+      .eq("user_id", user.id);
+
+    if (error) throw new Error(error.message);
+
+    setLifeAreaProfiles((prev) => prev.filter((profile) => profile.id !== existing.id));
+
+    const existingInsights = lifeAreaInsights.find((i) => i.categoryId === categoryId);
+    if (existingInsights) {
+      await supabase
+        .from("life_area_insights")
+        .delete()
+        .eq("id", existingInsights.id)
+        .eq("user_id", user.id);
+      setLifeAreaInsights((prev) => prev.filter((i) => i.categoryId !== categoryId));
+    }
+  }, [user, lifeAreaProfiles, lifeAreaInsights]);
+
+  const getLifeAreaInsights = useCallback((categoryId: string): LifeAreaInsightsCache | undefined => {
+    return lifeAreaInsights.find((cache) => cache.categoryId === categoryId);
+  }, [lifeAreaInsights]);
+
+  const saveLifeAreaInsights = useCallback(async (
+    categoryId: string,
+    insights: CoachInsight[],
+    activityWatermark: LifeAreaActivityWatermark,
+  ): Promise<LifeAreaInsightsCache | null> => {
+    if (!user) return null;
+
+    const generatedAt = new Date().toISOString();
+    const payload = {
+      user_id: user.id,
+      category_id: categoryId,
+      insights,
+      generated_at: generatedAt,
+      activity_watermark: activityWatermark,
+    };
+
+    const { data, error } = await supabase
+      .from("life_area_insights")
+      .upsert(payload, { onConflict: "user_id,category_id" })
+      .select()
+      .single();
+
+    if (error) throw new Error(error.message);
+
+    const cache = mapSupabaseInsightsToCache(data);
+    setLifeAreaInsights((prev) => {
+      const without = prev.filter((c) => c.categoryId !== categoryId);
+      return [...without, cache];
+    });
+    return cache;
+  }, [user]);
+
   const getSchedulesForDay = useCallback(async (dayOfWeek: number): Promise<LifeAreaScheduleWithCategory[]> => {
     if (!user) return [];
 
@@ -2922,6 +3155,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       supabase.from("habits").delete().eq("user_id", user.id),
       supabase.from("occurrences").delete().eq("user_id", user.id),
       supabase.from("life_area_schedules").delete().eq("user_id", user.id),
+      supabase.from("life_area_profiles").delete().eq("user_id", user.id),
+      supabase.from("life_area_insights").delete().eq("user_id", user.id),
     ]);
 
     setTasks([]);
@@ -2931,6 +3166,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setOccurrences([]);
     setRecycleBin([]);
     setLifeAreaSchedules([]);
+    setLifeAreaProfiles([]);
+    setLifeAreaInsights([]);
   }, [user, events]);
 
   return (
@@ -2944,6 +3181,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         occurrences,
         recycleBin,
         lifeAreaSchedules,
+        lifeAreaProfiles,
+        lifeAreaInsights,
         isLoading,
         globalSaveState,
         globalSaveError,
@@ -2994,6 +3233,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         updateLifeAreaSchedule,
         deleteLifeAreaSchedule,
         getSchedulesForDay,
+        getLifeAreaProfile,
+        saveLifeAreaAssessment,
+        updateLifeAreaProfile,
+        saveAssessmentProgress,
+        resetLifeAreaAssessment,
+        getLifeAreaInsights,
+        saveLifeAreaInsights,
       }}
     >
       {children}

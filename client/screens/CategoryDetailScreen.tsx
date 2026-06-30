@@ -17,7 +17,8 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
-import { RootStackParamList } from "@/navigation/RootStackNavigator";
+import { RootStackParamList, CategoryDetailTab } from "@/navigation/RootStackNavigator";
+import { LifeAreaCoachTab } from "@/components/coach/LifeAreaCoachTab";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
 import QuickListModal from "@/components/QuickListModal";
 import { BriefToast } from "@/components/BriefToast";
@@ -31,7 +32,7 @@ import { AddHabitModal } from "@/components/AddHabitModal";
 import { getLocalDateString } from "@/utils/planUtils";
 import { TASK_TYPES, TaskType, EVENT_TYPES, CalendarEvent, ShareRecord, Person, Task, Habit } from "@/types";
 import { isRecurringEvent } from "@/utils/recurrence";
-import { canModifyEntriesInCategory } from "@/lib/permissions";
+import { canModifyEntriesInCategory, isLifeAreaOwner } from "@/lib/permissions";
 
 const TASK_TYPE_COLORS: Record<TaskType, string> = {
   goal: "#FF6B6B",
@@ -47,12 +48,12 @@ const TASK_TYPE_COLORS: Record<TaskType, string> = {
 };
 
 type RouteParams = RouteProp<RootStackParamList, "CategoryDetail">;
-type TabType = "entries" | "calendar" | "dashboard" | "people" | "habits";
+type TabType = CategoryDetailTab;
 
 const TABS: { key: TabType; label: string; icon: string }[] = [
   { key: "entries", label: "Entries", icon: "list" },
   { key: "calendar", label: "Calendar", icon: "calendar" },
-  { key: "dashboard", label: "Dashboard", icon: "pie-chart" },
+  { key: "coach", label: "Coach", icon: "zap" },
   { key: "people", label: "People", icon: "users" },
   { key: "habits", label: "Habits", icon: "activity" },
 ];
@@ -63,7 +64,7 @@ export default function CategoryDetailScreen() {
   const { theme, isDark } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteParams>();
-  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem, lifeAreaSchedules } = useApp();
+  const { getTasksByCategory, events, deleteEvent, deleteEventSeries, updateCategory, categories, people, habits, addHabit, updateHabit, deleteHabit, addOccurrence, getOccurrencesForItem, lifeAreaSchedules, getLifeAreaProfile, isLoading } = useApp();
   const { toastState, toastMessage: saveToastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500 });
 
@@ -72,6 +73,7 @@ export default function CategoryDetailScreen() {
   const category = categoryFromState || route.params.category;
   const initialTaskId = route.params.initialTaskId;
   const initialEventId = route.params.initialEventId;
+  const initialTab = route.params.initialTab;
   
   if (!category) {
     return (
@@ -83,6 +85,7 @@ export default function CategoryDetailScreen() {
   }
   
   const [activeTab, setActiveTab] = useState<TabType>(() => {
+    if (initialTab) return initialTab;
     if (initialEventId) return "calendar";
     return "entries";
   });
@@ -105,6 +108,8 @@ export default function CategoryDetailScreen() {
   const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const categoryTasks = getTasksByCategory(category.id);
   const canModifyEntries = canModifyEntriesInCategory(category);
+  const isOwner = isLifeAreaOwner(category);
+  const lifeAreaProfile = getLifeAreaProfile(category.id);
 
   useEffect(() => {
     return () => {
@@ -255,34 +260,6 @@ export default function CategoryDetailScreen() {
     return { tasks, events: evts };
   }, [categoryTasks, categoryEvents]);
 
-  const dashboardStats = useMemo(() => {
-    return TASK_TYPES.map(type => {
-      const tasksOfType = categoryTasks.filter(t => t.type === type.value);
-      const openTasks = tasksOfType.filter(t => t.status !== "completed");
-      const completedTasks = tasksOfType.filter(t => t.status === "completed");
-      const inProgressTasks = tasksOfType.filter(t => t.status === "in_progress");
-      const typeColor = TASK_TYPE_COLORS[type.value];
-      const completionRate = tasksOfType.length > 0 
-        ? Math.round((completedTasks.length / tasksOfType.length) * 100) 
-        : 0;
-
-      return {
-        type,
-        typeColor,
-        total: tasksOfType.length,
-        open: openTasks.length,
-        completed: completedTasks.length,
-        inProgress: inProgressTasks.length,
-        completionRate,
-      };
-    }).filter(s => s.total > 0);
-  }, [categoryTasks]);
-
-  const handleDashboardTypePress = (type: TaskType) => {
-    setSelectedType(type);
-    setActiveTab("entries");
-  };
-
   const getInitials = (name: string) => {
     return name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2);
   };
@@ -358,86 +335,6 @@ export default function CategoryDetailScreen() {
       embedded
       showTimeWindows
     />
-  );
-
-  const renderDashboardTab = () => (
-    <ScrollView
-      style={styles.dashboardContainer}
-      contentContainerStyle={{ paddingBottom: insets.bottom + Spacing.xl }}
-    >
-      <ThemedText style={styles.dashboardSectionTitle}>Entry Summaries</ThemedText>
-      {dashboardStats.length > 0 ? (
-        <View style={styles.dashboardGrid}>
-          {dashboardStats.map(stat => (
-            <Pressable
-              key={stat.type.value}
-              style={[styles.dashboardCard, { backgroundColor: theme.backgroundDefault }]}
-              onPress={() => handleDashboardTypePress(stat.type.value)}
-            >
-              <View style={[styles.dashboardIconContainer, { backgroundColor: stat.typeColor + "20" }]}>
-                <Feather name={stat.type.icon as any} size={24} color={stat.typeColor} />
-              </View>
-              <ThemedText style={styles.dashboardCardTitle}>{stat.type.label}s</ThemedText>
-              <View style={styles.dashboardStats}>
-                <View style={styles.dashboardStatRow}>
-                  <ThemedText style={[styles.dashboardStatLabel, { color: theme.textSecondary }]}>
-                    Open
-                  </ThemedText>
-                  <ThemedText style={[styles.dashboardStatValue, { color: stat.typeColor }]}>
-                    {stat.open}
-                  </ThemedText>
-                </View>
-                <View style={styles.dashboardStatRow}>
-                  <ThemedText style={[styles.dashboardStatLabel, { color: theme.textSecondary }]}>
-                    Total
-                  </ThemedText>
-                  <ThemedText style={styles.dashboardStatValue}>{stat.total}</ThemedText>
-                </View>
-                <View style={styles.dashboardStatRow}>
-                  <ThemedText style={[styles.dashboardStatLabel, { color: theme.textSecondary }]}>
-                    Completed
-                  </ThemedText>
-                  <ThemedText style={[styles.dashboardStatValue, { color: theme.success }]}>
-                    {stat.completed}
-                  </ThemedText>
-                </View>
-                {stat.inProgress > 0 ? (
-                  <View style={styles.dashboardStatRow}>
-                    <ThemedText style={[styles.dashboardStatLabel, { color: theme.textSecondary }]}>
-                      In Progress
-                    </ThemedText>
-                    <ThemedText style={[styles.dashboardStatValue, { color: theme.warning }]}>
-                      {stat.inProgress}
-                    </ThemedText>
-                  </View>
-                ) : null}
-                <View style={[styles.progressBar, { backgroundColor: theme.border }]}>
-                  <View 
-                    style={[
-                      styles.progressBarFill, 
-                      { width: `${stat.completionRate}%`, backgroundColor: theme.success }
-                    ]} 
-                  />
-                </View>
-              </View>
-              <View style={styles.dashboardCardFooter}>
-                <ThemedText style={[styles.dashboardCardCta, { color: category.color }]}>
-                  View All
-                </ThemedText>
-                <Feather name="chevron-right" size={14} color={category.color} />
-              </View>
-            </Pressable>
-          ))}
-        </View>
-      ) : (
-        <View style={styles.emptyDashboard}>
-          <Feather name="inbox" size={48} color={theme.textSecondary} />
-          <ThemedText style={[styles.emptyText, { color: theme.textSecondary }]}>
-            No entries yet. Add your first entry to see summaries here.
-          </ThemedText>
-        </View>
-      )}
-    </ScrollView>
   );
 
   const renderPersonCard = ({ item }: { item: Person }) => {
@@ -699,7 +596,15 @@ export default function CategoryDetailScreen() {
       <View style={{ flex: 1 }}>
         {activeTab === "entries" ? renderEntriesTab() : null}
         {activeTab === "calendar" ? renderCalendarTab() : null}
-        {activeTab === "dashboard" ? renderDashboardTab() : null}
+        {activeTab === "coach" ? (
+          <LifeAreaCoachTab
+            category={category}
+            profile={lifeAreaProfile}
+            isOwner={isOwner}
+            canModifyEntries={canModifyEntries}
+            isLoading={isLoading}
+          />
+        ) : null}
         {activeTab === "people" ? renderPeopleTab() : null}
         {activeTab === "habits" ? <HabitsList categoryId={category.id} /> : null}
       </View>
@@ -1060,81 +965,6 @@ const styles = StyleSheet.create({
   },
   taskList: {
     flex: 1,
-  },
-  dashboardContainer: {
-    flex: 1,
-    paddingHorizontal: Spacing.lg,
-    paddingTop: Spacing.md,
-  },
-  dashboardSectionTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    marginBottom: Spacing.md,
-  },
-  dashboardGrid: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: Spacing.sm,
-  },
-  dashboardCard: {
-    width: "48%",
-    padding: Spacing.md,
-    borderRadius: BorderRadius.md,
-  },
-  dashboardIconContainer: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.sm,
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: Spacing.sm,
-  },
-  dashboardCardTitle: {
-    fontSize: 16,
-    fontWeight: "600",
-    marginBottom: Spacing.sm,
-  },
-  dashboardStats: {
-    gap: Spacing.xs,
-  },
-  dashboardStatRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-  },
-  dashboardStatLabel: {
-    fontSize: 12,
-  },
-  dashboardStatValue: {
-    fontSize: 14,
-    fontWeight: "600",
-  },
-  dashboardCardFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "flex-end",
-    marginTop: Spacing.sm,
-    gap: 4,
-  },
-  dashboardCardCta: {
-    fontSize: 12,
-    fontWeight: "600",
-  },
-  progressBar: {
-    height: 4,
-    borderRadius: 2,
-    marginTop: Spacing.sm,
-    overflow: "hidden",
-  },
-  progressBarFill: {
-    height: "100%",
-    borderRadius: 2,
-  },
-  emptyDashboard: {
-    flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: Spacing.xxl,
   },
   emptyText: {
     fontSize: 14,

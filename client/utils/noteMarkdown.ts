@@ -21,6 +21,11 @@ export interface InlineSegment {
   text: string;
 }
 
+export interface DescriptionSegment {
+  text: string;
+  url?: string;
+}
+
 export interface PreviewBlock {
   type: "paragraph" | "heading" | "bullet" | "numbered" | "divider";
   segments: InlineSegment[];
@@ -191,6 +196,47 @@ function parseInlineSegments(line: string): InlineSegment[] {
 
   if (segments.length === 0 && line.length > 0) {
     segments.push({ type: "plain", text: line });
+  }
+
+  return segments;
+}
+
+export function parseDescriptionLinks(text: string): DescriptionSegment[] {
+  const combinedPattern =
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)|(https?:\/\/[^\s)\]]+)/g;
+
+  const segments: DescriptionSegment[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = combinedPattern.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({
+        text: text.substring(lastIndex, match.index),
+      });
+    }
+
+    if (match[1] !== undefined && match[2] !== undefined) {
+      segments.push({
+        text: match[1],
+        url: match[2],
+      });
+    } else if (match[3] !== undefined) {
+      segments.push({
+        text: match[3],
+        url: match[3],
+      });
+    }
+
+    lastIndex = match.index + match[0].length;
+  }
+
+  if (lastIndex < text.length) {
+    segments.push({ text: text.substring(lastIndex) });
+  }
+
+  if (segments.length === 0) {
+    segments.push({ text });
   }
 
   return segments;

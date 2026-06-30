@@ -95,7 +95,7 @@ export async function executeCreateEntry(
       isPinned,
       excludeFromPlan,
       description: input.description ?? "",
-      parentId: null,
+      parentId: input.parentId ?? null,
       status: "pending",
     });
 

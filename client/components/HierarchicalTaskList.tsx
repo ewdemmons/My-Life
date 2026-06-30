@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useCallback, createContext, useContext, useEffect, useRef } from "react";
-import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput, Text, Animated as RNAnimated, FlatList, StyleProp, ViewStyle } from "react-native";
+import { View, StyleSheet, Pressable, Alert, Platform, Modal, Dimensions, TextInput, Text, Animated as RNAnimated, FlatList, StyleProp, ViewStyle, Linking } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -38,6 +38,7 @@ import { Task, TaskHierarchy, TaskType, TASK_TYPES, getTaskTypeInfo } from "@/ty
 import { RootStackParamList, EntryContext } from "@/navigation/RootStackNavigator";
 import { syncCompleteUntilReminder } from "@/utils/completeUntilUtils";
 import { getLocalDateString } from "@/utils/planUtils";
+import { parseDescriptionLinks } from "@/utils/noteMarkdown";
 
 function isTemporarilyComplete(task: Task): boolean {
   if (task.completionType !== "until" || !task.completionDate) return false;
@@ -1935,7 +1936,26 @@ function TaskItem({
                 selectable
                 style={[styles.description, { color: isDark ? "#9CA3AF" : "#6B7280" }]}
               >
-                {task.description}
+                {parseDescriptionLinks(task.description).map((segment, index) =>
+                  segment.url ? (
+                    <Text
+                      key={index}
+                      style={[styles.descriptionLink, { color: theme.primary }]}
+                      onPress={() => {
+                        Linking.openURL(segment.url!).catch(() => {
+                          Alert.alert(
+                            "Couldn't open link",
+                            "This link could not be opened."
+                          );
+                        });
+                      }}
+                    >
+                      {segment.text}
+                    </Text>
+                  ) : (
+                    <Text key={index}>{segment.text}</Text>
+                  )
+                )}
               </Text>
             ) : null}
             {canModifyEntries ? (
@@ -2609,6 +2629,9 @@ const styles = StyleSheet.create({
     fontSize: 14,
     lineHeight: 20,
     marginBottom: Spacing.sm,
+  },
+  descriptionLink: {
+    textDecorationLine: "underline",
   },
   actions: {
     flexDirection: "row",

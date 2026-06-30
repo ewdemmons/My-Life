@@ -13,10 +13,12 @@ import NotificationsScreen from "@/screens/NotificationsScreen";
 import CentralDashboardScreen from "@/screens/CentralDashboardScreen";
 import AssistantChatScreen from "@/screens/AssistantChatScreen";
 import DailyPlanGeneratorScreen from "@/screens/DailyPlanGeneratorScreen";
+import LifeAreaAssessmentScreen from "@/screens/LifeAreaAssessmentScreen";
+import LifeAreaProfileEditScreen from "@/screens/LifeAreaProfileEditScreen";
 import { useScreenOptions } from "@/hooks/useScreenOptions";
 import { useAuth } from "@/context/AuthContext";
 import { useTheme } from "@/hooks/useTheme";
-import { LifeCategory, Task } from "@/types";
+import { LifeCategory, Task, LifeAreaProfile } from "@/types";
 import { NavigatorScreenParams } from "@react-navigation/native";
 import { MainTabParamList } from "@/navigation/MainTabNavigator";
 
@@ -34,9 +36,34 @@ export type EntryContext = {
   description?: string;
 };
 
+export type LifeAreaContextProfile = Pick<
+  LifeAreaProfile,
+  | "primaryGoal"
+  | "currentFocus"
+  | "knownObstacles"
+  | "currentState"
+  | "motivations"
+  | "successCriteria"
+>;
+
+export type LifeAreaContext = {
+  categoryId: string;
+  name: string;
+  description?: string;
+  profile?: LifeAreaContextProfile;
+};
+
+export type CategoryDetailTab = "entries" | "calendar" | "coach" | "people" | "habits";
+
 export type RootStackParamList = {
   Main: NavigatorScreenParams<MainTabParamList> | undefined;
-  CategoryDetail: { category?: LifeCategory; categoryId?: string; initialTaskId?: string; initialEventId?: string };
+  CategoryDetail: {
+    category?: LifeCategory;
+    categoryId?: string;
+    initialTaskId?: string;
+    initialEventId?: string;
+    initialTab?: CategoryDetailTab;
+  };
   AddCategory: { category?: LifeCategory; scrollToPreferredTimes?: boolean };
   AddTask: {
     categoryId?: string;
@@ -47,8 +74,15 @@ export type RootStackParamList = {
   };
   Notifications: undefined;
   CentralDashboard: { initialTab?: "profile" | "wheel" | "bin" | "dashboard" } | undefined;
-  AssistantChat: { entryContext?: EntryContext };
+  AssistantChat: {
+    entryContext?: EntryContext;
+    lifeAreaContext?: LifeAreaContext;
+    openPlanningSession?: boolean;
+    initialPrompt?: string;
+  };
   DailyPlanGenerator: { initialDate?: string };
+  LifeAreaAssessment: { categoryId: string; isRetake?: boolean };
+  LifeAreaProfileEdit: { categoryId: string; fromAssessment?: boolean };
 };
 
 export type PostSignUpStackParamList = {
@@ -117,6 +151,20 @@ function MainAppNavigator() {
         component={DailyPlanGeneratorScreen}
         options={{
           headerShown: false,
+        }}
+      />
+      <Stack.Screen
+        name="LifeAreaAssessment"
+        component={LifeAreaAssessmentScreen}
+        options={{
+          headerTitle: "Assessment",
+        }}
+      />
+      <Stack.Screen
+        name="LifeAreaProfileEdit"
+        component={LifeAreaProfileEditScreen}
+        options={{
+          headerTitle: "Coach Profile",
         }}
       />
     </Stack.Navigator>

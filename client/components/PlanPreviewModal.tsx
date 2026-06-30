@@ -282,13 +282,31 @@ export function PlanPreviewModal({
 
           <View style={[styles.treeContainer, { backgroundColor: theme.backgroundDefault }]}>
             {plan.objectives.map((objective, objIndex) => {
-              const hasProjects = objective.projects && objective.projects.length > 0;
-              const hasDirectTasks = objective.tasks && objective.tasks.length > 0;
-              const childCount = hasProjects 
-                ? objective.projects!.length 
-                : hasDirectTasks 
-                  ? objective.tasks!.length 
-                  : 0;
+              const isSingleGeneralProject =
+                objective.projects &&
+                objective.projects.length === 1 &&
+                objective.projects[0].name.trim().toLowerCase() === "general";
+
+              const flattenedTasks = isSingleGeneralProject
+                ? objective.projects![0].tasks
+                : null;
+
+              const hasProjects =
+                !isSingleGeneralProject &&
+                objective.projects &&
+                objective.projects.length > 0;
+
+              const hasDirectTasks =
+                (objective.tasks && objective.tasks.length > 0) ||
+                (flattenedTasks && flattenedTasks.length > 0);
+
+              const childCount = hasProjects
+                ? objective.projects!.length
+                : flattenedTasks
+                  ? flattenedTasks.length
+                  : objective.tasks
+                    ? objective.tasks.length
+                    : 0;
               
               return (
                 <TreeNode
@@ -325,7 +343,7 @@ export function PlanPreviewModal({
                       </TreeNode>
                     );
                   })}
-                  {hasDirectTasks && objective.tasks!.map((task, taskIndex) => (
+                  {hasDirectTasks && (flattenedTasks ?? objective.tasks!).map((task, taskIndex) => (
                     <TreeNode
                       key={`direct-${taskIndex}`}
                       type="task"

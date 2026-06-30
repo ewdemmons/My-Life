@@ -95,6 +95,7 @@ export function TaskCompletionModal({ visible, task, onClose, onComplete }: Task
           completionType: "until",
           completionDate: untilStr,
           status: "pending",
+          isPinned: false,
         });
       } else {
         completeUntilDateForReminder = null;

@@ -2,7 +2,7 @@
   "expo": {
     "name": "My Life",
     "slug": "my-life",
-    "version": "1.0.2",
+    "version": "1.0.3",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "mylife",
@@ -11,7 +11,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.ed.mylife.app",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "appleTeamId": "3888TK6P5C",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false
