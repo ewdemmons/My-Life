@@ -16,6 +16,7 @@ interface MasterListSortSheetProps {
   selected: MasterListSortOption;
   onSelect: (option: MasterListSortOption) => void;
   onClose: () => void;
+  options?: typeof SORT_OPTIONS;
 }
 
 export function MasterListSortSheet({
@@ -23,9 +24,11 @@ export function MasterListSortSheet({
   selected,
   onSelect,
   onClose,
+  options,
 }: MasterListSortSheetProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const displayOptions = options ?? SORT_OPTIONS;
 
   return (
     <Modal
@@ -46,7 +49,7 @@ export function MasterListSortSheet({
         </View>
 
         <View style={[styles.content, { paddingBottom: insets.bottom + Spacing.xl }]}>
-          {SORT_OPTIONS.map((option) => {
+          {displayOptions.map((option) => {
             const isSelected = selected === option.value;
             return (
               <Pressable

@@ -16,7 +16,6 @@ import { AddPersonModal } from "@/components/AddPersonModal";
 import { AddHabitModal } from "@/components/AddHabitModal";
 import { NotificationBell } from "@/components/NotificationBell";
 import { useTheme } from "@/hooks/useTheme";
-import { HeaderTitle } from "@/components/HeaderTitle";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { useApp } from "@/context/AppContext";
 
@@ -122,10 +121,10 @@ export default function MainTabNavigator() {
           name="TasksTab"
           component={TasksScreen}
           options={{
-            title: "Tasks",
-            headerTitle: "Tasks",
+            title: "Entries",
+            headerTitle: "Entries",
             tabBarIcon: ({ color, size }) => (
-              <Feather name="check-square" size={size} color={color} />
+              <Feather name="list" size={size} color={color} />
             ),
           }}
         />
@@ -165,7 +164,7 @@ export default function MainTabNavigator() {
       </Tab.Navigator>
       <FAB
         ref={fabRef}
-        hideFloatingButton={isHomeTab}
+        hideFloatingButton={true}
         onAddCategory={handleAddCategory}
         onAddTask={handleAddTask}
         onAddEvent={handleAddEvent}

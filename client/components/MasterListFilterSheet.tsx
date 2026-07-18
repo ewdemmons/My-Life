@@ -19,6 +19,7 @@ interface MasterListFilterSheetProps {
   categories: LifeCategory[];
   onChange: (filters: MasterListFilters) => void;
   onClose: () => void;
+  variant?: "masterList" | "entries";
 }
 
 type PriorityFilter = MasterListFilters["priority"];
@@ -37,15 +38,22 @@ const STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
   { value: "in_progress", label: "In Progress" },
 ];
 
+const ENTRIES_STATUS_OPTIONS: { value: StatusFilter; label: string }[] = [
+  ...STATUS_OPTIONS,
+  { value: "completed", label: "Completed" },
+];
+
 export function MasterListFilterSheet({
   visible,
   filters,
   categories,
   onChange,
   onClose,
+  variant = "masterList",
 }: MasterListFilterSheetProps) {
   const insets = useSafeAreaInsets();
   const { theme } = useTheme();
+  const statusOptions = variant === "entries" ? ENTRIES_STATUS_OPTIONS : STATUS_OPTIONS;
 
   const toggleLifeArea = (categoryId: string) => {
     const isSelected = filters.lifeAreaIds.includes(categoryId);
@@ -172,7 +180,7 @@ export function MasterListFilterSheet({
               Status
             </ThemedText>
             <View style={styles.pillRow}>
-              {STATUS_OPTIONS.map((option) => {
+              {statusOptions.map((option) => {
                 const isSelected = filters.status === option.value;
                 return (
                   <Pressable

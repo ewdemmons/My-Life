@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { View, StyleSheet, Image, Pressable, ActivityIndicator } from "react-native";
+import { View, StyleSheet, Image, Pressable, ActivityIndicator, ScrollView } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, CommonActions } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -9,7 +9,9 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography, Colors } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { createDefaultLifeWheel } from "@/lib/defaultLifeWheel";
+import { seedStarterContent } from "@/lib/starterContent";
 import type { PostSignUpStackParamList } from "@/navigation/RootStackNavigator";
 
 const appIcon = require("../../../assets/images/icon.png");
@@ -23,7 +25,8 @@ export default function OnboardingIntroScreen() {
   const { theme: systemTheme } = useTheme();
   const theme = Colors.dark;
   const navigation = useNavigation<NavigationProp>();
-  const { addCategory, categories } = useApp();
+  const { addCategory, addTask, addHabit, categories } = useApp();
+  const { user } = useAuth();
   const [isSkipping, setIsSkipping] = useState(false);
 
   const handleLetsBegin = () => {
@@ -33,7 +36,17 @@ export default function OnboardingIntroScreen() {
   const handleSkipForNow = async () => {
     setIsSkipping(true);
     try {
-      await createDefaultLifeWheel(addCategory, categories);
+      const freshCategories = await createDefaultLifeWheel(addCategory, categories);
+      try {
+        await seedStarterContent(
+          freshCategories,
+          addTask,
+          addHabit,
+          user?.id ?? "",
+        );
+      } catch {
+        // Fail silently — never block navigation to Main
+      }
       await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, "true");
       await AsyncStorage.removeItem(PENDING_ONBOARDING_KEY);
       navigation.dispatch(
@@ -59,8 +72,8 @@ export default function OnboardingIntroScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
-      <View
-        style={[
+      <ScrollView
+        contentContainerStyle={[
           styles.content,
           {
             paddingTop: insets.top + Spacing.xxl,
@@ -68,6 +81,9 @@ export default function OnboardingIntroScreen() {
             paddingHorizontal: Spacing.xl,
           },
         ]}
+        showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        bounces={false}
       >
         <View style={styles.logoSection}>
           <Image source={appIcon} style={styles.appIcon} />
@@ -79,9 +95,9 @@ export default function OnboardingIntroScreen() {
             Let's get you started
           </ThemedText>
           <ThemedText style={[styles.bodyText, { color: theme.textSecondary }]}>
-            Before you dive in, we'd love to learn a little about you. We'll ask you a few quick
-            questions to build your Life Wheel, add some starter entries, and help your Life Coach
-            get to know you. It only takes about 2 minutes.
+            Before we dive in, we'll do a quick Q&A to set up your Life Areas, add some starter
+            entries, and help your Life Coach get to know what's going on in your world. It only
+            takes about 2 minutes.
           </ThemedText>
         </View>
 
@@ -109,7 +125,7 @@ export default function OnboardingIntroScreen() {
             )}
           </Pressable>
         </View>
-      </View>
+      </ScrollView>
     </View>
   );
 }
@@ -119,7 +135,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   content: {
-    flex: 1,
+    flexGrow: 1,
     justifyContent: "center",
     alignItems: "center",
   },

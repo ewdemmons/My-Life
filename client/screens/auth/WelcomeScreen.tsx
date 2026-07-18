@@ -14,25 +14,25 @@ const appIcon = require("../../../assets/images/icon.png");
 
 const FEATURE_CARDS = [
   {
+    icon: "layers" as const,
+    iconBg: "dark" as const,
+    title: "Life Balance",
+    description:
+      "Create dedicated spaces for important areas of your life. Each organized its own way, all connected in a unified view of your life — the way YOU see it.",
+  },
+  {
     icon: "check-square" as const,
     iconBg: "primary" as const,
-    title: "Productivity & Organization",
+    title: "Organization & Planning",
     description:
-      "Capture tasks and manage everything on your plate — with custom hierarchies, scheduling, and reminders that keep you on track.",
+      "Capture tasks, make lists, manage projects, schedule events, and generate daily plans. Use voice commands to capture anything instantly.",
   },
   {
     icon: "target" as const,
     iconBg: "success" as const,
     title: "Personal Growth",
     description:
-      "Build accountability through habit tracking, set meaningful goals and let your AI Life Coach turn ambitions into step-by-step action plans.",
-  },
-  {
-    icon: "layers" as const,
-    iconBg: "dark" as const,
-    title: "Life Balance",
-    description:
-      "Visualize your life based on what matters most to you. Manage your priorities, relationships, passions, and schedule — all in one place.",
+      "Track habits and turn goals into detailed action plans. Get guidance from an AI Coach that learns what you want from every area of your life — and holds you to it.",
   },
 ] as const;
 
@@ -55,7 +55,7 @@ export default function WelcomeScreen() {
         style={styles.scroll}
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingTop: insets.top + Spacing.xxl, paddingBottom: insets.bottom + Spacing.xl },
+          { paddingTop: insets.top, paddingBottom: insets.bottom },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -69,35 +69,54 @@ export default function WelcomeScreen() {
           </View>
 
           <View style={styles.cardsSection}>
-            {FEATURE_CARDS.map((card) => (
-              <View
-                key={card.title}
-                style={[styles.featureCard, { backgroundColor: theme.backgroundDefault }]}
-              >
-                <View
-                  style={[
-                    styles.cardIconWrap,
-                    { backgroundColor: getIconBg(card.iconBg) },
-                  ]}
-                >
-                  <Feather
-                    name={card.icon}
-                    size={22}
-                    color={card.iconBg === "dark" ? theme.text : "#FFFFFF"}
-                  />
-                </View>
-                <View style={styles.cardTextWrap}>
-                  <ThemedText style={[styles.cardTitle, { color: theme.text }]}>
-                    {card.title}
-                  </ThemedText>
-                  <ThemedText
-                    style={[styles.cardDescription, { color: theme.textSecondary }]}
+            <View style={[styles.cardsGroup, { borderColor: theme.border }]}>
+              {FEATURE_CARDS.map((card, index) => (
+                <React.Fragment key={card.title}>
+                  <View
+                    style={[
+                      styles.featureCard,
+                      { backgroundColor: theme.backgroundDefault },
+                      index === 0 && {
+                        borderTopLeftRadius: BorderRadius.sm,
+                        borderTopRightRadius: BorderRadius.sm,
+                      },
+                      index === FEATURE_CARDS.length - 1 && {
+                        borderBottomLeftRadius: BorderRadius.sm,
+                        borderBottomRightRadius: BorderRadius.sm,
+                      },
+                    ]}
                   >
-                    {card.description}
-                  </ThemedText>
-                </View>
-              </View>
-            ))}
+                    <View
+                      style={[
+                        styles.cardIconWrap,
+                        { backgroundColor: getIconBg(card.iconBg) },
+                      ]}
+                    >
+                      <Feather
+                        name={card.icon}
+                        size={18}
+                        color={card.iconBg === "dark" ? theme.text : "#FFFFFF"}
+                      />
+                    </View>
+                    <View style={styles.cardTextWrap}>
+                      <ThemedText style={[styles.cardTitle, { color: theme.text }]}>
+                        {card.title}
+                      </ThemedText>
+                      <ThemedText
+                        style={[styles.cardDescription, { color: theme.textSecondary }]}
+                      >
+                        {card.description}
+                      </ThemedText>
+                    </View>
+                  </View>
+                  {index < FEATURE_CARDS.length - 1 && (
+                    <View
+                      style={[styles.cardDivider, { backgroundColor: theme.border }]}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
+            </View>
           </View>
         </View>
 
@@ -134,41 +153,58 @@ const styles = StyleSheet.create({
   },
   scrollContent: {
     flexGrow: 1,
+    justifyContent: "space-between",
   },
   content: {
-    paddingBottom: Spacing.xl,
+    flex: 1,
+    paddingBottom: Spacing.sm,
   },
   logoSection: {
     alignItems: "center",
-    marginTop: Spacing.xxl * 2,
+    marginTop: Spacing.xl,
   },
   appIcon: {
-    width: 120,
-    height: 120,
+    width: 96,
+    height: 96,
     borderRadius: BorderRadius.lg,
-    marginBottom: Spacing.lg,
+    marginBottom: Spacing.sm,
   },
   appName: {
     ...Typography.h1,
+    fontSize: 22,
     marginBottom: Spacing.xs,
   },
   tagline: {
-    ...Typography.h3,
+    fontSize: 15,
+    fontWeight: "600",
   },
   cardsSection: {
-    marginTop: Spacing.xxl,
-    gap: Spacing.md,
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "stretch",
+    marginTop: Spacing.md,
+    gap: 0,
+  },
+  cardsGroup: {
+    borderRadius: BorderRadius.sm,
+    borderWidth: 0.5,
+    overflow: "hidden",
   },
   featureCard: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    padding: Spacing.lg,
-    borderRadius: BorderRadius.sm,
+    alignItems: "center",
+    padding: Spacing.md,
     gap: Spacing.md,
+    flex: 1,
+    borderWidth: 0.5,
+    borderColor: "transparent",
+  },
+  cardDivider: {
+    height: 0.5,
   },
   cardIconWrap: {
-    width: 44,
-    height: 44,
+    width: 36,
+    height: 36,
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
@@ -178,7 +214,7 @@ const styles = StyleSheet.create({
   },
   cardTitle: {
     ...Typography.h3,
-    fontSize: 16,
+    fontSize: 15,
     marginBottom: Spacing.xs,
   },
   cardDescription: {
@@ -187,11 +223,11 @@ const styles = StyleSheet.create({
     lineHeight: 20,
   },
   buttonSection: {
-    gap: Spacing.md,
-    paddingBottom: Spacing.xl,
+    gap: Spacing.sm,
+    paddingBottom: Spacing.sm,
   },
   primaryButton: {
-    height: Spacing.buttonHeight,
+    height: 44,
     borderRadius: BorderRadius.sm,
     alignItems: "center",
     justifyContent: "center",
@@ -201,7 +237,7 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   secondaryButton: {
-    height: Spacing.buttonHeight,
+    height: 44,
     borderRadius: BorderRadius.sm,
     borderWidth: 1,
     alignItems: "center",

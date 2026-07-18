@@ -25,6 +25,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import { PlanGeneratorProgress, PlanGeneratorPhase } from "@/components/agenda/PlanGeneratorProgress";
 import { DailyPlanPreviewCard } from "@/components/agenda/DailyPlanPreviewCard";
 import { useApp } from "@/context/AppContext";
@@ -39,10 +40,13 @@ import {
   savePlan,
   addMinutesToTime,
   getActivePlanDates,
+  buildCoachSuggestions,
+  postProcessPlan,
+  CoachSuggestion,
 } from "@/utils/planUtils";
 import { formatLocalDateYYYYMMDD, getLocalTodayDate } from "@/utils/masterListUtils";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
-import { CalendarEvent, Habit, LifeAreaSchedule, LifeCategory, Task } from "@/types";
+import { CalendarEvent, Habit, LifeAreaProfile, LifeAreaSchedule, LifeCategory, Task } from "@/types";
 import { SaveToast } from "@/components/SaveToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 
@@ -54,7 +58,7 @@ const ENERGY_ACTIVE_BG = "#6B7FFF22";
 const ENERGY_ACTIVE_BORDER = "#6B7FFF";
 const ENERGY_ACTIVE_TEXT = "#6B7FFF";
 
-type EnergyLevel = "low" | "medium" | "high";
+type EnergyLevel = "normal" | "high";
 type ApplySubPhase = "applying" | "complete";
 type TimePickerTarget = "start" | "end" | null;
 
@@ -88,6 +92,7 @@ interface FormState {
   includeSuggested: boolean;
   includeCoachPicks: boolean;
   energyLevel: EnergyLevel;
+  customPlanNotes?: string;
 }
 
 function timeToMinutes(hhmm: string): number {
@@ -182,6 +187,74 @@ function buildLifeAreaWindows(
   });
 }
 
+function formatEstimatedMinutes(minutes: number | null | undefined): string {
+  return minutes != null && minutes > 0
+    ? ` | Estimated: ${minutes} minutes`
+    : " | Estimated: 30 minutes (default)";
+}
+
+function buildStep6Block(
+  form: FormState,
+  planStartTime: string,
+  planEndTime: string,
+): string {
+  if (!form.includeSuggested && !form.includeCoachPicks) {
+    return `STEP 6 — ADD AI SUGGESTIONS:
+Skip this step — user did not request suggested tasks or Life Coach picks.`;
+  }
+
+  const lines: string[] = [
+    "STEP 6 — ADD COACH SUGGESTIONS (only if user requested suggested tasks or Life Coach picks):",
+    "Fill remaining free gaps with additional items. Apply these rules strictly:",
+    "",
+  ];
+
+  if (form.includeSuggested) {
+    lines.push(
+      "RULE A — Suggested tasks (if user requested suggested tasks):",
+      "Add items from the SUGGESTED TASKS section above.",
+      "Do not invent new tasks. Do not add entries from memory or training data.",
+      "Only Task-type entries from the user's data.",
+      "",
+    );
+  }
+
+  if (form.includeCoachPicks) {
+    const ruleLabel = form.includeSuggested ? "RULE B" : "RULE A";
+    lines.push(
+      `${ruleLabel} — Use ONLY the suggestions from COACH SUGGESTIONS FOR STEP 6 above.`,
+      "Do not invent suggestions not on this list. Place each suggestion in a free",
+      "gap respecting life area time windows. Apply density rules (max 2 items/hour,",
+      "10-min buffer) to suggestions.",
+      "",
+      `${form.includeSuggested ? "RULE C" : "RULE B"} — Plan Tomorrow block:`,
+      "Always place the PLAN TOMORROW BLOCK in the last 2 hours of the plan window",
+      `(${planStartTime}–${planEndTime}). This is a guaranteed fixture — it is NOT`,
+      "subject to density rules and must always appear regardless of how full the",
+      "schedule is. Find the first available 15-minute slot in the evening window",
+      "and place it there even if other items are already in that hour.",
+      "Include description in the JSON timeBlock. Set isPlanTomorrow: true.",
+      "",
+      `${form.includeSuggested ? "RULE D" : "RULE C"} — No Break Habits:`,
+      "Never suggest or add Break (negative) habits. Build Habits only.",
+      "",
+      `${form.includeSuggested ? "RULE E" : "RULE D"} — Minimum suggestions:`,
+      "Include at least 1 suggestion from COACH SUGGESTIONS FOR STEP 6 in the plan",
+      "(in addition to the Plan Tomorrow block). If no gaps exist for other",
+      "suggestions, the Plan Tomorrow block alone satisfies this minimum.",
+      "",
+    );
+  } else {
+    lines.push(
+      "RULE B — No Break Habits:",
+      "Never suggest or add Break (negative) habits. Build Habits only.",
+      "",
+    );
+  }
+
+  return lines.join("\n");
+}
+
 function buildPlanRequestMessage(
   form: FormState,
   formattedDate: string,
@@ -193,6 +266,9 @@ function buildPlanRequestMessage(
   pinnedTasks: Task[],
   habits: Habit[],
   lifeAreaWindows: LifeAreaPlanWindow[],
+  coachSuggestions: CoachSuggestion[],
+  planTomorrow: CoachSuggestion,
+  lifeAreaProfiles: LifeAreaProfile[],
 ): string {
   const selectedDayEvents = events.filter((e) => e.startDate === selectedDate);
 
@@ -224,80 +300,161 @@ function buildPlanRequestMessage(
           .join("\n")
       : "  • None";
 
-  const excludedAreas = lifeAreaWindows
-    .filter((w) => !w.included)
-    .map((w) => `  • ${w.categoryName}`)
-    .join("\n");
+  const excludedCategoryIds = new Set(
+    lifeAreaWindows.filter((w) => !w.included).map((w) => w.categoryId),
+  );
 
-  const confirmedWindowLines = lifeAreaWindows
-    .filter((w) => w.included && w.blocks.length > 0)
+  const allWindowLines = lifeAreaWindows
     .flatMap((w) =>
-      w.blocks.map(
-        (b) => `  • ${w.categoryName}: ${b.startTime}–${b.endTime}`,
-      ),
+      w.blocks.length > 0
+        ? w.blocks.map((b) => `  • ${w.categoryName}: ${b.startTime}–${b.endTime}`)
+        : [`  • ${w.categoryName}: no preference`],
     )
     .join("\n");
 
-  const noWindowAreas = lifeAreaWindows
-    .filter((w) => w.included && w.blocks.length === 0)
+  const excludedSuggestionAreas = lifeAreaWindows
+    .filter((w) => !w.included)
     .map((w) => `  • ${w.categoryName}`)
     .join("\n");
 
   const planStartTime = form.startTime;
   const planEndTime = form.endTime;
 
-  const eventDetails = selectedDayEvents
-    .map((e) => {
-      const category = categories.find((c) => c.id === e.categoryId);
-      const lifeAreaName = category?.name ?? "Unassigned";
+  const eventDetails = form.includeEvents
+    ? selectedDayEvents
+        .map((e) => {
+          const category = categories.find((c) => c.id === e.categoryId);
+          const lifeAreaName = category?.name ?? "Unassigned";
 
-      if (e.eventType === "appointment" || e.eventType === "meeting") {
-        const startParts = e.startTime.split(":");
-        const endParts = (e.endTime || "23:59").split(":");
-        const startMins = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10);
-        const endMins = parseInt(endParts[0], 10) * 60 + parseInt(endParts[1], 10);
-        const duration = endMins - startMins;
+          if (e.eventType === "appointment" || e.eventType === "meeting") {
+            const startParts = e.startTime.split(":");
+            const endParts = (e.endTime || "23:59").split(":");
+            const startMins = parseInt(startParts[0], 10) * 60 + parseInt(startParts[1], 10);
+            const endMins = parseInt(endParts[0], 10) * 60 + parseInt(endParts[1], 10);
+            const duration = endMins - startMins;
 
-        return `- "${e.title}" | Life Area: ${lifeAreaName} | Type: ${e.eventType} | Start: ${e.startTime} | End: ${e.endTime} | Duration: ${duration} minutes | OCCUPIED: ${e.startTime}–${e.endTime}`;
+            return `- "${e.title}" | Life Area: ${lifeAreaName} | Type: ${e.eventType} | Start: ${e.startTime} | End: ${e.endTime} | Duration: ${duration} minutes | OCCUPIED: ${e.startTime}–${e.endTime}`;
+          }
+          return `- ${e.title} | Life Area: ${lifeAreaName} | Type: ${e.eventType} | Time: ${e.startTime} | This is a reminder at ${e.startTime} with no time block — schedule it as a brief 5-10 min item`;
+        })
+        .join("\n")
+    : "";
+
+  const eventsOffNote = !form.includeEvents
+    ? `
+NOTE: Calendar events are not included in this plan per user preference,
+but their time slots are still blocked to prevent conflicts.
+`
+    : "";
+
+  const pinnedEntryDetails = form.includePinned
+    ? pinnedTasks
+        .filter((t) => t.isPinned && t.status !== "completed" && !t.excludeFromPlan)
+        .map((t) => {
+          const category = categories.find((c) => c.id === t.categoryId);
+          const timeStr = formatEstimatedMinutes(t.estimatedMinutes);
+          return `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Type: ${t.type} | Priority: ${t.priority}${timeStr}`;
+        })
+        .join("\n")
+    : "";
+
+  const habitDetails = form.includeHabits
+    ? habits
+        .filter(
+          (h) =>
+            h.isActive &&
+            h.habitType !== "negative" &&
+            h.categoryId != null &&
+            !excludedCategoryIds.has(h.categoryId),
+        )
+        .map((h) => {
+          const category = categories.find((c) => c.id === h.categoryId);
+          return `- "${h.name}" | Life Area: ${category?.name ?? "Unassigned"} | Type: Build Habit | Frequency: ${h.goalFrequency}`;
+        })
+        .join("\n")
+    : "";
+
+  const suggestedTasksDetails = form.includeSuggested
+    ? tasks
+        .filter(
+          (t) =>
+            !t.isPinned &&
+            t.type === "task" &&
+            t.status !== "completed" &&
+            !t.excludeFromPlan &&
+            !excludedCategoryIds.has(t.categoryId),
+        )
+        .slice(0, 10)
+        .map((t) => {
+          const category = categories.find((c) => c.id === t.categoryId);
+          const timeStr = formatEstimatedMinutes(t.estimatedMinutes);
+          return `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Priority: ${t.priority}${timeStr}`;
+        })
+        .join("\n")
+    : "";
+
+  const energyLabel = form.energyLevel === "normal" ? "Normal" : "High";
+  const hasCustomization = !!form.customPlanNotes?.trim();
+
+  const coachSuggestionsSection = form.includeCoachPicks
+    ? `
+COACH SUGGESTIONS FOR STEP 6:
+(use these specific suggestions to fill gaps — do not invent your own):
+${coachSuggestions
+  .map(
+    (s) =>
+      `- "${s.title}" | Life Area: ${s.lifeArea} | Duration: ${s.durationMinutes} min | agendaOnly: ${s.agendaOnly} | Description: ${s.description}`,
+  )
+  .join("\n")}
+
+PLAN TOMORROW BLOCK (always include):
+- "${planTomorrow.title}" | Life Area: ${planTomorrow.lifeArea} | Duration: ${planTomorrow.durationMinutes} min | agendaOnly: ${planTomorrow.agendaOnly} | Place in evening (last 2 hours of plan window) | Description: ${planTomorrow.description}
+`
+    : "";
+
+  const step6Block = buildStep6Block(form, planStartTime, planEndTime);
+
+  const profilePlanNotes = lifeAreaProfiles
+    .filter(
+      (p) => p.status === "completed" && !excludedCategoryIds.has(p.categoryId),
+    )
+    .map((profile) => {
+      const category = categories.find((c) => c.id === profile.categoryId);
+      if (!category) return "";
+
+      const notes: string[] = [];
+
+      const hasPinnedGoalEntry = pinnedTasks.some(
+        (t) => t.categoryId === profile.categoryId,
+      );
+      if (!hasPinnedGoalEntry && profile.primaryGoal) {
+        notes.push(
+          `No pinned entries for ${category.name} — consider suggesting a planning session toward: "${profile.primaryGoal}"`,
+        );
       }
-      return `- ${e.title} | Life Area: ${lifeAreaName} | Type: ${e.eventType} | Time: ${e.startTime} | This is a reminder at ${e.startTime} with no time block — schedule it as a brief 5-10 min item`;
+
+      if (profile.knownObstacles?.length > 0) {
+        notes.push(
+          `Known obstacles in ${category.name}: ${profile.knownObstacles.join(", ")} — schedule this Life Area's items at optimal times`,
+        );
+      }
+
+      return notes.length > 0
+        ? `${category.name}:\n${notes.map((n) => `  - ${n}`).join("\n")}`
+        : "";
     })
+    .filter(Boolean)
     .join("\n");
 
-  const pinnedEntryDetails = pinnedTasks
-    .filter((t) => t.isPinned && t.status !== "completed" && !t.excludeFromPlan)
-    .map((t) => {
-      const category = categories.find((c) => c.id === t.categoryId);
-      const timeStr = t.estimatedMinutes
-        ? ` | Estimated: ${t.estimatedMinutes} minutes`
-        : " | Estimated: 30 minutes (default)";
-      return (
-        `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Type: ${t.type} | Priority: ${t.priority}${timeStr}`
-      );
-    })
-    .join("\n");
+  const profileInsightsSection = profilePlanNotes
+    ? `
+LIFE AREA COACH INSIGHTS FOR TODAY:
+${profilePlanNotes}
 
-  const habitDetails = habits
-    .filter((h) => h.isActive && h.habitType !== "negative")
-    .map((h) => {
-      const category = categories.find((c) => c.id === h.categoryId);
-      return `- "${h.name}" | Life Area: ${category?.name ?? "Unassigned"} | Type: Build Habit | Frequency: ${h.goalFrequency}`;
-    })
-    .join("\n");
-
-  const suggestedTasksDetails = tasks
-    .filter((t) => !t.isPinned && t.type === "task" && t.status !== "completed" && !t.excludeFromPlan)
-    .slice(0, 10)
-    .map((t) => {
-      const category = categories.find((c) => c.id === t.categoryId);
-      const timeStr = t.estimatedMinutes
-        ? ` | Estimated: ${t.estimatedMinutes} minutes`
-        : " | Estimated: 30 minutes (default)";
-      return (
-        `- "${t.title}" | Life Area: ${category?.name ?? "Unassigned"} | Priority: ${t.priority}${timeStr}`
-      );
-    })
-    .join("\n");
+Use these insights to personalize the plan — reference the user's actual goals
+and obstacles when scheduling items and suggesting Coach activities.
+`
+    : "";
 
   return `
 Please generate a daily plan for ${formattedDate}.
@@ -309,36 +466,50 @@ Parameters:
 - Include scheduled habits: ${form.includeHabits}
 - Include suggested tasks: ${form.includeSuggested}
 - Include Life Coach picks: ${form.includeCoachPicks}
-- Energy level: ${form.energyLevel}
+${hasCustomization ? `
+USER CUSTOMIZATION:
+${form.customPlanNotes?.trim() ? `- Additional context: ${form.customPlanNotes.trim()}` : ""}
+` : ""}
+ENERGY LEVEL: ${energyLabel}
 
+SCHEDULING DENSITY RULES (enforce strictly — these override any other
+instruction to fill gaps):
+
+Normal energy rules:
+- Maximum 2 scheduled items per hour
+- Minimum 10-minute buffer between consecutive items (do not schedule
+  back-to-back without a gap)
+- Maximum 6 hours of total scheduled task/entry time in the day
+  (not counting scheduled events which are immovable)
+- After every 90 minutes of scheduled items, leave at least 15 minutes
+  unscheduled
+- Prefer quality over quantity: it is better to include fewer items
+  well-spaced than to pack the day
+
+High energy rules (future — for now apply Normal rules for High too):
+- Apply Normal rules for now
+${profileInsightsSection}
 SCHEDULED EVENTS FOR ${formattedDate}:
 ${eventDetails.length > 0 ? eventDetails : "No events scheduled for this day."}
-
+${eventsOffNote}
 OCCUPIED TIME BLOCKS — nothing may be
 scheduled during these times:
 ${blockedSummary}
 
-AUTHORITATIVE LIFE AREA WINDOWS FOR THIS PLAN
-(these override any schedule preferences elsewhere
-in context — use only this section for Life Area timing):
+LIFE AREA TIME WINDOWS
+(apply to ALL items from each area — these control WHEN, not WHETHER):
+${allWindowLines}
 
-EXCLUDED LIFE AREAS (do not include any
-items from these Life Areas in the plan):
-${excludedAreas || "  • None — all Life Areas included"}
-
-CONFIRMED TIME WINDOWS (schedule each Life
-Area's items within these time ranges, 24h):
-${confirmedWindowLines || "  • None set"}
-
-LIFE AREAS WITH NO TIME PREFERENCE
-(schedule in any available free gap):
-${noWindowAreas || "  • None"}
+LIFE AREAS EXCLUDED FROM SUGGESTIONS
+(exclude unpinned entries, habits, and Coach suggestions from these areas
+— pinned items still included):
+${excludedSuggestionAreas || "  • None"}
 
 SUGGESTED TASKS (unpinned, for Step 6 only):
 ${suggestedTasksDetails || "None available"}
 
-NOTE: These are the ONLY entries available for AI suggestions. Only Task-type entries are included here intentionally. Do not suggest any other entry types directly.
-
+NOTE: These are the ONLY entries available for AI task suggestions. Only Task-type entries are included here intentionally. Do not suggest any other entry types directly.
+${coachSuggestionsSection}
 DAILY PLAN BUILDING ALGORITHM:
 Build the plan by following these 7 steps
 in exact order. Complete each step fully
@@ -358,20 +529,23 @@ Identify every free time gap between ${planStartTime}
 and ${planEndTime} not occupied by Step 1 items.
 
 For items belonging to Life Areas with
-CONFIRMED TIME WINDOWS above, only place
+LIFE AREA TIME WINDOWS above, only place
 them in free gaps that fall within their
-confirmed window. This is a hard constraint
-not a suggestion — if no free gap exists
-within their window place the item at the
-nearest available time outside the window
-rather than skipping it entirely.
+window. This is a hard constraint. If no free
+gap exists within a Life Area's time window
+for an unpinned item, skip that item rather
+than placing it outside the window. For PINNED
+items only: if no gap exists within the
+window, place at the nearest available time
+— pinned items must always appear in the plan.
 
 For items belonging to Life Areas with no
 time preference, place in any free gap.
 
-Never place items belonging to EXCLUDED
-LIFE AREAS in the plan at any point in
-Steps 3-6.
+In Steps 5–6, do not add habits or unpinned/Coach
+suggestions from LIFE AREAS EXCLUDED FROM
+SUGGESTIONS. Step 4 pinned entries from those
+areas are still included.
 
 STEP 3 — PLACE REMINDERS AND DEADLINES:
 Add Reminders and Deadlines from SCHEDULED
@@ -389,68 +563,33 @@ of their entry type (Task, Goal, Project,
 Objective, Idea, etc.).
 
 Place in free gaps from Step 2 respecting
-Life Area preferred windows. Order by
+Life Area time windows. Order by
 priority: high → medium → low.
 
-DURATION RULE:
-Every entry in PINNED ENTRIES and SUGGESTED
-TASKS includes an "Estimated:" time. Use that
-exact value as durationMinutes in the timeBlock
-JSON — always. The default of 30 minutes has
+DURATION RULE (applies to all steps):
+Every entry includes an "Estimated:" time. Use
+that exact value as durationMinutes in the
+timeBlock JSON. The 30-minute default has
 already been applied to entries without a
 user-set estimate. Never use a duration other
-than what is listed in the Estimated field.
+than what is listed unless the entry has no
+Estimated field at all, in which case use
+30 minutes.
 
 STEP 5 — PLACE PINNED HABITS:
 Add active Build Habits from ACTIVE BUILD
 HABITS. Place in free gaps respecting Life
-Area preferred windows. Never include
+Area time windows. Never include
 Break (negative) habits.
 
-STEP 6 — ADD AI SUGGESTIONS (only if
-user requested suggested tasks or Life
-Coach picks):
-Fill remaining free gaps with additional
-items. Apply these rules strictly:
+HABIT DEDUPLICATION RULE: Each habit may
+appear AT MOST ONCE in the plan regardless
+of frequency. If a habit has already been
+placed in any earlier step, do not add it
+again in Step 5 or Step 6. Track placed
+habits by title and skip any duplicate.
 
-RULE A — Only use items from SUGGESTED TASKS:
-In Step 6 you may ONLY add items that
-appear in the SUGGESTED TASKS section above.
-Do not invent new tasks. Do not add any
-entry from memory or training data.
-Do not add entries of any type other than
-Task from the user's data.
-The only exception is planning sessions
-for Goals/Projects/Objectives/Ideas (Rule B)
-which are coach-generated items, not pulled
-from the entry list.
-
-RULE B — Planning sessions for complex
-entry types:
-For entries of type Goal, Project,
-Objective, or Idea that are NOT already
-pinned, suggest a planning session:
-  title: "Planning session: [entry title]"
-  type: "suggestion"
-  lifeArea: [same Life Area as the entry]
-  source: "coach"
-  durationMinutes: 30
-Limit to maximum 2 planning sessions
-per plan total (including any from Step 4).
-
-RULE C — No Break Habits:
-Never suggest or add Break (negative)
-habits to the plan under any circumstances.
-Build Habits only.
-
-DURATION RULE:
-Every entry in PINNED ENTRIES and SUGGESTED
-TASKS includes an "Estimated:" time. Use that
-exact value as durationMinutes in the timeBlock
-JSON — always. The default of 30 minutes has
-already been applied to entries without a
-user-set estimate. Never use a duration other
-than what is listed in the Estimated field.
+${step6Block}
 
 STEP 7 — FINAL VERIFICATION:
 Before outputting the JSON, check:
@@ -487,7 +626,10 @@ HABIT RULES:
 
 Please generate a structured daily plan and include the dailyPlan JSON block in your response.
 IMPORTANT: You MUST include the dailyPlan JSON block in your response wrapped in triple backticks with json tag. The JSON must start with {"dailyPlan": {"date": and include timeBlocks array. This is required for the plan to be saved to the app.
-For durationMinutes: always use the exact Estimated time shown for each entry in the PINNED ENTRIES and SUGGESTED TASKS sections. The default is already set to 30 minutes for entries without a user estimate — never use a duration less than 30 minutes for task-type entries unless the user has explicitly set a shorter estimate.
+Each timeBlock may include "agendaOnly", "description", and "isPlanTomorrow" fields.
+Set agendaOnly true for mindfulness and other agenda-only suggestions.
+Include description text from COACH SUGGESTIONS for coach blocks.
+Set isPlanTomorrow true for the Plan Tomorrow block.
 Keep your conversational response brief (2-3 sentences max) before the JSON block. The JSON block is the most important part of your response.
 CRITICAL: When assigning lifeArea values in the JSON timeBlocks, you MUST use ONLY these exact Life Area names from the user's account: ${lifeAreaNames}. Do not use any other Life Area names. If an item doesn't clearly belong to one of these areas, use the closest match from this list.
 `.trim();
@@ -507,6 +649,8 @@ export default function DailyPlanGeneratorScreen() {
     occurrences,
     pinnedTasks,
     lifeAreaSchedules,
+    lifeAreaProfiles,
+    lifeAreaInsights,
     addEvent,
   } = useApp();
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
@@ -532,7 +676,8 @@ export default function DailyPlanGeneratorScreen() {
     includeHabits: true,
     includeSuggested: true,
     includeCoachPicks: true,
-    energyLevel: "medium",
+    energyLevel: "normal",
+    customPlanNotes: "",
   });
   const [lifeAreaWindows, setLifeAreaWindows] = useState<LifeAreaPlanWindow[]>([]);
   const [editingLifeAreaId, setEditingLifeAreaId] = useState<string | null>(null);
@@ -648,13 +793,18 @@ export default function DailyPlanGeneratorScreen() {
         people,
         occurrences,
         schedulePreferences,
+        lifeAreaProfiles,
         forDailyPlan: true,
       }),
-    [categories, tasks, habits, events, people, occurrences, schedulePreferences],
+    [categories, tasks, habits, events, people, occurrences, schedulePreferences, lifeAreaProfiles],
   );
 
   const callAI = useCallback(
-    async (message: string, history: Array<{ role: string; content: string }>) => {
+    async (
+      message: string,
+      history: Array<{ role: string; content: string }>,
+      isAdjustMode = false,
+    ) => {
       setIsLoading(true);
       setAiError(null);
       try {
@@ -662,13 +812,10 @@ export default function DailyPlanGeneratorScreen() {
           message,
           context: appContext,
           history,
-          systemPrompt: getRegularSystemPrompt(appContext),
+          systemPrompt: getRegularSystemPrompt(appContext, isAdjustMode),
           maxTokens: 4096,
         });
         const plan = parseDailyPlanFromResponse(response);
-        console.log("Raw response length:", response.length);
-        console.log("Contains json block:", response.includes("```json"));
-        console.log("Parse result:", plan);
         const displayText = stripJsonFromResponse(response) || response;
         return { response, plan, displayText };
       } catch (error) {
@@ -682,9 +829,52 @@ export default function DailyPlanGeneratorScreen() {
     [appContext],
   );
 
+  const buildCoachInput = useCallback(
+    (windows: LifeAreaPlanWindow[]) => {
+      const excludedCategoryIds = new Set(
+        windows.filter((w) => !w.included).map((w) => w.categoryId),
+      );
+      return buildCoachSuggestions({
+        categories,
+        tasks,
+        habits,
+        events,
+        lifeAreaProfiles,
+        lifeAreaInsights,
+        selectedDate: form.selectedDate,
+        excludedCategoryIds,
+      });
+    },
+    [
+      categories,
+      tasks,
+      habits,
+      events,
+      lifeAreaProfiles,
+      lifeAreaInsights,
+      form.selectedDate,
+    ],
+  );
+
+  const applyPlanPostProcessing = useCallback(
+    (plan: DailyPlanMeta, coachResult: ReturnType<typeof buildCoachSuggestions>) => {
+      return postProcessPlan(
+        { ...plan, date: form.selectedDate },
+        {
+          startTime: form.startTime,
+          endTime: form.endTime,
+          planTomorrow: form.includeCoachPicks ? coachResult.planTomorrow : null,
+          includeCoachPicks: form.includeCoachPicks,
+        },
+      );
+    },
+    [form.selectedDate, form.startTime, form.endTime, form.includeCoachPicks],
+  );
+
   const startInitialGeneration = useCallback(async () => {
     const formattedDate = formatSelectedDateLong(form.selectedDate);
     const windowsForPlan = lifeAreaWindowsRef.current;
+    const coachResult = buildCoachInput(windowsForPlan);
     const planRequestMessage = buildPlanRequestMessage(
       form,
       formattedDate,
@@ -696,6 +886,9 @@ export default function DailyPlanGeneratorScreen() {
       pinnedTasks,
       habits,
       windowsForPlan,
+      coachResult.coachSuggestions,
+      coachResult.planTomorrow,
+      lifeAreaProfiles,
     );
 
     setChatMessages([
@@ -703,7 +896,7 @@ export default function DailyPlanGeneratorScreen() {
     ]);
 
     try {
-      const { response, plan, displayText } = await callAI(planRequestMessage, []);
+      const { response, plan, displayText } = await callAI(planRequestMessage, [], false);
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
@@ -715,7 +908,7 @@ export default function DailyPlanGeneratorScreen() {
         { role: "assistant", content: response },
       ]);
       if (plan) {
-        setDraftPlan({ ...plan, date: form.selectedDate });
+        setDraftPlan(applyPlanPostProcessing(plan, coachResult));
       }
     } catch {
       setChatMessages((prev) => [
@@ -727,7 +920,18 @@ export default function DailyPlanGeneratorScreen() {
         },
       ]);
     }
-  }, [form, lifeAreaNames, events, categories, tasks, pinnedTasks, habits, lifeAreaWindows, callAI]);
+  }, [
+    form,
+    lifeAreaNames,
+    events,
+    categories,
+    tasks,
+    pinnedTasks,
+    habits,
+    callAI,
+    buildCoachInput,
+    applyPlanPostProcessing,
+  ]);
 
   useEffect(() => {
     if (phase === "chat" && !hasStartedChat.current) {
@@ -745,7 +949,8 @@ export default function DailyPlanGeneratorScreen() {
     setInputText("");
 
     try {
-      const { response, plan, displayText } = await callAI(text, chatHistory);
+      const coachResult = buildCoachInput(lifeAreaWindowsRef.current);
+      const { response, plan, displayText } = await callAI(text, chatHistory, true);
       const assistantMsg: ChatMessage = {
         id: `assistant-${Date.now()}`,
         role: "assistant",
@@ -758,7 +963,7 @@ export default function DailyPlanGeneratorScreen() {
         { role: "assistant", content: response },
       ]);
       if (plan) {
-        setDraftPlan({ ...plan, date: form.selectedDate });
+        setDraftPlan(applyPlanPostProcessing(plan, coachResult));
       }
     } catch {
       setChatMessages((prev) => [
@@ -770,7 +975,7 @@ export default function DailyPlanGeneratorScreen() {
         },
       ]);
     }
-  }, [inputText, isLoading, callAI, chatHistory, form.selectedDate]);
+  }, [inputText, isLoading, callAI, chatHistory, buildCoachInput, applyPlanPostProcessing]);
 
   const handleRetry = useCallback(() => {
     setChatMessages([]);
@@ -831,14 +1036,18 @@ export default function DailyPlanGeneratorScreen() {
 
       let created = 0;
       for (const block of planToSave.timeBlocks) {
-        if ((block.source === "suggested" || block.source === "coach") && block.id === null) {
+        if (
+          (block.source === "suggested" || block.source === "coach") &&
+          block.id === null &&
+          !block.agendaOnly
+        ) {
           const categoryId =
             categories.find((c) => c.name === block.lifeArea)?.id ??
             categories[0]?.id ??
             null;
           await addEvent({
             title: block.title,
-            description: "",
+            description: block.description || "",
             startDate: planToSave.date,
             startTime: block.time,
             endDate: planToSave.date,
@@ -847,6 +1056,7 @@ export default function DailyPlanGeneratorScreen() {
             recurrence: "none",
             linkedTaskId: null,
             categoryId,
+            autoDeleteAfter: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
           });
           created += 1;
         }
@@ -956,7 +1166,7 @@ export default function DailyPlanGeneratorScreen() {
   );
 
   const renderFormPhase = () => (
-    <ScrollView style={styles.formScroll} contentContainerStyle={styles.formContent}>
+    <KeyboardAwareScrollViewCompat style={styles.formScroll} contentContainerStyle={styles.formContent}>
       <View style={styles.section}>
         <ThemedText style={styles.sectionLabel}>Which day?</ThemedText>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.dateRow}>
@@ -1233,11 +1443,38 @@ export default function DailyPlanGeneratorScreen() {
       </View>
 
       <View style={styles.section}>
+        <ThemedText style={styles.sectionLabel}>
+          Anything else Coach should know?
+        </ThemedText>
+        <TextInput
+          style={[
+            styles.customizeInputMultiline,
+            {
+              color: theme.text,
+              borderColor: theme.border,
+              backgroundColor: theme.backgroundDefault,
+            },
+          ]}
+          placeholder="Add any context, preferences, or constraints for today's plan — focus areas, energy levels, time constraints, or anything else that should shape your day."
+          placeholderTextColor={theme.textSecondary}
+          value={form.customPlanNotes}
+          onChangeText={(v) =>
+            setForm((prev) => ({
+              ...prev,
+              customPlanNotes: v,
+            }))
+          }
+          multiline
+          numberOfLines={4}
+          textAlignVertical="top"
+        />
+      </View>
+
+      <View style={styles.section}>
         <ThemedText style={styles.sectionLabel}>Energy level today</ThemedText>
         <View style={styles.energyRow}>
           {([
-            { key: "low" as const, label: "😴 Low" },
-            { key: "medium" as const, label: "⚡ Medium" },
+            { key: "normal" as const, label: "⚡ Normal" },
             { key: "high" as const, label: "🔥 High" },
           ]).map((item) => {
             const selected = form.energyLevel === item.key;
@@ -1282,7 +1519,7 @@ export default function DailyPlanGeneratorScreen() {
           <Text style={styles.generateButtonText}>Generate My Plan →</Text>
         </LinearGradient>
       </Pressable>
-    </ScrollView>
+    </KeyboardAwareScrollViewCompat>
   );
 
   const renderChatBubble = ({ item }: { item: ChatMessage }) => {
@@ -1705,6 +1942,14 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1.5,
     alignItems: "center",
+  },
+  customizeInputMultiline: {
+    borderWidth: 1,
+    borderRadius: BorderRadius.sm,
+    paddingHorizontal: Spacing.sm,
+    paddingVertical: Spacing.sm,
+    fontSize: 15,
+    minHeight: 88,
   },
   generateButtonWrap: {
     marginTop: Spacing.md,

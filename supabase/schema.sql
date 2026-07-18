@@ -69,6 +69,7 @@ CREATE TABLE IF NOT EXISTS events (
   attendee_ids UUID[],
   notification_id_advance TEXT,
   notification_id_at_start TEXT,
+  auto_delete_after TIMESTAMPTZ DEFAULT NULL,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );

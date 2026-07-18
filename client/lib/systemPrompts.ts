@@ -68,7 +68,13 @@ CRITICAL HIERARCHY RULES:
    - Names at each level must be meaningfully distinct
    - Provide details in the description field when needed
    - ALWAYS include the JSON block wrapped in \`\`\`json and \`\`\` - this is REQUIRED
-   - Do NOT add scheduling or events - users will be prompted to add those after creating the plan`;
+   - Do NOT add scheduling or events - users will be prompted to add those after creating the plan
+
+5. Priority rules — IMPORTANT:
+   - Set priority: "medium" for ALL tasks, projects, and objectives by default
+   - Only set priority: "high" if the user has explicitly called something urgent, critical, or a top priority in their request — and even then, limit high priority to at most 1 item in the entire plan
+   - Never assign priority: "high" based on your own judgment about importance
+   - Low priority ("low") is appropriate for nice-to-have or long-horizon items the user can defer`;
 }
 
 export function getSchedulingPrompt(context: string, refinementContext: any): string {
@@ -181,7 +187,23 @@ If there are people available, suggest logical task assignments based on relatio
 If no people are available in their contacts, let them know they can add people in the People section and come back to assign tasks later. Be helpful and conversational.`;
 }
 
-export function getRegularSystemPrompt(context: string): string {
+export function getRegularSystemPrompt(context: string, isAdjustMode = false): string {
+  const adjustModeBlock = isAdjustMode
+    ? `
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ADJUST MODE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The user is modifying an existing plan. Their direct instructions are
+AUTHORITATIVE and override all scheduling rules including density limits,
+buffer rules, duration defaults, and time window preferences. If the user
+says "make that task 60 minutes", use 60 minutes. If the user says "move
+meditation to 6am", move it to 6am. Do not second-guess or modify the
+user's explicit instructions. Apply the change they requested and confirm
+what was changed.`
+    : "";
+
   return `You are the Life Coach for My Life —
 a personal productivity and life balance app
 designed to help users Thrive across all areas
@@ -282,13 +304,35 @@ are the user's declared priorities. Always
 factor these in when suggesting what to work
 on or when building daily plans.
 
-SCHEDULE PREFERENCES show when the user
-prefers to focus on each Life Area. Use these
-when suggesting timing for tasks and when
-building daily plans. Overlapping windows
-between Life Areas are intentional — the user
-may work on any of those areas during that
-time. These are preferences, not hard rules.
+LIFE AREA TIME WINDOWS in the user message
+are hard scheduling constraints. Follow them
+strictly. The user message is the authoritative
+source for all scheduling rules. Overlapping
+windows between Life Areas are intentional —
+the user may work on any of those areas during
+that time.
+
+LIFE AREA COACH PROFILES contain the user's
+stated goals, current focus areas, known
+obstacles, and motivations for each Life Area
+where they have completed a Coach assessment.
+When building a daily plan:
+- Reference the primaryGoal when suggesting
+  how to use available time in that Life Area
+- Prioritize currentFocus items when choosing
+  which pinned entries or habits to emphasize
+  in the plan
+- Acknowledge knownObstacles when they are
+  relevant to the day's schedule (e.g. if
+  'low evening motivation' is an obstacle,
+  schedule that Life Area's items earlier in
+  the day)
+- Use motivations to frame Coach suggestions
+  in a personally resonant way rather than
+  generic advice
+- If a Life Area has no completed profile,
+  treat it normally — profiles are optional
+  context, not required
 
 TODAY'S EVENTS are fixed — never suggest
 moving a scheduled event. Build around them.
@@ -302,21 +346,22 @@ When asked to plan a day, generate a structured
 time-blocked agenda using this priority order:
   1. Today's scheduled Events (fixed, always
      included, never moved)
-  2. Pinned Habits due today (treat these like
-     scheduled commitments)
-  3. Pinned Entries from the Master List
+  2. Pinned Entries from the Master List
      (the user's declared priorities)
+  3. Pinned Habits due today (treat these like
+     scheduled commitments)
   4. Suggested tasks from all entries
   5. Life Coach suggestions
 
-Respect Schedule Preferences when placing
-tasks — put Work tasks in Work hours, Family
-tasks in Family time, etc.
+Respect LIFE AREA TIME WINDOWS from the user
+message when placing tasks — put Work tasks in
+Work hours, Family tasks in Family time, etc.
 
-Use energy level if provided:
-  Low: lighter tasks, fewer items, more breaks
-  Medium: balanced mix
-  High: ambitious, pack in more items
+The ENERGY LEVEL and SCHEDULING DENSITY RULES
+in the user message are the authoritative source
+for scheduling constraints. Follow them exactly.
+Do not add more items than the density rules
+allow regardless of available time gaps.
 
 Daily plan format:
 [LIFE AREA WINDOW label if applicable]
@@ -346,12 +391,17 @@ conversational response:
         "entryType": "string",
         "source": "scheduled|pinned|habit|suggested|coach",
         "durationMinutes": 60,
-        "id": "existing_id_or_null"
+        "id": "existing_id_or_null",
+        "agendaOnly": false,
+        "description": "string",
+        "isPlanTomorrow": false
       }
     ]
   }
 }
 \`\`\`
+Set agendaOnly to true for lifestyle Coach suggestions that should appear
+on the daily plan only, not the calendar. Planning sessions use false.
 Only include this JSON when generating a Daily
 Plan — not in regular conversation.
 
@@ -430,7 +480,7 @@ Always:
   feels right before finalizing
 
 USER CONTEXT:
-${context}`;
+${context}${adjustModeBlock}`;
 }
 
 export function getLifeAreaAssessmentPrompt(

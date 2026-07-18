@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { View, ActivityIndicator, StyleSheet } from "react-native";
+import { View, ActivityIndicator, StyleSheet, Image } from "react-native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import MainTabNavigator from "@/navigation/MainTabNavigator";
@@ -23,6 +23,7 @@ import { NavigatorScreenParams } from "@react-navigation/native";
 import { MainTabParamList } from "@/navigation/MainTabNavigator";
 
 const PENDING_ONBOARDING_KEY = "@pending_onboarding";
+const appIcon = require("../../assets/images/icon.png");
 
 export type EntryContext = {
   id: string;
@@ -219,7 +220,8 @@ export default function RootStackNavigator() {
   if (isLoading) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
+        <Image source={appIcon} style={styles.loadingIcon} />
+        <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 24 }} />
       </View>
     );
   }
@@ -231,7 +233,8 @@ export default function RootStackNavigator() {
   if (pendingOnboarding === null) {
     return (
       <View style={[styles.loadingContainer, { backgroundColor: theme.backgroundRoot }]}>
-        <ActivityIndicator size="large" color={theme.primary} />
+        <Image source={appIcon} style={styles.loadingIcon} />
+        <ActivityIndicator size="large" color={theme.primary} style={{ marginTop: 24 }} />
       </View>
     );
   }
@@ -248,5 +251,10 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: "center",
     alignItems: "center",
+  },
+  loadingIcon: {
+    width: 100,
+    height: 100,
+    borderRadius: 22,
   },
 });

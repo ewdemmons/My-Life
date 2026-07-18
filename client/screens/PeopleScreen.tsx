@@ -607,14 +607,14 @@ export default function PeopleScreen() {
           ListEmptyComponent={renderEmptyList}
           showsVerticalScrollIndicator={false}
         />
-
-        <Pressable
-          style={[styles.fab, { backgroundColor: theme.primary, bottom: tabBarHeight + Spacing.lg }]}
-          onPress={openAddModal}
-        >
-          <Feather name="plus" size={24} color="#FFFFFF" />
-        </Pressable>
       </View>
+
+      <Pressable
+        style={[styles.fab, { backgroundColor: theme.primary, bottom: tabBarHeight + Spacing.lg }]}
+        onPress={openAddModal}
+      >
+        <Feather name="plus" size={24} color="#FFFFFF" />
+      </Pressable>
 
       <Modal
         visible={modalVisible && !showBirthdayPicker}

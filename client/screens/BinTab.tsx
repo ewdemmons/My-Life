@@ -9,6 +9,7 @@ import { useApp } from "@/context/AppContext";
 import { DeletedItem, Task, LifeCategory, getTaskTypeInfo } from "@/types";
 import { SaveToast } from "@/components/SaveToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
+import { renderIcon } from "@/utils/iconUtils";
 
 const RECYCLE_BIN_RETENTION_DAYS = 30;
 
@@ -107,7 +108,7 @@ export function BinTab() {
       <View key={item.id} style={[styles.recycleBinItem, { backgroundColor: theme.backgroundDefault }]}>
         <View style={styles.recycleBinItemHeader}>
           <View style={[styles.recycleBinIcon, { backgroundColor: isCategory ? color + "20" : theme.backgroundRoot }]}>
-            <Feather name={icon as any} size={18} color={isCategory ? color : theme.textSecondary} />
+            {renderIcon(icon || "circle", 18, isCategory ? color : theme.textSecondary)}
           </View>
           <View style={styles.recycleBinItemContent}>
             <ThemedText style={styles.recycleBinItemName} numberOfLines={1}>

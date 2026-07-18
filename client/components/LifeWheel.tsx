@@ -32,6 +32,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { LifeCategory } from "@/types";
+import { renderIcon } from "@/utils/iconUtils";
 
 const AnimatedPressable = ReanimatedAnimated.createAnimatedComponent(Pressable);
 
@@ -468,11 +469,7 @@ function CategoryBubble({
           ]}
           pointerEvents="none"
         />
-        <Feather
-          name={category.icon as keyof typeof Feather.glyphMap}
-          size={iconSize}
-          color={category.color}
-        />
+        {renderIcon(category.icon || "circle", iconSize, category.color)}
         <ThemedText
           style={[
             styles.bubbleText,

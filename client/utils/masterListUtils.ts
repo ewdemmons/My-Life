@@ -5,12 +5,13 @@ export type MasterListSortOption =
   | "priority"
   | "deadline"
   | "lifeArea"
-  | "recentlyAdded";
+  | "recentlyAdded"
+  | "titleAZ";
 
 export interface MasterListFilters {
   lifeAreaIds: string[];
   priority: "all" | "high" | "medium" | "low";
-  status: "all" | "pending" | "in_progress";
+  status: "all" | "pending" | "in_progress" | "completed";
   entryTypes: string[];
 }
 
@@ -29,6 +30,7 @@ export const SORT_OPTIONS: { value: MasterListSortOption; label: string }[] = [
   { value: "deadline", label: "Deadline" },
   { value: "lifeArea", label: "Life Area" },
   { value: "recentlyAdded", label: "Recently added" },
+  { value: "titleAZ", label: "Title A-Z" },
 ];
 
 export const FILTER_ENTRY_TYPES: { value: string; label: string }[] = [
@@ -89,6 +91,37 @@ export function applyMasterListFilters(
   return tasks.filter((task) => {
     if (task.status === "completed") return false;
 
+    if (
+      filters.lifeAreaIds.length > 0 &&
+      !filters.lifeAreaIds.includes(task.categoryId)
+    ) {
+      return false;
+    }
+
+    if (filters.priority !== "all" && task.priority !== filters.priority) {
+      return false;
+    }
+
+    if (filters.status !== "all" && task.status !== filters.status) {
+      return false;
+    }
+
+    if (
+      filters.entryTypes.length > 0 &&
+      !filters.entryTypes.includes(task.type)
+    ) {
+      return false;
+    }
+
+    return true;
+  });
+}
+
+export function applyEntriesFilters(
+  tasks: Task[],
+  filters: MasterListFilters,
+): Task[] {
+  return tasks.filter((task) => {
     if (
       filters.lifeAreaIds.length > 0 &&
       !filters.lifeAreaIds.includes(task.categoryId)
@@ -357,6 +390,8 @@ export function sortMasterListTasks(
       });
     case "recentlyAdded":
       return sorted.sort((a, b) => b.createdAt - a.createdAt);
+    case "titleAZ":
+      return sorted.sort((a, b) => a.title.localeCompare(b.title));
     default:
       return sorted;
   }

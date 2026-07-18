@@ -402,6 +402,7 @@ function mapSupabaseEventToEvent(event: any): CalendarEvent {
     attendeeIds: event.attendee_ids || [],
     notificationIdAdvance: event.notification_id_advance || null,
     notificationIdAtStart: event.notification_id_at_start || null,
+    autoDeleteAfter: event.auto_delete_after || undefined,
   };
 }
 
@@ -441,6 +442,7 @@ function mapEventToSupabase(event: Partial<CalendarEvent>, userId: string, exist
   if (event.attendeeIds !== undefined) result.attendee_ids = event.attendeeIds;
   if (event.notificationIdAdvance !== undefined) result.notification_id_advance = event.notificationIdAdvance;
   if (event.notificationIdAtStart !== undefined) result.notification_id_at_start = event.notificationIdAtStart;
+  if (event.autoDeleteAfter !== undefined) result.auto_delete_after = event.autoDeleteAfter;
   return result;
 }
 
@@ -1165,7 +1167,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       bubbleEvents.forEach(e => eventMap.set(e.id, e));
       uncategorizedEvents.forEach(e => { if (!eventMap.has(e.id)) eventMap.set(e.id, e); });
       const loadedEvents = Array.from(eventMap.values());
-      setEvents(loadedEvents);
+
+      const now = new Date().toISOString();
+      const expiredIds = loadedEvents
+        .filter((e) => e.autoDeleteAfter && e.autoDeleteAfter < now)
+        .map((e) => e.id);
+
+      if (expiredIds.length > 0) {
+        await supabase.from("events").delete().in("id", expiredIds);
+      }
+
+      const remainingEvents = loadedEvents.filter(
+        (e) => !e.autoDeleteAfter || e.autoDeleteAfter >= now,
+      );
+      setEvents(remainingEvents);
 
       if (peopleRes.error) console.warn("Error loading people:", peopleRes.error.message);
       else setPeople((peopleRes.data || []).map(mapSupabasePersonToPerson));
@@ -1194,7 +1209,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         await checkAndReopenCompleteUntilEntries({
           tasks: loadedTasks,
           updateTask,
-          events: loadedEvents,
+          events: remainingEvents,
           addEvent,
           updateEvent,
           deleteEvent,

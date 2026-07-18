@@ -1,5 +1,5 @@
 import React, { useState, useLayoutEffect, useCallback, useEffect, useRef, useMemo } from "react";
-import { View, StyleSheet, Pressable, TextInput, ActivityIndicator, ScrollView } from "react-native";
+import { View, StyleSheet, Pressable, TextInput, ActivityIndicator, ScrollView, Text } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useNavigation, useRoute, RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -18,11 +18,143 @@ import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { RootStackParamList } from "@/navigation/RootStackNavigator";
 import { LifeAreaSchedule, PendingScheduleBlock } from "@/types";
 import { isEndAfterStart } from "@/utils/scheduleTimeUtils";
+import { isEmoji } from "@/utils/iconUtils";
 
-const ICONS = [
-  "heart", "activity", "briefcase", "star", "dollar-sign", "book",
-  "home", "users", "target", "coffee", "music", "camera",
-  "globe", "sun", "moon", "zap", "award", "gift", "smile", "feather",
+type IconCategory = {
+  label: string;
+  icons: string[];
+  isEmoji?: boolean;
+};
+
+const ICON_CATEGORIES: IconCategory[] = [
+  {
+    label: "Popular",
+    icons: [
+      "heart", "activity", "briefcase",
+      "star", "dollar-sign", "book",
+      "home", "users", "target", "coffee",
+      "music", "camera", "globe", "sun",
+      "moon", "zap", "award", "gift",
+      "smile", "feather", "compass",
+      "trending-up", "flag", "watch",
+      "map-pin", "layers", "shield",
+      "tool", "key", "lock",
+    ],
+  },
+  {
+    label: "Life & Home",
+    icons: [
+      "home", "heart", "users", "user",
+      "sun", "moon", "coffee", "shopping-bag",
+      "shopping-cart", "package", "box",
+      "trash-2", "tool", "settings",
+      "calendar", "clock", "bell",
+      "mail", "phone", "map-pin",
+      "map", "compass", "navigation",
+      "umbrella", "wind", "cloud",
+      "cloud-rain", "cloud-snow",
+      "droplet", "thermometer",
+    ],
+  },
+  {
+    label: "Work & Career",
+    icons: [
+      "briefcase", "bar-chart", "bar-chart-2",
+      "trending-up", "trending-down",
+      "pie-chart", "dollar-sign",
+      "credit-card", "target", "award",
+      "star", "flag", "bookmark",
+      "clipboard", "file-text", "folder",
+      "layers", "grid", "layout",
+      "monitor", "smartphone", "tablet",
+      "printer", "send", "inbox",
+      "archive", "database", "server",
+      "cpu", "terminal", "code",
+      "git-branch", "trello", "slack",
+    ],
+  },
+  {
+    label: "Health",
+    icons: [
+      "activity", "heart", "thermometer",
+      "watch", "zap", "battery",
+      "battery-charging", "droplet",
+      "wind", "sun", "moon",
+      "shield", "crosshair", "target",
+      "anchor", "compass", "navigation",
+      "map", "flag", "award",
+      "trending-up", "bar-chart",
+      "check-circle", "plus-circle",
+      "alert-circle", "life-buoy",
+    ],
+  },
+  {
+    label: "People & Social",
+    icons: [
+      "users", "user", "user-plus",
+      "user-check", "user-minus",
+      "heart", "message-circle",
+      "message-square", "mail",
+      "phone", "video", "mic",
+      "headphones", "smile", "meh",
+      "frown", "gift", "star",
+      "thumbs-up", "thumbs-down",
+      "share", "share-2", "link",
+      "globe", "instagram", "twitter",
+      "facebook", "linkedin", "youtube",
+      "twitch",
+    ],
+  },
+  {
+    label: "Nature & Travel",
+    icons: [
+      "globe", "map", "map-pin",
+      "compass", "navigation", "anchor",
+      "sun", "moon", "cloud",
+      "cloud-rain", "cloud-snow",
+      "cloud-lightning", "wind",
+      "droplet", "umbrella",
+      "thermometer", "feather",
+      "camera", "image", "film",
+      "flag", "truck", "package",
+    ],
+  },
+  {
+    label: "Sports 🏆",
+    isEmoji: true,
+    icons: [
+      "⚽", "🏀", "🏈", "⚾", "🥎",
+      "🎾", "🏐", "🏉", "🎱", "🏓",
+      "🏸", "🥏", "🏒", "🥍", "🏑",
+      "🏏", "🪃", "🏹", "⛳", "🏌️",
+      "🎿", "🛷", "🏂", "🪂", "🏋️",
+      "🤸", "🤼", "🥋", "🥊", "🏊",
+      "🚴", "🏇", "🧗", "🤺", "🎯",
+      "🎳", "🎣", "🤿", "🧘", "🏃",
+      "🚵", "🛹", "🏆", "🥇", "🥈",
+      "🥉", "🏅", "⛷️", "🏄", "🤽",
+    ],
+  },
+  {
+    label: "Emoji",
+    isEmoji: true,
+    icons: [
+      "🏠", "❤️", "👨‍👩‍👧", "👶",
+      "🐶", "🐱", "🌱", "🌿",
+      "💪", "🧠", "🥗", "💤",
+      "🫀", "🌞", "🧬", "💊",
+      "💼", "🚀", "💡", "📈",
+      "✅", "📝", "🗓️", "⏰",
+      "💰", "💳", "📊", "💎",
+      "🪙", "🏦", "📉", "💵",
+      "🎸", "🎨", "📚", "✈️",
+      "🎮", "📷", "🍳", "🎬",
+      "🎭", "🌍", "☕", "🎉",
+      "🎵", "🎤", "🎧", "🎲",
+      "⭐", "🌟", "🙏", "🎓",
+      "🔑", "🛡️", "⚡", "🔥",
+    ],
+  },
 ];
 
 type RouteParams = RouteProp<RootStackParamList, "AddCategory">;
@@ -78,7 +210,8 @@ export default function AddCategoryScreen() {
   const [name, setName] = useState(editingCategory?.name || "");
   const [description, setDescription] = useState(editingCategory?.description || "");
   const [color, setColor] = useState(editingCategory?.color || CategoryColors[0]);
-  const [icon, setIcon] = useState(editingCategory?.icon || ICONS[0]);
+  const [icon, setIcon] = useState(editingCategory?.icon || ICON_CATEGORIES[0].icons[0]);
+  const [iconTab, setIconTab] = useState(0);
   const [peopleIds, setPeopleIds] = useState<string[]>(editingCategory?.peopleIds || []);
   const [pendingBlocks, setPendingBlocks] = useState<PendingScheduleBlock[]>([]);
   const [originalBlockIds, setOriginalBlockIds] = useState<string[]>([]);
@@ -370,24 +503,75 @@ export default function AddCategoryScreen() {
 
       <View style={styles.section}>
         <ThemedText style={styles.label}>Icon</ThemedText>
-        <View style={styles.iconGrid}>
-          {ICONS.map((i) => (
+
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.iconTabBar}
+          contentContainerStyle={styles.iconTabBarContent}
+        >
+          {ICON_CATEGORIES.map((cat, idx) => (
             <Pressable
-              key={i}
+              key={cat.label}
+              onPress={() => setIconTab(idx)}
               style={[
-                styles.iconOption,
-                { backgroundColor: theme.backgroundDefault, borderColor: theme.border },
-                icon === i && { borderColor: color, borderWidth: 2 },
+                styles.iconTab,
+                iconTab === idx && {
+                  borderBottomColor: color,
+                  borderBottomWidth: 2,
+                },
               ]}
-              onPress={() => setIcon(i)}
             >
-              <Feather
-                name={i as any}
-                size={24}
-                color={icon === i ? color : theme.textSecondary}
-              />
+              <ThemedText
+                style={[
+                  styles.iconTabLabel,
+                  { color: theme.textSecondary },
+                  iconTab === idx && {
+                    color: color,
+                    fontWeight: "600",
+                  },
+                ]}
+              >
+                {cat.label}
+              </ThemedText>
             </Pressable>
           ))}
+        </ScrollView>
+
+        <View style={styles.iconGrid}>
+          {ICON_CATEGORIES[iconTab].icons.map((i) => {
+            const selected = icon === i;
+            const isEmojiIcon = ICON_CATEGORIES[iconTab].isEmoji;
+            return (
+              <Pressable
+                key={i}
+                style={[
+                  styles.iconOption,
+                  {
+                    backgroundColor: theme.backgroundDefault,
+                    borderColor: theme.border,
+                  },
+                  selected && {
+                    borderColor: color,
+                    borderWidth: 2,
+                  },
+                ]}
+                onPress={() => setIcon(i)}
+              >
+                {isEmojiIcon ? (
+                  <Text style={{ fontSize: 22, lineHeight: 28 }}>
+                    {i}
+                  </Text>
+                ) : (
+                  <Feather
+                    name={i as keyof typeof Feather.glyphMap}
+                    size={22}
+                    color={selected ? color : theme.textSecondary}
+                  />
+                )}
+              </Pressable>
+            );
+          })}
         </View>
       </View>
 
@@ -414,7 +598,15 @@ export default function AddCategoryScreen() {
           Preview
         </ThemedText>
         <View style={[styles.previewBubble, { borderColor: color }]}>
-          <Feather name={icon as any} size={28} color={color} />
+          {isEmoji(icon) ? (
+            <Text style={{ fontSize: 28 }}>{icon}</Text>
+          ) : (
+            <Feather
+              name={icon as keyof typeof Feather.glyphMap}
+              size={28}
+              color={color}
+            />
+          )}
           <ThemedText style={styles.previewName} numberOfLines={1}>
             {name || "Category"}
           </ThemedText>
@@ -466,18 +658,34 @@ const styles = StyleSheet.create({
     borderWidth: 3,
     borderColor: "rgba(255,255,255,0.5)",
   },
+  iconTabBar: {
+    marginBottom: Spacing.sm,
+  },
+  iconTabBarContent: {
+    gap: Spacing.xs,
+    paddingBottom: Spacing.xs,
+  },
+  iconTab: {
+    paddingHorizontal: Spacing.md,
+    paddingVertical: Spacing.sm,
+    borderBottomWidth: 2,
+    borderBottomColor: "transparent",
+  },
+  iconTabLabel: {
+    fontSize: 13,
+  },
   iconGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: Spacing.md,
+    gap: Spacing.sm,
   },
   iconOption: {
-    width: 48,
-    height: 48,
-    borderRadius: BorderRadius.xs,
-    borderWidth: 1,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 1,
   },
   preview: {
     alignItems: "center",

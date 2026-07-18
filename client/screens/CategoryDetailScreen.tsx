@@ -17,6 +17,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
 import { useApp } from "@/context/AppContext";
+import { renderIcon } from "@/utils/iconUtils";
 import { RootStackParamList, CategoryDetailTab } from "@/navigation/RootStackNavigator";
 import { LifeAreaCoachTab } from "@/components/coach/LifeAreaCoachTab";
 import { HierarchicalTaskList } from "@/components/HierarchicalTaskList";
@@ -214,9 +215,27 @@ export default function CategoryDetailScreen() {
     [events, category.id]
   );
 
+  useEffect(() => {
+    console.log("[Back] CategoryDetail mounted. canGoBack:", navigation.canGoBack());
+    const unsubscribe = navigation.addListener("state", () => {
+      console.log("[Back] Navigation state changed. canGoBack:", navigation.canGoBack());
+    });
+    return unsubscribe;
+  }, [navigation]);
+
   useLayoutEffect(() => {
     navigation.setOptions({
       headerTitle: "",
+      headerLeft: () => (
+        <HeaderButton
+          onPress={() => {
+            console.log("[Back] Custom back pressed. canGoBack:", navigation.canGoBack());
+            navigation.goBack();
+          }}
+        >
+          <Feather name="chevron-left" size={24} color={theme.primary} />
+        </HeaderButton>
+      ),
       headerRight: () =>
         canModifyEntries ? (
           <View style={{ flexDirection: "row", gap: 8 }}>
@@ -542,7 +561,7 @@ export default function CategoryDetailScreen() {
         <View style={styles.headerRow}>
           <View style={styles.headerContent}>
             <View style={[styles.categoryIconContainer, { backgroundColor: category.color }]}>
-              <Feather name={category.icon as any || "circle"} size={24} color="#FFFFFF" />
+              {renderIcon(category.icon || "circle", 24, "#FFFFFF")}
             </View>
             <View style={styles.headerTitleSection}>
               <ThemedText style={styles.categoryTitle}>{category.name}</ThemedText>

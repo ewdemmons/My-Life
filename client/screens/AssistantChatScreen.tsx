@@ -1108,7 +1108,7 @@ How to interpret the input:
 - Each bullet point or line under an objective is a TASK belonging to that objective. Use a single "General" project under each objective unless the text clearly groups tasks into distinct sub-categories — if it does, those become PROJECTS.
 - If an objective's tasks don't naturally divide into distinct sub-groups, put them all under a single project named exactly "General" — this will be automatically simplified during import, so always use the exact word "General" for this case rather than inventing another name.
 - For each task: extract a short, clear TITLE (a few words, action-oriented), and put any additional context, reasoning, or specifics into the DESCRIPTION field. If a bullet point is short with no extra detail, the description can be brief or restate the title in plain language — never leave it empty.
-- Infer priority as "high" only for items explicitly marked urgent/critical/blocking; otherwise default to "medium".
+- Set priority: "medium" for ALL tasks by default. Only set priority: "high" if the source text explicitly and specifically calls an item urgent, critical, or the single most important first step. Limit high priority to at most 1 item in the entire plan. Never infer high priority based on your own judgment about importance — only assign it when the source material explicitly demands it.
 - The overall "goal" field should be a one-sentence summary of what the plan accomplishes.
 - The "advice" field should be 1-2 sentences of practical guidance for executing this plan.
 - The "suggestedBubble" field should be your best guess at which Life Area this belongs to (e.g. "App Development", "Business Planning", "Work") based on the content.
@@ -1349,11 +1349,27 @@ Respond ONLY with valid JSON in this exact shape, no markdown fences, no comment
     setIsLoading(true);
 
     try {
+      const conversationHistory = messages
+        .filter(
+          (m) =>
+            m.content &&
+            m.content.trim().length > 0 &&
+            !m.plan &&
+            !m.refinementProposal,
+        )
+        .slice(-20)
+        .map((m) => ({
+          role: m.role,
+          content: m.content,
+        }));
+
       const clarificationHistory = commandHistoryRef.current;
       const chatResult = await parseChatMessage(
         messageText,
         buildCommandContext(),
-        clarificationHistory,
+        clarificationHistory.length > 0
+          ? clarificationHistory
+          : conversationHistory,
       );
 
       if (chatResult.type === "clarification") {
@@ -1625,7 +1641,7 @@ Be conversational and helpful.`;
           type: "goal" as TaskType,
           categoryId,
           parentId: null,
-          priority: "high",
+          priority: "medium",
           status: "pending",
         });
 
@@ -1638,6 +1654,8 @@ Be conversational and helpful.`;
         goalId = createdGoal.id;
       }
 
+      let firstTaskCreated = false;
+
       for (const objective of plan.objectives) {
         const createdObjective = await addTask({
           title: objective.name,
@@ -1645,7 +1663,7 @@ Be conversational and helpful.`;
           type: "objective" as TaskType,
           categoryId,
           parentId: goalId,
-          priority: "high",
+          priority: "medium",
           status: "pending",
         });
 
@@ -1666,13 +1684,29 @@ Be conversational and helpful.`;
         if (shouldFlattenProjects) {
           const tasksToCreate = projects[0].tasks || [];
           for (const taskItem of tasksToCreate) {
+            const isFirstTask = !firstTaskCreated;
+            if (isFirstTask) {
+              firstTaskCreated = true;
+            }
+            const taskPriority = isFirstTask
+              ? "high"
+              : taskItem.priority === "high"
+                ? "medium"
+                : taskItem.priority || "medium";
+            const taskIsPinned = isFirstTask;
+            const taskPinnedOrder = isFirstTask ? 0 : undefined;
+
             const createdTask = await addTask({
               title: taskItem.title,
               description: taskItem.description || "",
               type: "task" as TaskType,
               categoryId,
               parentId: objectiveId,
-              priority: taskItem.priority || "medium",
+              priority: taskPriority,
+              isPinned: taskIsPinned,
+              ...(taskPinnedOrder !== undefined
+                ? { pinnedOrder: taskPinnedOrder }
+                : {}),
               status: "pending",
             });
 
@@ -1706,13 +1740,29 @@ Be conversational and helpful.`;
             const projectId = createdProject.id;
 
             for (const taskItem of project.tasks) {
+              const isFirstTask = !firstTaskCreated;
+              if (isFirstTask) {
+                firstTaskCreated = true;
+              }
+              const taskPriority = isFirstTask
+                ? "high"
+                : taskItem.priority === "high"
+                  ? "medium"
+                  : taskItem.priority || "medium";
+              const taskIsPinned = isFirstTask;
+              const taskPinnedOrder = isFirstTask ? 0 : undefined;
+
               const createdTask = await addTask({
                 title: taskItem.title,
                 description: taskItem.description,
                 type: "task" as TaskType,
                 categoryId,
                 parentId: projectId,
-                priority: taskItem.priority || "medium",
+                priority: taskPriority,
+                isPinned: taskIsPinned,
+                ...(taskPinnedOrder !== undefined
+                  ? { pinnedOrder: taskPinnedOrder }
+                  : {}),
                 status: "pending",
               });
 
@@ -1729,13 +1779,29 @@ Be conversational and helpful.`;
 
         if (objective.tasks && objective.tasks.length > 0) {
           for (const taskItem of objective.tasks) {
+            const isFirstTask = !firstTaskCreated;
+            if (isFirstTask) {
+              firstTaskCreated = true;
+            }
+            const taskPriority = isFirstTask
+              ? "high"
+              : taskItem.priority === "high"
+                ? "medium"
+                : taskItem.priority || "medium";
+            const taskIsPinned = isFirstTask;
+            const taskPinnedOrder = isFirstTask ? 0 : undefined;
+
             const createdTask = await addTask({
               title: taskItem.title,
               description: taskItem.description,
               type: "task" as TaskType,
               categoryId,
               parentId: objectiveId,
-              priority: taskItem.priority || "medium",
+              priority: taskPriority,
+              isPinned: taskIsPinned,
+              ...(taskPinnedOrder !== undefined
+                ? { pinnedOrder: taskPinnedOrder }
+                : {}),
               status: "pending",
             });
 

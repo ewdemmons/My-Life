@@ -14,16 +14,19 @@ type AddCategoryFn = (category: Omit<LifeCategory, "id" | "createdAt">) => Promi
 export async function createDefaultLifeWheel(
   addCategory: AddCategoryFn,
   categories: LifeCategory[]
-): Promise<void> {
-  if (categories.length > 0) return;
+): Promise<LifeCategory[]> {
+  if (categories.length > 0) return categories;
 
+  const created: LifeCategory[] = [];
   for (const area of DEFAULT_LIFE_AREAS) {
-    await addCategory({
+    const result = await addCategory({
       name: area.name,
       description: "",
       color: area.color,
       icon: area.icon,
       peopleIds: [],
     });
+    if (result) created.push(result);
   }
+  return created;
 }

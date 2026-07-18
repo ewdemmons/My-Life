@@ -8,7 +8,7 @@ import {
   ScrollView,
   TextInput,
   Platform,
-  KeyboardAvoidingView,
+  ActivityIndicator,
 } from "react-native";
 import AppDatePicker from "@/components/AppDatePicker";
 import AppTimePicker from "@/components/AppTimePicker";
@@ -22,11 +22,14 @@ import { useTheme } from "@/hooks/useTheme";
 import { Spacing, BorderRadius, Typography } from "@/constants/theme";
 import { Colors } from "@/constants/theme";
 import { ThemedText } from "@/components/ThemedText";
+import { KeyboardAwareScrollViewCompat } from "@/components/KeyboardAwareScrollViewCompat";
 import type { PostSignUpStackParamList } from "@/navigation/RootStackNavigator";
 import { useApp } from "@/context/AppContext";
+import { useAuth } from "@/context/AuthContext";
 import { SaveToast } from "@/components/SaveToast";
 import { useSaveIndicator } from "@/hooks/useSaveIndicator";
 import { createDefaultLifeWheel } from "@/lib/defaultLifeWheel";
+import { seedStarterContent } from "@/lib/starterContent";
 import {
   autoSelectLifeArea,
   autoSelectEntryType,
@@ -36,9 +39,9 @@ import {
   EVENT_TYPE_CHIP_LABELS,
 } from "@/lib/onboardingLifeArea";
 import type { TaskType, EventType, HabitType, GoalFrequency, LifeCategory } from "@/types";
+import { renderIcon } from "@/utils/iconUtils";
 
 const ONBOARDING_COMPLETE_KEY = "@onboarding_complete";
-const KEYBOARD_VERTICAL_OFFSET = 100;
 const KEYBOARD_SCROLL_PADDING = 80;
 const PENDING_ONBOARDING_KEY = "@pending_onboarding";
 const TOTAL_STEPS = 6;
@@ -369,7 +372,7 @@ function LifeWheelPreview({
               },
             ]}
           >
-            <Feather name={node.icon as any} size={14} color={node.color} />
+            {renderIcon(node.icon || "circle", 14, node.color)}
             <ThemedText style={[styles.wheelNodeLabel, { color: theme.text }]} numberOfLines={1}>
               {shortLabel}
             </ThemedText>
@@ -387,6 +390,7 @@ export default function OnboardingScreen() {
   const { theme: systemTheme } = useTheme();
   const theme = systemTheme;
   const navigation = useNavigation<NavigationProp>();
+  const { user } = useAuth();
   const { addCategory, addTask, addEvent, addHabit, categories } = useApp();
   const { toastState, toastMessage, withSaveIndicator, setRetry, dismiss, retryFn } =
     useSaveIndicator({ threshold: 500, successMessage: "Saved" });
@@ -400,6 +404,7 @@ export default function OnboardingScreen() {
   const [step1CustomInput, setStep1CustomInput] = useState("");
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [step1Loading, setStep1Loading] = useState(false);
+  const [isCompletingSetup, setIsCompletingSetup] = useState(false);
 
   const [step3Tasks, setStep3Tasks] = useState<
     Array<{ title: string; categoryId: string; created?: boolean; manualLifeAreaOverride?: boolean }>
@@ -660,16 +665,49 @@ export default function OnboardingScreen() {
   };
 
   const handleSkipOnboarding = async () => {
+    setIsCompletingSetup(true);
     try {
-      if (categories.length === 0) {
-        await createDefaultLifeWheel(addCategory, categories);
+      const freshCategories =
+        categories.length === 0
+          ? await createDefaultLifeWheel(addCategory, categories)
+          : categories;
+
+      if (user?.id) {
+        try {
+          const DEFAULT_AREA_NAMES = [
+            "Home",
+            "Family",
+            "Health",
+            "Work",
+            "Finances",
+            "Finance",
+          ];
+          const customAreaNames = freshCategories
+            .map((c) => c.name)
+            .filter(
+              (name) =>
+                !DEFAULT_AREA_NAMES.some((d) => d.toLowerCase() === name.toLowerCase())
+            );
+          await seedStarterContent(
+            freshCategories,
+            addTask,
+            addHabit,
+            user.id,
+            customAreaNames
+          );
+        } catch {
+          // Fail silently — never block onboarding completion
+        }
       }
+
       await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, "true");
       await AsyncStorage.removeItem(PENDING_ONBOARDING_KEY);
     } catch {
       // continue to Main
       await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, "true");
       await AsyncStorage.removeItem(PENDING_ONBOARDING_KEY);
+    } finally {
+      setIsCompletingSetup(false);
     }
     navigation.dispatch(
       CommonActions.reset({
@@ -1205,6 +1243,19 @@ export default function OnboardingScreen() {
 
   return (
     <View style={[styles.container, { backgroundColor: theme.backgroundRoot }]}>
+      {isCompletingSetup && (
+        <View style={[styles.setupOverlay, { backgroundColor: theme.backgroundRoot }]}>
+          <View style={styles.setupCard}>
+            <ActivityIndicator size="large" color={theme.primary} />
+            <ThemedText style={[styles.setupTitle, { color: theme.text }]}>
+              Setting things up for you...
+            </ThemedText>
+            <ThemedText style={[styles.setupSubtitle, { color: theme.textSecondary }]}>
+              We're personalizing your My Life experience. This will only take a moment.
+            </ThemedText>
+          </View>
+        </View>
+      )}
       <View style={[styles.header, { paddingTop: insets.top + Spacing.sm, paddingHorizontal: Spacing.lg }]}>
         <View style={styles.progressBarTrack}>
           <Animated.View
@@ -1245,11 +1296,7 @@ export default function OnboardingScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView
-        style={styles.keyboardAvoidWrap}
-        behavior={Platform.OS === "ios" ? "padding" : "height"}
-        keyboardVerticalOffset={KEYBOARD_VERTICAL_OFFSET}
-      >
+      <View style={styles.keyboardAvoidWrap}>
         <View style={styles.sliderContainer}>
           <Animated.View
             style={[
@@ -1262,7 +1309,7 @@ export default function OnboardingScreen() {
           >
             {/* Step 1 — Life Areas */}
             <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-              <ScrollView
+              <KeyboardAwareScrollViewCompat
                 ref={setStepScrollRef(0)}
                 style={styles.slideScroll}
                 contentContainerStyle={[styles.slideScrollContent, { paddingHorizontal: Spacing.xl }]}
@@ -1292,7 +1339,7 @@ export default function OnboardingScreen() {
                     ]}
                   >
                     <View style={[styles.step1DefaultCardIconWrap, { backgroundColor: `${area.color}20` }]}>
-                      <Feather name={area.icon as any} size={20} color={area.color} />
+                      {renderIcon(area.icon || "circle", 20, area.color)}
                     </View>
                     <View style={styles.step1DefaultCardBody}>
                       <ThemedText style={[styles.step1DefaultCardName, { color: theme.text }]}>{area.name}</ThemedText>
@@ -1330,7 +1377,7 @@ export default function OnboardingScreen() {
                           },
                         ]}
                       >
-                        <Feather name={s.icon as any} size={16} color={selected ? "#fff" : s.color} />
+                        {renderIcon(s.icon || "circle", 16, selected ? "#fff" : s.color)}
                         <ThemedText
                           style={[
                             styles.step1SuggestionChipText,
@@ -1410,12 +1457,12 @@ export default function OnboardingScreen() {
                     </Pressable>
                   </View>
                 ) : null}
-              </ScrollView>
+              </KeyboardAwareScrollViewCompat>
             </View>
 
             {/* Step 2 — This Week */}
             <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-              <ScrollView
+              <KeyboardAwareScrollViewCompat
                 ref={setStepScrollRef(1)}
                 style={styles.slideScroll}
                 contentContainerStyle={[styles.slideScrollContent, { paddingHorizontal: Spacing.xl }]}
@@ -1480,12 +1527,12 @@ export default function OnboardingScreen() {
                   <ThemedText style={[styles.addAnotherText, { color: theme.primary }]}>Add another task</ThemedText>
                 </Pressable>
               )}
-            </ScrollView>
+            </KeyboardAwareScrollViewCompat>
           </View>
 
             {/* Step 3 — Upcoming Events */}
             <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-              <ScrollView
+              <KeyboardAwareScrollViewCompat
                 ref={setStepScrollRef(2)}
                 style={styles.slideScroll}
                 contentContainerStyle={[styles.slideScrollContent, { paddingHorizontal: Spacing.xl }]}
@@ -1555,12 +1602,12 @@ export default function OnboardingScreen() {
                   <ThemedText style={[styles.addAnotherText, { color: theme.primary }]}>Add another event</ThemedText>
                 </Pressable>
               )}
-            </ScrollView>
+            </KeyboardAwareScrollViewCompat>
           </View>
 
             {/* Step 4 — Future Goal */}
             <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-              <ScrollView
+              <KeyboardAwareScrollViewCompat
                 ref={setStepScrollRef(3)}
                 style={styles.slideScroll}
                 contentContainerStyle={[styles.slideScrollContent, { paddingHorizontal: Spacing.xl }]}
@@ -1623,12 +1670,12 @@ export default function OnboardingScreen() {
                   <ThemedText style={[styles.addAnotherText, { color: theme.primary }]}>Add another goal</ThemedText>
                 </Pressable>
               )}
-            </ScrollView>
+            </KeyboardAwareScrollViewCompat>
           </View>
 
             {/* Step 5 — Habits */}
             <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-              <ScrollView
+              <KeyboardAwareScrollViewCompat
                 ref={setStepScrollRef(4)}
                 style={styles.slideScroll}
                 contentContainerStyle={[styles.slideScrollContent, { paddingHorizontal: Spacing.xl }]}
@@ -1723,12 +1770,12 @@ export default function OnboardingScreen() {
                   <ThemedText style={[styles.addAnotherText, { color: theme.primary }]}>Add another habit</ThemedText>
                 </Pressable>
               )}
-            </ScrollView>
+            </KeyboardAwareScrollViewCompat>
           </View>
 
             {/* Step 6 — Completion */}
             <View style={[styles.slide, { width: SCREEN_WIDTH }]}>
-              <ScrollView
+              <KeyboardAwareScrollViewCompat
                 ref={setStepScrollRef(5)}
                 style={styles.slideScroll}
                 contentContainerStyle={[styles.slideScrollContent, styles.completionContent, { paddingHorizontal: Spacing.xl }]}
@@ -1756,11 +1803,11 @@ export default function OnboardingScreen() {
                 <ThemedText style={[styles.subtext, { color: theme.textSecondary }]}>
                   You now have some life areas added to your life wheel and some initial entries in place. Now let's show you around.
                 </ThemedText>
-              </ScrollView>
+              </KeyboardAwareScrollViewCompat>
             </View>
           </Animated.View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
 
       <View
         style={[
@@ -1858,6 +1905,33 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
   },
+  setupOverlay: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    justifyContent: "center",
+    alignItems: "center",
+    zIndex: 999,
+  },
+  setupCard: {
+    alignItems: "center",
+    paddingHorizontal: Spacing.xl,
+    gap: Spacing.lg,
+  },
+  setupTitle: {
+    fontSize: 20,
+    fontWeight: "600",
+    textAlign: "center",
+    marginTop: Spacing.md,
+  },
+  setupSubtitle: {
+    fontSize: 14,
+    textAlign: "center",
+    opacity: 0.7,
+    lineHeight: 22,
+  },
   header: {
     paddingBottom: Spacing.md,
   },
@@ -1916,6 +1990,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   slideScrollContent: {
+    flexGrow: 1,
     paddingBottom: Spacing.xl,
   },
   heading: {

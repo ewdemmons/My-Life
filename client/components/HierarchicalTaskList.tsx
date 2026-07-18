@@ -529,10 +529,15 @@ interface HierarchicalTaskListProps {
   tasks: Task[];
   showCategory?: boolean;
   filterType?: TaskType | null;
+  flatSearchResults?: {
+    tasks: Task[];
+    breadcrumbs: Record<string, string>;
+  };
   highlightedTaskId?: string | null;
   onHighlightCleared?: () => void;
   canModifyEntries?: boolean;
   onQuickList?: (entry: Task) => void;
+  enableDrag?: boolean;
   headerComponent?: React.ReactNode;
   contentContainerStyle?: StyleProp<ViewStyle>;
   style?: StyleProp<ViewStyle>;
@@ -542,10 +547,12 @@ export function HierarchicalTaskList({
   tasks,
   showCategory = false,
   filterType = null,
+  flatSearchResults,
   highlightedTaskId = null,
   onHighlightCleared,
   canModifyEntries = true,
   onQuickList,
+  enableDrag = true,
   headerComponent,
   contentContainerStyle,
   style,
@@ -578,6 +585,13 @@ export function HierarchicalTaskList({
   }, []);
 
   const hierarchy = useMemo(() => {
+    if (flatSearchResults) {
+      return flatSearchResults.tasks.map((task) => ({
+        ...task,
+        children: [],
+      }));
+    }
+
     const getDescendantIds = (taskId: string): Set<string> => {
       const descendants = new Set<string>();
       const addDescendants = (id: string) => {
@@ -629,7 +643,9 @@ export function HierarchicalTaskList({
     }
 
     return buildHierarchy(null);
-  }, [tasks, filterType]);
+  }, [tasks, filterType, flatSearchResults]);
+
+  const searchBreadcrumbs = flatSearchResults?.breadcrumbs ?? {};
 
   const tasksMap = useMemo(() => {
     const map = new Map<string, Task>();
@@ -885,10 +901,12 @@ export function HierarchicalTaskList({
           canModifyEntries={canModifyEntries}
           onQuickList={onQuickList}
           onToggleExpand={toggleExpanded}
+          parentBreadcrumb={searchBreadcrumbs[item.id]}
+          enableDrag={enableDrag}
         />
       </ScaleDecorator>
     ),
-    [showCategory, categories, tasksMap, canModifyEntries, onQuickList, toggleExpanded, expandedIds],
+    [showCategory, categories, tasksMap, canModifyEntries, onQuickList, toggleExpanded, expandedIds, searchBreadcrumbs, enableDrag],
   );
 
   const renderStaticFlatItem = useCallback(
@@ -902,9 +920,11 @@ export function HierarchicalTaskList({
         canModifyEntries={canModifyEntries}
         onQuickList={onQuickList}
         onToggleExpand={toggleExpanded}
+        parentBreadcrumb={searchBreadcrumbs[item.id]}
+        enableDrag={enableDrag}
       />
     ),
-    [showCategory, categories, tasksMap, canModifyEntries, onQuickList, toggleExpanded, expandedIds],
+    [showCategory, categories, tasksMap, canModifyEntries, onQuickList, toggleExpanded, expandedIds, searchBreadcrumbs, enableDrag],
   );
 
   const listEmptyComponent = useMemo(
@@ -1063,7 +1083,7 @@ export function HierarchicalTaskList({
       }}
     >
       <GestureHandlerRootView style={[styles.gestureRoot, style]}>
-        {!filterType ? (
+        {!filterType && !flatSearchResults ? (
           <DraggableFlatList
             key={dragKey}
             ref={scrollRef}
@@ -1196,6 +1216,8 @@ interface FlatTaskItemProps {
   onQuickList?: (entry: Task) => void;
   onToggleExpand: (id: string) => void;
   isExpanded: boolean;
+  parentBreadcrumb?: string;
+  enableDrag?: boolean;
   drag?: () => void;
   isActive?: boolean;
 }
@@ -1209,6 +1231,8 @@ function FlatTaskItem({
   onQuickList,
   onToggleExpand,
   isExpanded,
+  parentBreadcrumb,
+  enableDrag = true,
   drag,
   isActive,
 }: FlatTaskItemProps) {
@@ -1236,6 +1260,8 @@ function FlatTaskItem({
         isHeaderMode={isHeader}
         isExpanded={isExpanded}
         onToggleExpand={onToggleExpand}
+        parentBreadcrumb={parentBreadcrumb}
+        enableDrag={enableDrag}
       />
     </View>
   );
@@ -1256,6 +1282,8 @@ interface TaskItemProps {
   isHeaderMode?: boolean;
   isExpanded?: boolean;
   onToggleExpand?: (id: string) => void;
+  parentBreadcrumb?: string;
+  enableDrag?: boolean;
 }
 
 function TaskItem({
@@ -1273,6 +1301,8 @@ function TaskItem({
   isHeaderMode = false,
   isExpanded = false,
   onToggleExpand,
+  parentBreadcrumb,
+  enableDrag = true,
 }: TaskItemProps) {
   const { theme, isDark } = useTheme();
   const { config } = useDisplayDensity();
@@ -1697,6 +1727,11 @@ function TaskItem({
   const tapGestures = Gesture.Exclusive(doubleTapGesture, tapGesture);
   const composed = Gesture.Race(longPressGesture, tapGestures);
 
+  const TITLE_DISPLAY_LIMIT = 80;
+  const displayTitle = task.title.length > TITLE_DISPLAY_LIMIT
+    ? task.title.substring(0, TITLE_DISPLAY_LIMIT).trimEnd() + "…"
+    : task.title;
+
   const headerContent = (
     <View
       style={[
@@ -1728,6 +1763,14 @@ function TaskItem({
       </View>
 
       <View style={styles.itemContent}>
+        {parentBreadcrumb ? (
+          <ThemedText
+            style={[styles.parentBreadcrumb, { color: theme.textSecondary }]}
+            numberOfLines={1}
+          >
+            {parentBreadcrumb}
+          </ThemedText>
+        ) : null}
         <View style={styles.titleRow}>
           <ThemedText
             style={[
@@ -1741,7 +1784,7 @@ function TaskItem({
             ]}
             numberOfLines={2}
           >
-            {task.title}
+            {displayTitle}
           </ThemedText>
           <Pressable
             onPress={canModifyEntries ? handleToggleComplete : undefined}
@@ -1906,7 +1949,7 @@ function TaskItem({
           ]}
         >
           <View style={styles.cardHeaderRow}>
-            {drag ? (
+            {enableDrag && drag ? (
               <TouchableOpacity
                 onLongPress={drag}
                 delayLongPress={600}
@@ -1920,6 +1963,8 @@ function TaskItem({
                   style={{ opacity: 0.5 }}
                 />
               </TouchableOpacity>
+            ) : !enableDrag ? (
+              <View style={styles.dragHandlePlaceholder} />
             ) : null}
             <GestureDetector gesture={composed}>
               <RNAnimated.View style={[styles.cardBody, { opacity: cardOpacity }]}>
@@ -2409,6 +2454,11 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     marginRight: 6,
   },
+  dragHandlePlaceholder: {
+    width: 24,
+    height: 44,
+    marginRight: 6,
+  },
   emptyContainer: {
     alignItems: "center",
     paddingVertical: Spacing.xl * 3,
@@ -2479,6 +2529,10 @@ const styles = StyleSheet.create({
   },
   itemContent: {
     flex: 1,
+  },
+  parentBreadcrumb: {
+    fontSize: 11,
+    marginBottom: 2,
   },
   titleRow: {
     flexDirection: "row",

@@ -158,6 +158,7 @@ export interface CalendarEvent {
   sharedWith?: ShareRecord[];
   notificationIdAdvance?: string | null;
   notificationIdAtStart?: string | null;
+  autoDeleteAfter?: string;
 }
 
 export const EVENT_TYPES: { value: EventType; label: string; icon: string; color: string }[] = [

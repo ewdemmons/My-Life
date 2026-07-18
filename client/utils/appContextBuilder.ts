@@ -3,6 +3,7 @@ import { EntryContext, LifeAreaContext } from "@/navigation/RootStackNavigator";
 import {
   CalendarEvent,
   Habit,
+  LifeAreaProfile,
   LifeCategory,
   Occurrence,
   Person,
@@ -31,6 +32,7 @@ export interface BuildAppContextParams {
   lifeAreaContext?: LifeAreaContext | null;
   /** When true, limits unpinned suggestion data to Task-type entries only (daily plan generator). */
   forDailyPlan?: boolean;
+  lifeAreaProfiles?: LifeAreaProfile[];
 }
 
 function buildSuggestedTasksSection(tasks: Task[], categories: LifeCategory[]): string {
@@ -57,6 +59,7 @@ export function buildAppContext(params: BuildAppContextParams): string {
     entryContext,
     lifeAreaContext,
     forDailyPlan = false,
+    lifeAreaProfiles = [],
   } = params;
 
   const now = new Date();
@@ -256,6 +259,38 @@ Current time: ${now.toLocaleTimeString("en-US", {
     }
   }
 
+  const completedProfiles = lifeAreaProfiles.filter((p) => p.status === "completed");
+
+  const lifeAreaCoachSection =
+    completedProfiles.length > 0
+      ? `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+LIFE AREA COACH PROFILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+${completedProfiles
+  .map((profile) => {
+    const category = categories.find((c) => c.id === profile.categoryId);
+    if (!category) return "";
+    return [
+      `${category.name}:`,
+      `  Goal: ${profile.primaryGoal}`,
+      profile.currentFocus?.length > 0
+        ? `  Focus: ${profile.currentFocus.join(", ")}`
+        : "",
+      profile.knownObstacles?.length > 0
+        ? `  Obstacles: ${profile.knownObstacles.join(", ")}`
+        : "",
+      profile.motivations ? `  Motivation: ${profile.motivations}` : "",
+      profile.successCriteria ? `  Success: ${profile.successCriteria}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  })
+  .filter(Boolean)
+  .join("\n\n")}
+`
+      : "";
+
   let refinementContext = "";
   if (refinementState?.isActive && refinementState.implementedPlan) {
     refinementContext = `
@@ -394,7 +429,7 @@ TASK SUMMARY:
 ${taskSummarySection}
 
 PEOPLE:
-${peopleSection}${scheduleSection}
+${peopleSection}${scheduleSection}${lifeAreaCoachSection}
 ${refinementContext}
 ${entryContextInfo}
 ${lifeAreaContextInfo}

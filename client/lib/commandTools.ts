@@ -124,14 +124,14 @@ export const COMMAND_TOOLS = [
   {
     name: "pinEntry",
     description:
-      "Pin an EXISTING entry to the Master List for quick access. Use when the user wants to pin, star, or prioritize an existing task/goal/entry.",
+      "Pin an EXISTING entry to the Master List for quick access. Use when the user wants to pin, star, prioritize, or add an existing task/goal/entry to their master list. Also use for follow-up requests like 'pin that', 'add that to my master list', 'pin it', or 'put it on my master list' when the referent is clear from recent conversation context or the Recently created/mentioned entities list.",
     input_schema: {
       type: "object",
       properties: {
         taskId: {
           type: "string",
           description:
-            "Exact task ID matched from the provided pending tasks list. Use requestClarification if no clear match or multiple matches.",
+            "Exact task ID matched from the provided pending tasks list OR the Recently created/mentioned entities list for follow-up references. Use requestClarification if no clear match.",
         },
       },
       required: ["taskId"],
